@@ -4,7 +4,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # Delay version-update PRs until a release is 7 days old (matches .npmrc min-release-age).
+    # リリース後7日経過まで更新 PR を保留（.npmrc の min-release-age と整合）
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5

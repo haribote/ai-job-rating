@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse hook: block Claude from reading or writing secret files.
-# Covers Read / Edit / Write (file_path) and Bash (command).
-# Secret patterns: .dev.vars* and .env / .env.* — but *.example templates are allowed.
+# PreToolUse hook: 秘匿ファイルへの読み書きを拒否する。
+# Read/Edit/Write の file_path と Bash の command が対象。.dev.vars* と .env 系を検出し、*.example 雛形は許可。
 set -euo pipefail
 
 input=$(cat)
@@ -9,10 +8,10 @@ file=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty')
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 target="$file $cmd"
 
-# Strip allowed example templates so they never trigger the match.
+# *.example 雛形は誤検出を避けるため除去する
 scrubbed=$(printf '%s' "$target" | sed -E 's/\.(dev\.vars|env)\.example//g')
 
-# .dev.vars (any suffix) — or .env as a path component / .env.<variant>.
+# .dev.vars（任意サフィックス）と .env / .env.<variant>
 secret_re='\.dev\.vars|(^|[^[:alnum:]_.])\.env(\.[[:alnum:]_-]+)?([^[:alnum:]_-]|$)'
 
 if printf '%s' "$scrubbed" | grep -Eq "$secret_re"; then

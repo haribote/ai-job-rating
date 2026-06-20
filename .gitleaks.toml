@@ -1,11 +1,11 @@
-# gitleaks configuration — https://github.com/gitleaks/gitleaks
-# Auto-detected at repo root. Extends the built-in default ruleset.
+# gitleaks 設定 — https://github.com/gitleaks/gitleaks
+# repo ルートで自動検出。デフォルトルールを継承する。
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Allow placeholder values in example/template files (real secrets live in .dev.vars / wrangler secrets, never committed)"
+description = "雛形のプレースホルダを許可（実値は .dev.vars / wrangler secrets で管理し非コミット）"
 paths = [
   '''\.dev\.vars\.example$''',
   '''\.env\.example$''',

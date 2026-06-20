@@ -10,11 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          fetch-depth: 0 # full history so gitleaks scans every commit
+          fetch-depth: 0 # 全履歴を scan するため
       - name: gitleaks
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # GITLEAKS_LICENSE is required only for GitHub Organizations.
-          # Free for personal accounts and public repos. Forks under an org must set it.
+          # GITLEAKS_LICENSE は GitHub Organization のみ必須（個人・public repo は不要、org 配下の fork は要設定）
           # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

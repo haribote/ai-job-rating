@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pre-commit hook: scan staged changes for secrets with gitleaks.
-# Enable per clone: git config core.hooksPath .githooks
+# Pre-commit hook: staged 変更を gitleaks で scan する。
+# 有効化（クローンごと）: git config core.hooksPath .githooks
 set -euo pipefail
 
 if ! command -v gitleaks >/dev/null 2>&1; then
