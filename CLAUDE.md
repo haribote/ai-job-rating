@@ -35,5 +35,6 @@
 
 ## 秘匿情報
 
+- **Claude による秘匿ファイル（`.dev.vars` / `.env` 等）の読み書きは禁止。** `.claude/settings.json` の PreToolUse hook（`.claude/hooks/block-secret-access.sh`）が Read/Edit/Write/Bash 経由のアクセスを deny する。`.dev.vars.example` 等の雛形は許可。
 - `ANTHROPIC_API_KEY` 等・Cookie/セッションはコミット禁止。実値は `.dev.vars`（ローカル）/ wrangler secrets（本番）、雛形は `.dev.vars.example`（§8）。
 - AI モデル ID・価格・API 仕様は記憶で答えず一次ソースで確認する。
