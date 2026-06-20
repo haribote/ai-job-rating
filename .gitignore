@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Secrets — never commit (templates like .dev.vars.example are tracked)
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+
+# Cloudflare / Wrangler
+.wrangler/
+dist/
+
+# Build output
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
