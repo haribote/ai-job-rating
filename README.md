@@ -1,5 +1,6 @@
-# ai-job-rating
-AI-powered application that analyzes, scores, and ranks job listings.
+# AI Job Rating
+
+求人情報をAIで抽出・スコアリングし、自分の希望条件に照らしてランキングするウェブアプリケーション。
 
 ## Documentation
 
