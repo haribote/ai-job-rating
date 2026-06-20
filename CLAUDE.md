@@ -9,6 +9,8 @@
 - [docs/requirements.md](./docs/requirements.md) — 要件定義
 - [docs/roadmap.md](./docs/roadmap.md) — Phase 0(PoC) / 1(MVP) / 2 の計画
 
+AI モデル ID・価格・API 仕様は記憶で答えず一次ソース（公式 docs 等）で確認する。
+
 ## 技術スタック
 
 - **Cloudflare Workers 単体**（Hono + 静的資産, §9）。**TypeScript** / **npm** / **wrangler** / **Biome** / **Vitest**。
@@ -32,9 +34,9 @@
 
 - **t-wada メソッドの TDD**（Red → Green → Refactor）。決定的ロジックはユニットテスト必須（§8）。
 - 取得 / 抽出 / スコアリング / 保存 / UI を責務分離し各層を単体テスト可能にする（§9）。
+- 独立した実装タスクは git worktree で並列化する（`.claude/settings.json` の `worktree`、`node_modules` は symlink 共有）。worktree で `wrangler dev` する場合は `.dev.vars` を手動配置（hook により Claude は触れない）。
 
 ## 秘匿情報
 
 - **Claude による秘匿ファイル（`.dev.vars` / `.env` 等）の読み書きは禁止。** `.claude/settings.json` の PreToolUse hook（`.claude/hooks/block-secret-access.sh`）が Read/Edit/Write/Bash 経由のアクセスを deny する。`.dev.vars.example` 等の雛形は許可。
 - `ANTHROPIC_API_KEY` 等・Cookie/セッションはコミット禁止。実値は `.dev.vars`（ローカル）/ wrangler secrets（本番）、雛形は `.dev.vars.example`（§8）。
-- AI モデル ID・価格・API 仕様は記憶で答えず一次ソースで確認する。

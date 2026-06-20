@@ -1,5 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "worktree": {
+    "symlinkDirectories": ["node_modules"],
+    "baseRef": "head"
+  },
   "hooks": {
     "PreToolUse": [
       {
