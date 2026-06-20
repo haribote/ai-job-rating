@@ -1,0 +1,12 @@
+# gitleaks configuration — https://github.com/gitleaks/gitleaks
+# Auto-detected at repo root. Extends the built-in default ruleset.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow placeholder values in example/template files (real secrets live in .dev.vars / wrangler secrets, never committed)"
+paths = [
+  '''\.dev\.vars\.example$''',
+  '''\.env\.example$''',
+]

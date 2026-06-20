@@ -1,0 +1,20 @@
+name: gitleaks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so gitleaks scans every commit
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE is required only for GitHub Organizations.
+          # Free for personal accounts and public repos. Forks under an org must set it.
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
