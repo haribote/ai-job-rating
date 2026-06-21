@@ -1,0 +1,87 @@
+// 生 HTML から求人本文を抽出・トリミングし AI 入力（#11 構造化抽出）の入力トークンを削減する純関数。
+// 責務は「本文抽出・トリミング」のみ: fetch（#8）・AI 抽出（#11）・スコアリング（#12）・
+// ラベル正規化（#10）は持ち込まない。ネットワーク不要・同期・決定的でユニットテスト可能にする。
+//
+// パース手段は文字列処理を選択（HTMLRewriter ではない）。理由:
+//  - HTMLRewriter は非同期ストリーミング parser で取得時 transform 向き。#9 は決定的な同期純関数が要件のため不適。
+//  - 追加依存ゼロでフォーク容易性（CLAUDE.md）と min-release-age 制約を満たす。
+//  - 求人ページは SSR のテキスト主体で、完全な DOM ツリーは不要。script/style/不要タグ除去＋空白正規化で十分に減量できる。
+//
+// 出力形はプレーンテキスト。理由: §7.1 の目的は入力トークン削減。タグやマークアップは抽出に不要で、
+// AI（#11）は本文（ミッション・業務内容等）の自然言語を読む。ブロック境界のみ改行で保持し語の結合を防ぐ。
+
+// 中身ごと丸ごと捨てる要素（本文でないノイズ）。i フラグで大小文字無視。
+const STRIP_WITH_CONTENT =
+	/<(script|style|noscript|template|svg|head)\b[^>]*>[\s\S]*?<\/\1>/gi;
+
+// ブロックレベル要素の開始/終了。境界を改行に置換し、隣接ブロックの語が結合するのを防ぐ。
+const BLOCK_BOUNDARY =
+	/<\/?(p|div|section|article|main|header|footer|nav|aside|h[1-6]|ul|ol|li|table|tr|br|hr|blockquote)\b[^>]*>/gi;
+
+// 名前付き実体の最小セット。求人本文に現れる代表的なものに限定する。
+const NAMED_ENTITIES: Record<string, string> = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	apos: "'",
+	nbsp: " ",
+	copy: "©",
+	reg: "®",
+	trade: "™",
+	hellip: "…",
+	mdash: "—",
+	ndash: "–",
+};
+
+// HTML エンティティ（数値参照・名前付き）を本文の文字へデコードする。
+function decodeEntities(text: string): string {
+	return text.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, body: string) => {
+		if (body[0] === "#") {
+			const codePoint =
+				body[1] === "x" || body[1] === "X"
+					? Number.parseInt(body.slice(2), 16)
+					: Number.parseInt(body.slice(1), 10);
+			// 不正なコードポイントは元の文字列を温存する（壊れた入力で例外にしない）。
+			// サロゲート範囲（U+D800–U+DFFF）も除外する: 単独サロゲートを出力に漏らすと
+			// 下流 #11 の JSON 直列化で壊れた符号単位になるため。
+			if (
+				Number.isNaN(codePoint) ||
+				codePoint < 0 ||
+				codePoint > 0x10ffff ||
+				(codePoint >= 0xd800 && codePoint <= 0xdfff)
+			) {
+				return match;
+			}
+			return String.fromCodePoint(codePoint);
+		}
+		const named = NAMED_ENTITIES[body.toLowerCase()];
+		return named ?? match;
+	});
+}
+
+// 生 HTML 文字列を受け取り、AI 入力向けのトリミング済みプレーンテキストを返す。
+export function trimHtml(rawHtml: string): string {
+	return (
+		rawHtml
+			// 1. script/style 等を中身ごと除去（最優先: タグ除去前に中身を消す）
+			.replace(STRIP_WITH_CONTENT, " ")
+			// 2. HTML コメントを除去
+			.replace(/<!--[\s\S]*?-->/g, " ")
+			// 3. ブロック境界を改行に変換し語の結合を防ぐ
+			.replace(BLOCK_BOUNDARY, "\n")
+			// 4. 残りのタグ（インライン等）を除去
+			.replace(/<[^>]*>/g, " ")
+			// 5. エンティティをデコード（タグ除去後にやることで `<` 等の誤再解釈を避ける）
+			.split("\n")
+			.map((line) =>
+				decodeEntities(line)
+					.replace(/[ \t\f\v\r]+/g, " ")
+					.trim(),
+			)
+			.filter((line) => line !== "")
+			// 6. 行を連結。最大でも 1 つの改行で段落を区切る
+			.join("\n")
+			.trim()
+	);
+}
