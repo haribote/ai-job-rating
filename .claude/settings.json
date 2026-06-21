@@ -1,5 +1,37 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "comment": "wave-rider の dev subagent が非対話で自律実装できるよう、非破壊ツールのみ allow する。破壊的・外向き操作（git push / gh pr create|merge / rm / 実 deploy）は allow に入れず人間ゲート維持（global CLAUDE.md 準拠）。秘匿ファイルは block-secret-access.sh フックが allow を上書きして deny する。",
+    "allow": [
+      "Write",
+      "Edit",
+      "Bash(npm ci:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm view:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx biome:*)",
+      "Bash(npx @biomejs/biome:*)",
+      "Bash(npx wrangler:*)",
+      "Bash(node:*)",
+      "Bash(mkdir:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(gh issue view:*)"
+    ]
+  },
   "worktree": {
     "symlinkDirectories": ["node_modules"],
     "baseRef": "head"
