@@ -131,7 +131,7 @@ function stripAnnotations(normalized: string): string {
 
 // 生表記から数値を取り出す（決定的）。「700万〜900万」「122日」「700万」等を扱う。
 // 同一項目内の表記は単位が揃う前提で、表記上の数値（700万→700）をそのまま min/max 比較に使う。
-// 単位を跨いだ換算（万円 ↔ 円）はスコアリング側の関心事のため、ここでは行わない。
+// 通貨の単位換算（円 → 万円）は salaryToManYen が別途担う（数値だけが欲しい非通貨項目はこちらを使う）。
 function parseNumbers(raw: string): number[] {
 	const normalized = stripAnnotations(raw.normalize("NFKC"));
 	const numbers: number[] = [];
@@ -144,6 +144,85 @@ function parseNumbers(raw: string): number[] {
 		}
 	}
 	return numbers;
+}
+
+// 通貨（年収・月給）を扱う numericRange キー。これらだけ円 → 万円の単位正規化を施す。
+// なぜ extract 側で正規化するか: DEFAULT_SCORING_CONFIG の希望値は万円前提で、抽出は 1 回・保存して
+// 再利用する（§5.3）。単位を「正規スキーマのキーへ寄せる」のは抽出（ラベル正規化）の関心事（§5.2）。
+const SALARY_KEYS: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
+	"annualSalary",
+	"monthlySalary",
+]);
+
+// 通貨表記の各数値を「万円」へ正規化して取り出す（決定的）。
+// なぜ: 求人は「700万」(万円) と「9,000,000円」(円) が混在する。スコアリングの希望値（万円）と桁を
+// 揃えるため、各数値の直後の単位表記を見て換算する。「万」付き → そのまま、それ以外（生の円額）→ 1/10000。
+function salaryToManYen(raw: string): number[] {
+	const normalized = stripAnnotations(raw.normalize("NFKC"));
+	const numbers: number[] = [];
+	// 数値に続く「万」の有無で単位を判定する（「700万」「9,000,000円」を区別）。
+	const re = /([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)\s*(万)?/g;
+	for (const match of normalized.matchAll(re)) {
+		const value = Number(match[1].replace(/,/g, ""));
+		if (!Number.isFinite(value)) continue;
+		// 「万」付きは万円単位。無印は円とみなして万円へ換算する。
+		numbers.push(match[2] === "万" ? value : value / 10000);
+	}
+	return numbers;
+}
+
+// 主要 categorical の canonical 集合（生 JP → canonical トークン）。
+// なぜ: 抽出は生 JP を保持するが scoring の preferred は canonical 前提のため、抽出時に寄せる（§5.2）。
+// 照合は canonicalize 後の部分一致で行い、エントリの登録順（具体的→一般的）に最初の一致を採る。
+type CategoryRule = readonly [needle: string, canonical: string];
+const CATEGORY_RULES: Partial<Record<NormalizedKey, readonly CategoryRule[]>> =
+	{
+		// リモート可否 → full / partial / onsite。
+		remoteWork: [
+			["フルリモート", "full"],
+			["完全リモート", "full"],
+			["フル在宅", "full"],
+			["一部リモート", "partial"],
+			["ハイブリッド", "partial"],
+			["リモート可", "partial"],
+			["在宅可", "partial"],
+			["リモートあり", "partial"],
+			["出社", "onsite"],
+			["常駐", "onsite"],
+			["リモート不可", "onsite"],
+			["リモートなし", "onsite"],
+		],
+		// フレックス・裁量労働 → flex / discretionary / yes。
+		flexWork: [
+			["フレックス", "flex"],
+			["裁量労働", "discretionary"],
+			["みなし労働", "discretionary"],
+			["あり", "yes"],
+			["可", "yes"],
+		],
+	};
+
+// canonical 照合用に揺れ（全角/半角・空白・記号・大小文字）を吸収する（job-schema の canonicalizeLabel と同方針）。
+function canonicalizeCategory(value: string): string {
+	return value
+		.normalize("NFKC")
+		.toLowerCase()
+		.replace(/[\s　・:：()（）[\]【】/／]/g, "");
+}
+
+// categorical の生表記を canonical トークン 1 つへ寄せる（決定的・best-effort）。
+// マッピングに無い値は null を返し、呼び出し側が生表記を残せるようにする（情報を捨てない）。
+function canonicalizeCategoryValue(
+	key: NormalizedKey,
+	raw: string,
+): string | null {
+	const rules = CATEGORY_RULES[key];
+	if (rules === undefined) return null;
+	const haystack = canonicalizeCategory(raw);
+	for (const [needle, canonical] of rules) {
+		if (haystack.includes(canonicalizeCategory(needle))) return canonical;
+	}
+	return null;
 }
 
 // 生抽出文字列 1 つを正規キーの値（NormalizedFieldValue）へ寄せる（決定的）。
@@ -159,7 +238,10 @@ function rawToFieldValue(
 	const kind = KIND_BY_KEY[key];
 
 	if (kind === "numericRange") {
-		const numbers = parseNumbers(value);
+		// 通貨項目だけ円 → 万円へ単位正規化する（scoring の希望値が万円前提・§5.2）。
+		const numbers = SALARY_KEYS.has(key)
+			? salaryToManYen(value)
+			: parseNumbers(value);
 		// 数値が取れなければ unknown 中立（値を持たせない）
 		if (numbers.length === 0) {
 			return { kind: "unknown", raw: value };
@@ -173,14 +255,23 @@ function rawToFieldValue(
 	}
 
 	if (kind === "aiJudged") {
-		// AI 判定スコア（0〜100）の算定詳細は後段スパイク（#15）。
-		// Phase 0 では生表記を保持し、スコア値は中立扱いの 0 で持つ（分母除外は #12 が判断）。
+		// aiJudged（requiredSkillsMatch / preferredSkillsMatch）の Phase 0 暫定方針（#59 gap3）:
+		// 実スコア化には「ユーザーの希望スキル集合」との突合が要るが、Phase 0 の固定設定には希望スキルが
+		// 無く（DEFAULT_SCORING_CONFIG は weight のみ）、判定基準が未確定。実 AI 再呼出は §5.3（抽出 1 回・
+		// 再利用）に反するため避ける。よって生表記（必須/歓迎要件の原文）だけ保持し、スコアは 0 で持つ。
+		// scoreAiJudged は 0/100=0 を返すが weight>0 のため分母に乗り常時 0 点になる点に注意。希望スキル
+		// 設定（#7 設定UI）と判定方式（#15 スパイク）が入るまでは「未確定」で、本実装はそこへ申し送る。
 		return { kind: "aiJudged", score: 0, raw: value };
 	}
 
-	// categorical: 正規化済みカテゴリ集合は項目ごとに定義予定。
-	// Phase 0 では生表記を 1 カテゴリとして保持する（カテゴリ正規化の詳細化は後続）。
-	return { kind: "categorical", categories: [value], raw: value };
+	// categorical: 主要キーは canonical トークンへ寄せ scoring の preferred と突合可能にする（§5.2）。
+	// マッピングに無い値は生表記を 1 カテゴリとして残す（情報を捨てない）。
+	const canonical = canonicalizeCategoryValue(key, value);
+	return {
+		kind: "categorical",
+		categories: [canonical ?? value],
+		raw: value,
+	};
 }
 
 // AI の生出力（キーごとの生文字列）を NormalizedJob へ寄せる（決定的・全キー必須）。

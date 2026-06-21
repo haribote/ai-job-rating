@@ -9,6 +9,7 @@ import {
 	rawFieldsToNormalizedJob,
 } from "./extract";
 import { isUnknown, NORMALIZED_KEYS } from "./job-schema";
+import { DEFAULT_SCORING_CONFIG, scoreJob } from "./score";
 
 // プロンプト組立（決定的）: trim 済み本文を含む messages を組み立てる。
 describe("buildExtractionMessages", () => {
@@ -143,6 +144,104 @@ describe("rawFieldsToNormalizedJob", () => {
 	it("カテゴリ項目（リモート可否）は categorical へ寄せる", () => {
 		const job = rawFieldsToNormalizedJob({ remoteWork: "フルリモート" });
 		expect(job.remoteWork.kind).toBe("categorical");
+	});
+
+	// gap1: 年収・月給は単位を万円へ正規化する（scoring の希望値が万円前提のため、§5.2）。
+	it("円表記の年収を万円へ正規化する（900万円→900）", () => {
+		const job = rawFieldsToNormalizedJob({ annualSalary: "9,000,000円" });
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(900);
+			expect(job.annualSalary.max).toBe(900);
+		}
+	});
+
+	it("円表記の年収レンジを万円へ正規化する（900万〜1300万）", () => {
+		const job = rawFieldsToNormalizedJob({
+			annualSalary: "9,000,000円〜13,000,000円",
+		});
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(900);
+			expect(job.annualSalary.max).toBe(1300);
+		}
+	});
+
+	it("万円表記の年収はそのまま万円で持つ（700万〜900万→700/900）", () => {
+		const job = rawFieldsToNormalizedJob({ annualSalary: "700万〜900万" });
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(700);
+			expect(job.annualSalary.max).toBe(900);
+		}
+	});
+
+	it("円表記の月給を万円へ正規化する（30万円→30）", () => {
+		const job = rawFieldsToNormalizedJob({ monthlySalary: "300,000円" });
+		expect(job.monthlySalary.kind).toBe("numericRange");
+		if (job.monthlySalary.kind === "numericRange") {
+			expect(job.monthlySalary.min).toBe(30);
+			expect(job.monthlySalary.max).toBe(30);
+		}
+	});
+
+	it("非通貨の numericRange は単位換算しない（年間休日 122日→122）", () => {
+		// なぜ: 単位換算は通貨項目だけの関心事。日数・人数・時間に副作用を出さない。
+		const job = rawFieldsToNormalizedJob({ annualHolidays: "122日" });
+		expect(job.annualHolidays.kind).toBe("numericRange");
+		if (job.annualHolidays.kind === "numericRange") {
+			expect(job.annualHolidays.min).toBe(122);
+			expect(job.annualHolidays.max).toBe(122);
+		}
+	});
+
+	it("非通貨の numericRange（企業規模・人数）は換算しない（9000名→9000）", () => {
+		const job = rawFieldsToNormalizedJob({ companySize: "9,000名" });
+		expect(job.companySize.kind).toBe("numericRange");
+		if (job.companySize.kind === "numericRange") {
+			expect(job.companySize.min).toBe(9000);
+			expect(job.companySize.max).toBe(9000);
+		}
+	});
+
+	// gap2: 主要 categorical は生 JP を canonical トークンへ寄せる（scoring の preferred と整合、§5.2）。
+	it("リモート可否を canonical（full/partial/onsite）へ寄せる", () => {
+		const full = rawFieldsToNormalizedJob({ remoteWork: "フルリモート" });
+		const partial = rawFieldsToNormalizedJob({ remoteWork: "一部リモート可" });
+		const onsite = rawFieldsToNormalizedJob({ remoteWork: "出社" });
+		if (full.remoteWork.kind === "categorical") {
+			expect(full.remoteWork.categories).toEqual(["full"]);
+		}
+		if (partial.remoteWork.kind === "categorical") {
+			expect(partial.remoteWork.categories).toEqual(["partial"]);
+		}
+		if (onsite.remoteWork.kind === "categorical") {
+			expect(onsite.remoteWork.categories).toEqual(["onsite"]);
+		}
+	});
+
+	it("フレックス・裁量労働を canonical（flex/discretionary）へ寄せる", () => {
+		const flex = rawFieldsToNormalizedJob({ flexWork: "フレックスタイム制" });
+		const discretionary = rawFieldsToNormalizedJob({ flexWork: "裁量労働制" });
+		if (flex.flexWork.kind === "categorical") {
+			expect(flex.flexWork.categories).toEqual(["flex"]);
+		}
+		if (discretionary.flexWork.kind === "categorical") {
+			expect(discretionary.flexWork.categories).toEqual(["discretionary"]);
+		}
+	});
+
+	it("canonical 化しても生表記は raw に保持する（監査・UI 用）", () => {
+		const job = rawFieldsToNormalizedJob({ remoteWork: "フルリモート" });
+		expect(job.remoteWork.raw).toBe("フルリモート");
+	});
+
+	it("未知の categorical 値は生表記を 1 カテゴリとして残す", () => {
+		// なぜ: マッピングに無い値を捨てると情報が失われる。canonical 化は best-effort。
+		const job = rawFieldsToNormalizedJob({ remoteWork: "応相談" });
+		if (job.remoteWork.kind === "categorical") {
+			expect(job.remoteWork.categories).toEqual(["応相談"]);
+		}
 	});
 
 	it("生表記を raw として保持する（監査・UI 用）", () => {
@@ -330,5 +429,28 @@ describe("extractJob", () => {
 		// §5.3 再実行しない契約: 保存に必要なメタを持つ
 		expect(typeof result.model).toBe("string");
 		expect(typeof result.extractedAt).toBe("string");
+	});
+});
+
+// 抽出↔スコアリングの正規化統合（#59）。抽出側の正規化が DEFAULT_SCORING_CONFIG の
+// 単位前提（万円）・canonical 集合と噛み合い、妥当なサブスコアになることを担保する。
+describe("正規化統合（抽出→スコアリング）", () => {
+	it("円表記の年収が単位整合し annualSalary が常に 1.0 ではなくなる（gap1）", () => {
+		// なぜ: 円のまま（9,000,000）だと desired:700 を桁違いに超え常に 1.0 になる回帰を防ぐ。
+		const job = rawFieldsToNormalizedJob({ annualSalary: "5,000,000円" });
+		const { breakdown } = scoreJob(job, DEFAULT_SCORING_CONFIG);
+		const row = breakdown.find((r) => r.key === "annualSalary");
+		expect(row?.included).toBe(true);
+		// desired:700 / floor:300 の補間域に入る（500万 → (500-300)/(700-300)=0.5）。
+		expect(row?.score).toBeCloseTo(0.5);
+	});
+
+	it("canonical 化したリモート可否が preferred と突合できる（gap2）", () => {
+		const job = rawFieldsToNormalizedJob({ remoteWork: "フルリモート" });
+		const { breakdown } = scoreJob(job, DEFAULT_SCORING_CONFIG);
+		const row = breakdown.find((r) => r.key === "remoteWork");
+		expect(row?.included).toBe(true);
+		// "full" は preferred:["full","partial"] に一致 → 1.0。
+		expect(row?.score).toBe(1);
 	});
 });
