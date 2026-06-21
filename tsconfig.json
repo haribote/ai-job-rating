@@ -1,0 +1,27 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["ES2022"],
+		// wrangler types が生成する runtime 型（worker-configuration.d.ts、include 経由で読み込む）を使う。
+		// @cloudflare/workers-types は非推奨のため不使用。
+		"types": ["@types/node"],
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"esModuleInterop": true,
+		"resolveJsonModule": true
+	},
+	"include": [
+		"src",
+		"worker-configuration.d.ts",
+		"vitest.config.ts",
+		"vitest-env.d.ts"
+	]
+}

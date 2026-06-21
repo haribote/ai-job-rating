@@ -1,0 +1,4 @@
+# ローカル開発用シークレットの雛形。実値は .dev.vars に書く（コミット禁止）。
+# Phase 0 (PoC) では Workers AI バインディング経由のため必須シークレットはまだ無い。
+# Phase 2 で企業評判機能を使う場合に Claude API キーを設定する（docs/requirements.md §7.2）。
+# ANTHROPIC_API_KEY=""

@@ -1,0 +1,30 @@
+{
+	"name": "ai-job-rating",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"cf-typegen": "wrangler types"
+	},
+	"dependencies": {
+		"hono": "4.12.25"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.0",
+		"@cloudflare/vitest-pool-workers": "0.16.15",
+		"@types/node": "25.9.3",
+		"typescript": "6.0.3",
+		"vitest": "4.1.8",
+		"wrangler": "4.100.0"
+	}
+}
