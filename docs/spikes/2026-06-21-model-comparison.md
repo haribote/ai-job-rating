@@ -130,47 +130,56 @@ curl -sS http://localhost:8787/compare \
 
 ---
 
-## 5. 結果記入表（live 実行で埋める）
+## 5. 結果記入表（live 実行: 2026-06-21）
 
-> 以下は **未記入のテンプレ**。実機比較後に値を入れる。
+> 合成 fixture 3 件 × 全候補で実機比較した。**重要な診断**: all-unknown でも各値に `raw` が付くか否かで「呼び出し成功（=モデルが妥当 JSON を返し『該当なし』と答えた）」と「呼び出し失敗（=非 object 応答／例外を extractJob が全 unknown に畳んだ）」を判別できる。`raw` 無しの全 unknown は失敗を示す。
 
 ### 5.1 JSON Mode 充足チェック（最優先）
 
 | モデル | fixture 全件で妥当 JSON を返したか | 全 unknown 畳み込みの発生 | 所見 |
 | --- | --- | --- | --- |
-| `@cf/openai/gpt-oss-120b` | （要記入） | （要記入） | |
-| `@cf/meta/llama-4-scout-17b-16e-instruct` | （要記入） | （要記入） | |
-| `@cf/meta/llama-3.3-70b-instruct-fp8-fast`（baseline） | （要記入） | （要記入） | |
+| `@cf/openai/gpt-oss-120b` | **いいえ（3/3 で 0・`raw` 一度も無し）** | 全 fixture で発生 | JSON Mode が成立せず。一次ソース「一覧未掲載」と整合。**却下** |
+| `@cf/meta/llama-4-scout-17b-16e-instruct` | 一部（sre/sparse で部分的に構造化、fullstack で 0） | fullstack で発生 | 一覧未掲載・不安定。**却下** |
+| `@cf/meta/llama-3.3-70b-instruct-fp8-fast`（baseline） | 一部（sparse は妥当 JSON＝`raw` 付き／fullstack・sre は `raw` 無し＝呼出失敗の疑い） | fullstack・sre で発生（transient 失敗の畳み込み） | 一覧掲載・#11 実ページで PASS 実績。**維持** |
 
-### 5.2 自動指標（fixture ごと・全候補）
+### 5.2 自動指標（valueCount / 21）
 
-| fixture | モデル | valueCount / 21 | baseline と agree | disagree | onlyA(baseline) | onlyB(候補) |
-| --- | --- | --- | --- | --- | --- | --- |
-| fullstack-startup | gpt-oss-120b | | | | | |
-| fullstack-startup | llama-4-scout | | | | | |
-| sre-megacorp | gpt-oss-120b | | | | | |
-| sre-megacorp | llama-4-scout | | | | | |
-| sparse-listing | gpt-oss-120b | | | | | |
-| sparse-listing | llama-4-scout | | | | | |
+> baseline 自身が fullstack・sre で呼出失敗（0）したため、agree/disagree 等の baseline 差分は本ランでは無意味（transient 交絡）。valueCount のみ記録する。
 
-### 5.3 原文照合判定（人間・3.2 ルーブリック）
+| fixture | gpt-oss-120b | llama-4-scout | llama-3.3-70b (baseline) |
+| --- | --- | --- | --- |
+| fullstack-startup | 0（失敗） | 0（失敗） | 0（失敗・`raw` 無し） |
+| sre-megacorp | 0（失敗） | 2（companySize, companyPhase） | 0（失敗・`raw` 無し） |
+| sparse-listing | 0（失敗） | 3（workLocation, employmentType, requiredSkillsMatch） | **5（remoteWork, workLocation, employmentType, techStack, requiredSkillsMatch）** |
 
-| fixture | モデル | 正 ✅ | 誤/創作 ❌ | 取りこぼし ⬜ | スコア(正−誤×2) | メモ |
-| --- | --- | --- | --- | --- | --- | --- |
-| fullstack-startup | gpt-oss-120b | | | | | |
-| fullstack-startup | llama-4-scout | | | | | |
-| sre-megacorp | gpt-oss-120b | | | | | |
-| sre-megacorp | llama-4-scout | | | | | |
-| sparse-listing | gpt-oss-120b | | | | | |
-| sparse-listing | llama-4-scout | | | | | |
+### 5.3 原文照合判定（人間・3.2 ルーブリック、成功呼び出しのみ）
+
+| fixture | モデル | 正 ✅ | 誤/創作 ❌ | 取りこぼし ⬜ | メモ |
+| --- | --- | --- | --- | --- | --- |
+| sre-megacorp | llama-4-scout | 2（"3000名以上"/"東証プライム上場"） | 0 | 多数（給与・休日・技術等） | 部分成功だが取りこぼし大 |
+| sparse-listing | llama-4-scout | 3（フルリモート/業務委託または正社員/Python） | 0 | 年収"応相談"等 | |
+| sparse-listing | llama-3.3-70b | **5**（リモート/勤務地/雇用形態/技術/必須スキル） | 0 | — | "応相談" を numericRange でなく unknown に正しく寄せた。最良 |
+| （その他） | — | — | — | — | 呼出失敗（`raw` 無し全 unknown）のため判定対象外 |
 
 ---
 
-## 6. デフォルト決定（結論欄・live 後に記入）
+## 6. デフォルト決定（結論: 2026-06-21）
 
-- **選定モデル**: （要記入）
-- **根拠**: （§3 優先度に沿って。誤抽出有無 → JSON Mode 安定性 → 取りこぼし → コストの順で）
-- **JSON Mode の前提**: 選定モデルが JSON Mode 機能ページ未掲載の場合、`response_format` での妥当 JSON が安定する根拠（live 実測）を明記。安定しない場合は掲載モデル（llama-3.3 系等）から選ぶ。
+- **選定モデル**: **`@cf/meta/llama-3.3-70b-instruct-fp8-fast`（現行 baseline を維持・`EXTRACTION_MODEL` 変更なし）**
+- **根拠**（§3 優先度順）:
+  1. **JSON Mode 安定性**: 唯一の JSON Mode 機能ページ掲載モデル。`gpt-oss-120b` は 3/3 で `raw` 無しの 0＝JSON Mode 不成立、`llama-4-scout` は未掲載かつ最も情報リッチな fullstack で 0 と不安定。
+  2. **正確性**: 成功した sparse で 5 項目を誤抽出ゼロで取得し、"応相談" を unknown に正しく寄せた（候補を上回る）。#11 の実ページ live でも 16 項目を正しく抽出済み。
+  3. **候補は baseline を上回らない**。よって候補へ切り替える理由なし。
+- **JSON Mode の前提**: 選定 `llama-3.3-70b` は JSON Mode 機能ページ**掲載あり**のため追加の live 根拠は不要。
+- **データ品質の注意（交絡）**: 本ランは baseline が fullstack・sre で `raw` 無しの 0＝**transient 失敗**（9 連続 live 呼び出しでの rate limit/タイムアウトが濃厚。#11・sparse の成功と矛盾）。**比較ハーネスが呼出エラーを全 unknown に畳むため失敗が「抽出ゼロ」に見える**。クリーンな精度数値には、ハーネスを逐次＋遅延＋呼出エラー（HTTP 状態／JSON Mode 可否）可視化に改善した上での再実行が必要（→ #57 でハードニング）。ただし**どの候補も viable でないため、デフォルト決定はこの交絡の影響を受けない**。
+
+### 反映手順（決定後）
+
+1. `EXTRACTION_MODEL` は `@cf/meta/llama-3.3-70b-instruct-fp8-fast` のまま（**変更不要**）。
+2. 掲載ありのため `extractJob` への追加コメントは不要。
+3. `src/ai.ts` の health 用モデルは抽出デフォルトと独立（変更不要）。
+4. `src/app.ts` へ一時配線した `modelComparison` ルートは撤去済み。
+5. 後続: ハーネスの呼出エラー可視化・逐次化と再実行は #57 で扱う。
 
 ### 反映手順（決定後）
 
