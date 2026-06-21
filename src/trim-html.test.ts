@@ -179,4 +179,11 @@ describe("trimHtml", () => {
 			trimHtml("<p>&yen;500 &times; &middot; &bull; &deg; &euro;</p>"),
 		).toBe("¥500 × · • ° €");
 	});
+
+	// 課題2: 宣言・CDATA・PI は本文でないので除去する（不等号保全のために漏らさない）。
+	it("宣言・CDATA・PI を除去する", () => {
+		expect(trimHtml("<!DOCTYPE html><p>本文</p>")).toBe("本文");
+		expect(trimHtml("<p>前<![CDATA[ junk ]]>後</p>")).toBe("前 後");
+		expect(trimHtml("<p>前<?xml version='1.0'?>後</p>")).toBe("前 後");
+	});
 });
