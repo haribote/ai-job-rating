@@ -23,3 +23,6 @@ npm-debug.log*
 
 # OS / editor
 .DS_Store
+
+# Issue #15 spike — 投入した実求人 HTML（PII 含む）はコミットしない
+/spike/
