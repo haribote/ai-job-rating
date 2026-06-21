@@ -12,5 +12,9 @@
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS"
+	},
+	// Workers AI バインディング（§7.1, JSON Mode 構造化抽出）。env.AI でアクセスする
+	"ai": {
+		"binding": "AI"
 	}
 }
