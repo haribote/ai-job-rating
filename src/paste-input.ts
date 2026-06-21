@@ -1,4 +1,9 @@
 import { Hono } from "hono";
+import type { Bindings } from "./app";
+import { extractJob } from "./extract";
+import { renderResultPage } from "./result-display";
+import { DEFAULT_SCORING_CONFIG, scoreJob } from "./score";
+import { trimHtml } from "./trim-html";
 
 // 貼り付け HTML の上限（バイト）。後続のトリミング #9 / 抽出 #11 の負荷・コスト保護のための上限。
 // Phase 0 の検証用途には十分な余裕（2MB）を取る。
@@ -25,7 +30,7 @@ export function validatePastedHtml(input: string): ValidatedHtml {
 
 // 貼り付けフォールバックの入力受け口。責務は「入力を受け取り検証して後続へ渡せる形にする」までに限定し、
 // トリミング #9 / 抽出 #11 / スコアリングは含めない。app.ts へは最小配線する。
-export const pasteInput = new Hono();
+export const pasteInput = new Hono<{ Bindings: Bindings }>();
 
 // 取得 #8 が使えないケース向けの貼り付けフォーム。SSR で返しフォールスルー前に評価させる。
 pasteInput.get("/paste", (c) =>
@@ -41,7 +46,7 @@ pasteInput.get("/paste", (c) =>
     <main>
       <h1>HTML 貼り付け入力</h1>
       <p>取得できない求人ページの HTML を貼り付けて投入します（フォールバック兼検証手段）。</p>
-      <form method="post" action="/paste">
+      <form method="post" action="/result">
         <textarea name="html" rows="20" cols="80" required></textarea>
         <button type="submit">投入</button>
       </form>
@@ -68,4 +73,25 @@ pasteInput.post("/paste", async (c) => {
 	// 後続（トリミング #9 / 抽出 #11）へは result.html をそのまま渡せる。
 	// この層では加工せず、受理した事実とバイト長のみ返す。
 	return c.json({ ok: true, bytes: result.bytes });
+});
+
+// 貼付 HTML を Phase 0 の最小経路（trim #9 → 抽出 #11 → スコア #12 → 表示 #13）に通し、
+// スコア結果ページを SSR で返す。各層は呼ぶだけで作り込まない（責務は表示）。
+// AI 抽出は c.env.AI を注入する。抽出とスコアリングの分離は壊さない（表示で再実行しない・1 リクエスト 1 抽出）。
+pasteInput.post("/result", async (c) => {
+	const form = await c.req.parseBody();
+	const raw = form.html;
+	const html = typeof raw === "string" ? raw : "";
+
+	const validated = validatePastedHtml(html);
+	if (!validated.ok) {
+		// /paste と同じ意味論で空入力 400 / 上限超過 413。AI を呼ぶ前に弾く（コスト保護）。
+		const status = validated.reason === "too-large" ? 413 : 400;
+		return c.json({ ok: false, reason: validated.reason }, status);
+	}
+
+	const body = trimHtml(validated.html);
+	const { job } = await extractJob(c.env.AI, body);
+	const score = scoreJob(job, DEFAULT_SCORING_CONFIG);
+	return c.html(renderResultPage(score, job));
 });
