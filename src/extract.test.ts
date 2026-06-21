@@ -202,4 +202,47 @@ describe("extractJob", () => {
 		expect(typeof result.model).toBe("string");
 		expect(typeof result.extractedAt).toBe("string");
 	});
+
+	// モデル比較スパイク（#15）: デフォルト確定前に任意モデルで抽出を回せるようにする。
+	it("model 引数を省略すると既定モデルで run する（後方互換）", async () => {
+		const calls: string[] = [];
+		const fakeAi: AiRunner = {
+			run: async (model: string) => {
+				calls.push(model);
+				return { response: {} };
+			},
+		};
+		const result = await extractJob(fakeAi, "本文");
+		expect(calls[0]).toBe(EXTRACTION_MODEL);
+		expect(result.model).toBe(EXTRACTION_MODEL);
+	});
+
+	it("model 引数を渡すとそのモデルで run し、結果の model に反映する", async () => {
+		const calls: string[] = [];
+		const fakeAi: AiRunner = {
+			run: async (model: string) => {
+				calls.push(model);
+				return { response: {} };
+			},
+		};
+		const candidate = "@cf/meta/llama-4-scout-17b-16e-instruct";
+		const result = await extractJob(fakeAi, "本文", candidate);
+		expect(calls[0]).toBe(candidate);
+		// 保存メタの model は実際に使ったモデルを指す（比較記録の出所を一意にする）
+		expect(result.model).toBe(candidate);
+	});
+
+	it("空本文でも指定 model を結果に反映する（AI は呼ばない）", async () => {
+		let called = false;
+		const fakeAi: AiRunner = {
+			run: async () => {
+				called = true;
+				return {};
+			},
+		};
+		const candidate = "@cf/openai/gpt-oss-120b";
+		const result = await extractJob(fakeAi, "", candidate);
+		expect(called).toBe(false);
+		expect(result.model).toBe(candidate);
+	});
 });

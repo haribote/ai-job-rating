@@ -201,18 +201,22 @@ function safeParse(text: string): unknown {
 // 求人本文を JSON Mode で構造化抽出し、正規スキーマへ寄せた抽出結果を返す（§7.1 / §5.3）。
 // - 空本文では AI を呼ばず全 unknown を返す（unknown 中立・コスト最小化）。
 // - AI が想定外形を返す/throw しても落とさず全 unknown へ畳む（抽出は堅牢に）。
+// model はデフォルト確定前の比較スパイク（#15）のため後方互換で受ける任意引数。
+// 省略時は EXTRACTION_MODEL。結果の model は「実際に使ったモデル」を指し、
+// 保存した抽出結果の出所を一意にする（比較記録・§5.3 の再利用契約のため）。
 export async function extractJob(
 	ai: AiRunner,
 	body: string,
+	model: string = EXTRACTION_MODEL,
 ): Promise<ExtractionResult> {
 	const extractedAt = new Date().toISOString();
 	// 空判定は trimHtml の出力契約（空文字の可能性）に従う。AI 呼出前に弾く。
 	if (body.trim() === "") {
-		return { job: allUnknownJob(), model: EXTRACTION_MODEL, extractedAt };
+		return { job: allUnknownJob(), model, extractedAt };
 	}
 
 	try {
-		const output = await ai.run(EXTRACTION_MODEL, {
+		const output = await ai.run(model, {
 			messages: buildExtractionMessages(body),
 			response_format: {
 				type: "json_schema",
@@ -222,11 +226,11 @@ export async function extractJob(
 		const fields = extractRawFields(output);
 		return {
 			job: rawFieldsToNormalizedJob(fields),
-			model: EXTRACTION_MODEL,
+			model,
 			extractedAt,
 		};
 	} catch {
 		// JSON Mode 未充足・upstream 障害等。抽出は落とさず全 unknown を返し、後段で中立に扱う。
-		return { job: allUnknownJob(), model: EXTRACTION_MODEL, extractedAt };
+		return { job: allUnknownJob(), model, extractedAt };
 	}
 }
