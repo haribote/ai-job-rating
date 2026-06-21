@@ -126,7 +126,7 @@ export function buildExtractionJsonSchema(): ExtractionJsonSchema {
 function stripAnnotations(normalized: string): string {
 	return normalized
 		.replace(/\([^)]*\)/g, "") // 括弧（補足）ごと除去
-		.replace(/[※＊].*$/g, ""); // ※/＊ 以降の注記を行末まで除去
+		.replace(/[※＊].*$/gm, ""); // ※/＊ 以降の注記を各行末まで除去（多行値でも行単位で効かせる）
 }
 
 // 生表記から数値を取り出す（決定的）。「700万〜900万」「122日」「700万」等を扱う。

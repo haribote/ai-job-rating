@@ -120,6 +120,18 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
+	it("多行値でも各行の ※ 注記の数値を拾わない", () => {
+		// なぜ: 改行を含む値で ※ 注記が行末まで効かないと、注記内の数値が本体に混入する。
+		const job = rawFieldsToNormalizedJob({
+			annualSalary: "700万〜900万\n※経験により決定（2024年実績）",
+		});
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(700);
+			expect(job.annualSalary.max).toBe(900);
+		}
+	});
+
 	it("注記しか数値を含まない場合は unknown 中立に寄せる", () => {
 		// なぜ: 本体に数値がなく括弧内にだけ数値があるとき、注記を本体値と誤認しない。
 		const job = rawFieldsToNormalizedJob({
