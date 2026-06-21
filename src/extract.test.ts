@@ -231,6 +231,107 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
+	// 修正1 回帰: 「みなし（労働）」は否定 needle「なし」を内包するが discretionary の語であり否定でない。
+	it("みなし労働は否定誤判定せず discretionary へ寄せる", () => {
+		const job = rawFieldsToNormalizedJob({ flexWork: "みなし労働制" });
+		expect(job.flexWork.kind).toBe("categorical");
+		if (job.flexWork.kind === "categorical") {
+			expect(job.flexWork.categories).toEqual(["discretionary"]);
+		}
+	});
+
+	// 修正1: 否定表現が positive canonical へ化けない（部分一致＋登録順の誤判定回帰）。
+	it("リモートの否定（不可/なし）は onsite へ寄せる", () => {
+		const cases: ReadonlyArray<readonly [string, string]> = [
+			["リモート不可", "onsite"],
+			["リモートなし", "onsite"],
+			["フルリモート不可", "onsite"],
+		];
+		for (const [raw, expected] of cases) {
+			const job = rawFieldsToNormalizedJob({ remoteWork: raw });
+			if (job.remoteWork.kind === "categorical") {
+				expect(job.remoteWork.categories).toEqual([expected]);
+			}
+		}
+	});
+
+	it("リモートの肯定（フルリモート/リモート可）は full/partial へ寄せる", () => {
+		const full = rawFieldsToNormalizedJob({ remoteWork: "フルリモート" });
+		const partial = rawFieldsToNormalizedJob({ remoteWork: "リモート可" });
+		if (full.remoteWork.kind === "categorical") {
+			expect(full.remoteWork.categories).toEqual(["full"]);
+		}
+		if (partial.remoteWork.kind === "categorical") {
+			expect(partial.remoteWork.categories).toEqual(["partial"]);
+		}
+	});
+
+	it("フレックスの否定は flex に化けない（preferred 不一致になる）", () => {
+		// なぜ: 「フレックス不可/なし」を flex と誤判定すると preferred と誤マッチする。
+		const cases = [
+			"フレックス不可",
+			"フレックスタイム制なし",
+			"フレックス制度なし",
+		];
+		for (const raw of cases) {
+			const job = rawFieldsToNormalizedJob({ flexWork: raw });
+			if (job.flexWork.kind === "categorical") {
+				expect(job.flexWork.categories).not.toContain("flex");
+			}
+		}
+	});
+
+	it("裸の「あり」needle を撤去し無関係文を誤マッチしない（残業ありが yes に化けない）", () => {
+		const job = rawFieldsToNormalizedJob({ flexWork: "残業あり" });
+		if (job.flexWork.kind === "categorical") {
+			expect(job.flexWork.categories).not.toContain("yes");
+		}
+	});
+
+	// 修正2: 通貨単位を伴わない裸のノイズ数値を min/max に混入させない。
+	it("年収のノイズ数値（年2回の2）を salary レンジに拾わない", () => {
+		const job = rawFieldsToNormalizedJob({
+			annualSalary: "賞与年2回 700万〜900万",
+		});
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(700);
+			expect(job.annualSalary.max).toBe(900);
+		}
+	});
+
+	it("月給のノイズ数値（賞与年2回の2）を salary レンジに拾わない", () => {
+		const job = rawFieldsToNormalizedJob({
+			monthlySalary: "月給28万円〜35万円 + 賞与年2回",
+		});
+		expect(job.monthlySalary.kind).toBe("numericRange");
+		if (job.monthlySalary.kind === "numericRange") {
+			expect(job.monthlySalary.min).toBe(28);
+			expect(job.monthlySalary.max).toBe(35);
+		}
+	});
+
+	it("単数の万円表記はそのまま 1 値で持つ（700万→[700]）", () => {
+		const job = rawFieldsToNormalizedJob({ annualSalary: "700万" });
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(700);
+			expect(job.annualSalary.max).toBe(700);
+		}
+	});
+
+	// 修正3: aiJudged キーは Phase 0 では unknown 中立（スコア分母から除外）。
+	it("aiJudged キー（必須/歓迎要件）は値があっても unknown 中立にする", () => {
+		const job = rawFieldsToNormalizedJob({
+			requiredSkillsMatch: "TypeScript / 3年以上の実務経験",
+			preferredSkillsMatch: "AWS",
+		});
+		expect(isUnknown(job.requiredSkillsMatch)).toBe(true);
+		expect(isUnknown(job.preferredSkillsMatch)).toBe(true);
+		// 監査用に生表記は保持する
+		expect(job.requiredSkillsMatch.raw).toBe("TypeScript / 3年以上の実務経験");
+	});
+
 	it("canonical 化しても生表記は raw に保持する（監査・UI 用）", () => {
 		const job = rawFieldsToNormalizedJob({ remoteWork: "フルリモート" });
 		expect(job.remoteWork.raw).toBe("フルリモート");
@@ -451,6 +552,38 @@ describe("正規化統合（抽出→スコアリング）", () => {
 		const row = breakdown.find((r) => r.key === "remoteWork");
 		expect(row?.included).toBe(true);
 		// "full" は preferred:["full","partial"] に一致 → 1.0。
+		expect(row?.score).toBe(1);
+	});
+
+	// 修正3: aiJudged キーは unknown 中立として分母から除外され total を引き下げない（§5.2）。
+	it("aiJudged キーに値があっても total を引き下げない（分母除外）", () => {
+		const withSkills = rawFieldsToNormalizedJob({
+			annualSalary: "700万",
+			requiredSkillsMatch: "TypeScript 3年",
+			preferredSkillsMatch: "AWS",
+		});
+		const withoutSkills = rawFieldsToNormalizedJob({ annualSalary: "700万" });
+		const a = scoreJob(withSkills, DEFAULT_SCORING_CONFIG);
+		const b = scoreJob(withoutSkills, DEFAULT_SCORING_CONFIG);
+		// 必須/歓迎要件の有無で total が変わらない（中立＝分母除外）。
+		expect(a.total).toBe(b.total);
+		// breakdown 上も included=false（分母から外れている）。
+		expect(
+			a.breakdown.find((r) => r.key === "requiredSkillsMatch")?.included,
+		).toBe(false);
+		expect(
+			a.breakdown.find((r) => r.key === "preferredSkillsMatch")?.included,
+		).toBe(false);
+	});
+
+	// 修正2: 年収内のノイズ数値が min を汚染しサブスコアを破壊しないこと（決定性回帰）。
+	it("年収のノイズ数値混入で annualSalary サブスコアが破損しない", () => {
+		const job = rawFieldsToNormalizedJob({
+			annualSalary: "賞与年2回 700万〜900万",
+		});
+		const { breakdown } = scoreJob(job, DEFAULT_SCORING_CONFIG);
+		const row = breakdown.find((r) => r.key === "annualSalary");
+		// max=900 が desired:700 を満たす → 1.0。min が 0.0002 に汚染されていないこと。
 		expect(row?.score).toBe(1);
 	});
 });

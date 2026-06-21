@@ -10,6 +10,7 @@
 
 import type { AiRunner } from "./ai";
 import {
+	canonicalizeLabel,
 	isUnknownRaw,
 	NORMALIZED_KEYS,
 	type NormalizationKind,
@@ -155,29 +156,38 @@ const SALARY_KEYS: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 ]);
 
 // 通貨表記の各数値を「万円」へ正規化して取り出す（決定的）。
-// なぜ: 求人は「700万」(万円) と「9,000,000円」(円) が混在する。スコアリングの希望値（万円）と桁を
-// 揃えるため、各数値の直後の単位表記を見て換算する。「万」付き → そのまま、それ以外（生の円額）→ 1/10000。
+// なぜ: 求人は「700万」(万円) と「9,000,000円」(円) が混在する一方、年収欄には「賞与年2回」の "2" の
+// ようなノイズ数値も混じる（#57）。通貨単位（万/円/万円）を伴う数値だけを採り、単位無しの裸数値は
+// ノイズとして捨てて min/max を汚染させない。「万」「万円」→ そのまま万円、「円」（生の円額）→ 1/10000。
 function salaryToManYen(raw: string): number[] {
 	const normalized = stripAnnotations(raw.normalize("NFKC"));
 	const numbers: number[] = [];
-	// 数値に続く「万」の有無で単位を判定する（「700万」「9,000,000円」を区別）。
-	const re = /([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)\s*(万)?/g;
+	// 数値の直後に続く通貨単位（万円 / 万 / 円）を捕捉する。単位が無ければ採らない（ノイズ除去）。
+	const re = /([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)\s*(万円|万|円)?/g;
 	for (const match of normalized.matchAll(re)) {
+		const unit = match[2];
+		if (unit === undefined) continue; // 通貨単位を伴わない裸の数値はノイズとして無視
 		const value = Number(match[1].replace(/,/g, ""));
 		if (!Number.isFinite(value)) continue;
-		// 「万」付きは万円単位。無印は円とみなして万円へ換算する。
-		numbers.push(match[2] === "万" ? value : value / 10000);
+		// 「万」「万円」付きは万円単位。「円」は生の円額とみなして万円へ換算する。
+		numbers.push(unit === "円" ? value / 10000 : value);
 	}
 	return numbers;
 }
 
+// 否定表現の検出用 needle（canonicalizeLabel 適用後で照合）。
+// なぜ: 部分一致＋登録順だと「フレックス不可」が positive(flex) に化ける。否定の有無を先に判定し、
+// positive canonical を抑止する（remoteWork は否定を onsite へ寄せる）。決定的に評価する。
+const NEGATION_NEEDLES: readonly string[] = ["不可", "なし", "不要", "無"];
+
 // 主要 categorical の canonical 集合（生 JP → canonical トークン）。
 // なぜ: 抽出は生 JP を保持するが scoring の preferred は canonical 前提のため、抽出時に寄せる（§5.2）。
-// 照合は canonicalize 後の部分一致で行い、エントリの登録順（具体的→一般的）に最初の一致を採る。
+// 照合は canonicalizeLabel 後の部分一致で行い、エントリの登録順（具体的→一般的）に最初の一致を採る。
+// 裸の「あり」「可」のような過度に汎用な needle は誤爆（「残業あり」→yes）するため固有 stem に絞る。
 type CategoryRule = readonly [needle: string, canonical: string];
 const CATEGORY_RULES: Partial<Record<NormalizedKey, readonly CategoryRule[]>> =
 	{
-		// リモート可否 → full / partial / onsite。
+		// リモート可否 → full / partial / onsite。否定は別途 onsite へ寄せる（下記参照）。
 		remoteWork: [
 			["フルリモート", "full"],
 			["完全リモート", "full"],
@@ -189,38 +199,48 @@ const CATEGORY_RULES: Partial<Record<NormalizedKey, readonly CategoryRule[]>> =
 			["リモートあり", "partial"],
 			["出社", "onsite"],
 			["常駐", "onsite"],
-			["リモート不可", "onsite"],
-			["リモートなし", "onsite"],
 		],
-		// フレックス・裁量労働 → flex / discretionary / yes。
+		// フレックス・裁量労働 → flex / discretionary。固有 stem のみ（裸の「あり/可」は撤去）。
 		flexWork: [
 			["フレックス", "flex"],
 			["裁量労働", "discretionary"],
+			["裁量", "discretionary"],
 			["みなし労働", "discretionary"],
-			["あり", "yes"],
-			["可", "yes"],
+			["みなし", "discretionary"],
 		],
 	};
 
-// canonical 照合用に揺れ（全角/半角・空白・記号・大小文字）を吸収する（job-schema の canonicalizeLabel と同方針）。
-function canonicalizeCategory(value: string): string {
-	return value
-		.normalize("NFKC")
-		.toLowerCase()
-		.replace(/[\s　・:：()（）[\]【】/／]/g, "");
+// 否定マーカーを含むときに onsite へ寄せるキー。リモートの「不可/なし」は明確な否定意味を持つ。
+const NEGATION_TO_ONSITE: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
+	"remoteWork",
+]);
+
+// 否定表現を含むか（canonicalizeLabel 後で部分一致）。
+// なぜ「みなし」を除くか: 否定 needle「なし」は「みなし（労働）」の部分文字列に一致してしまい、
+// 裁量労働の positive を否定と誤判定する。みなしは否定でなく discretionary の語なので先に除去する。
+function hasNegation(haystack: string): boolean {
+	const withoutDeemed = haystack.replace(/みなし/g, "");
+	return NEGATION_NEEDLES.some((n) =>
+		withoutDeemed.includes(canonicalizeLabel(n)),
+	);
 }
 
 // categorical の生表記を canonical トークン 1 つへ寄せる（決定的・best-effort）。
-// マッピングに無い値は null を返し、呼び出し側が生表記を残せるようにする（情報を捨てない）。
+// 否定表現は positive canonical へ化けさせない。マッピングに無い値は null を返し、呼び出し側が
+// 生表記を残せるようにする（情報を捨てない）。
 function canonicalizeCategoryValue(
 	key: NormalizedKey,
 	raw: string,
 ): string | null {
 	const rules = CATEGORY_RULES[key];
 	if (rules === undefined) return null;
-	const haystack = canonicalizeCategory(raw);
+	const haystack = canonicalizeLabel(raw);
+	// 否定を先に評価し positive canonical の誤判定を防ぐ（§修正1）。
+	if (hasNegation(haystack)) {
+		return NEGATION_TO_ONSITE.has(key) ? "onsite" : null;
+	}
 	for (const [needle, canonical] of rules) {
-		if (haystack.includes(canonicalizeCategory(needle))) return canonical;
+		if (haystack.includes(canonicalizeLabel(needle))) return canonical;
 	}
 	return null;
 }
@@ -255,13 +275,9 @@ function rawToFieldValue(
 	}
 
 	if (kind === "aiJudged") {
-		// aiJudged（requiredSkillsMatch / preferredSkillsMatch）の Phase 0 暫定方針（#59 gap3）:
-		// 実スコア化には「ユーザーの希望スキル集合」との突合が要るが、Phase 0 の固定設定には希望スキルが
-		// 無く（DEFAULT_SCORING_CONFIG は weight のみ）、判定基準が未確定。実 AI 再呼出は §5.3（抽出 1 回・
-		// 再利用）に反するため避ける。よって生表記（必須/歓迎要件の原文）だけ保持し、スコアは 0 で持つ。
-		// scoreAiJudged は 0/100=0 を返すが weight>0 のため分母に乗り常時 0 点になる点に注意。希望スキル
-		// 設定（#7 設定UI）と判定方式（#15 スパイク）が入るまでは「未確定」で、本実装はそこへ申し送る。
-		return { kind: "aiJudged", score: 0, raw: value };
+		// Phase 0 では aiJudged を unknown 中立とし分母から除外する（§5.2）。判定基準が未確定で
+		// （希望スキル集合不在・実 AI 再呼出は §5.3 抵触）、#7 設定UI/#15 スパイクまで保留。生表記は監査用に保持。
+		return { kind: "unknown", raw: value };
 	}
 
 	// categorical: 主要キーは canonical トークンへ寄せ scoring の preferred と突合可能にする（§5.2）。

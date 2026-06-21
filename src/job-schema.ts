@@ -160,7 +160,8 @@ export function isUnknownRaw(raw: string | null | undefined): boolean {
 
 // 正規化前のラベル文字列を比較用に整える。
 // なぜ: 求人サイトごとに全角/半角・空白・記号が揺れるため、突き合わせ前に吸収する。
-function canonicalizeLabel(label: string): string {
+// 抽出側（extract.ts の categorical 照合）でも同方針の正規化が要るため export して共有する。
+export function canonicalizeLabel(label: string): string {
 	return label
 		.normalize("NFKC") // 全角英数・記号を半角へ
 		.trim()
