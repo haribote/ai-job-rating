@@ -42,8 +42,15 @@ function decodeEntities(text: string): string {
 				body[1] === "x" || body[1] === "X"
 					? Number.parseInt(body.slice(2), 16)
 					: Number.parseInt(body.slice(1), 10);
-			// 不正なコードポイントは元の文字列を温存する（壊れた入力で例外にしない）
-			if (Number.isNaN(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
+			// 不正なコードポイントは元の文字列を温存する（壊れた入力で例外にしない）。
+			// サロゲート範囲（U+D800–U+DFFF）も除外する: 単独サロゲートを出力に漏らすと
+			// 下流 #11 の JSON 直列化で壊れた符号単位になるため。
+			if (
+				Number.isNaN(codePoint) ||
+				codePoint < 0 ||
+				codePoint > 0x10ffff ||
+				(codePoint >= 0xd800 && codePoint <= 0xdfff)
+			) {
 				return match;
 			}
 			return String.fromCodePoint(codePoint);

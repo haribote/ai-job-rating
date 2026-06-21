@@ -50,6 +50,12 @@ describe("trimHtml", () => {
 		expect(out).not.toContain("__DATA__");
 	});
 
+	// 隣接する複数の script を非貪欲に各個除去し、間の本文を巻き込まない
+	it("隣接する複数 script の間の本文を残す", () => {
+		const out = trimHtml("<script>a()</script><p>本文</p><script>b()</script>");
+		expect(out).toBe("本文");
+	});
+
 	// style の中身も本文でないので除外する
 	it("style の中身を除去する", () => {
 		const out = trimHtml(FIXTURE);
@@ -129,5 +135,13 @@ describe("trimHtml", () => {
 	// 不正な数値文字参照（範囲外コードポイント）も原文のまま温存する
 	it("範囲外の数値文字参照を温存する", () => {
 		expect(trimHtml("<p>&#xFFFFFF;</p>")).toBe("&#xFFFFFF;");
+	});
+
+	// サロゲート範囲の数値参照は単独サロゲートを出力に漏らさない。
+	// 下流 #11 の JSON 直列化で壊れた符号単位になるのを防ぐため原文のまま温存する。
+	it("サロゲート範囲の数値参照を温存する", () => {
+		const out = trimHtml("<p>&#xD800;&#xDFFF;</p>");
+		expect(out).toBe("&#xD800;&#xDFFF;");
+		expect(/[\ud800-\udfff]/.test(out)).toBe(false);
 	});
 });
