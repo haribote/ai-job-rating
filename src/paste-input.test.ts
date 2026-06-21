@@ -1,0 +1,116 @@
+import { env } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
+import app from "./app";
+import { MAX_HTML_BYTES, validatePastedHtml } from "./paste-input";
+
+// 貼り付け入力の検証ロジック。決定的なので分岐を網羅してユニットテストで担保する
+describe("validatePastedHtml", () => {
+	// 空入力はフォールバック経路の前提を満たさないので拒否する
+	it("空文字は無効", () => {
+		expect(validatePastedHtml("")).toEqual({ ok: false, reason: "empty" });
+	});
+
+	// 空白のみは実質空入力とみなす
+	it("空白のみは無効", () => {
+		expect(validatePastedHtml("   \n\t ")).toEqual({
+			ok: false,
+			reason: "empty",
+		});
+	});
+
+	// 上限超過は後続処理の負荷・コスト保護のため拒否する
+	it("サイズ上限超過は無効", () => {
+		const tooLarge = "a".repeat(MAX_HTML_BYTES + 1);
+		expect(validatePastedHtml(tooLarge)).toEqual({
+			ok: false,
+			reason: "too-large",
+		});
+	});
+
+	// 正常系: 受け取った HTML をそのまま後続へ渡せる形で返す（トリミングしない）
+	it("有効な HTML はそのまま html として返し、バイト長を同梱する", () => {
+		const html = "<html><body>求人</body></html>";
+		expect(validatePastedHtml(html)).toEqual({
+			ok: true,
+			html,
+			bytes: new TextEncoder().encode(html).length,
+		});
+	});
+
+	// マルチバイトを含めバイト長で判定する（文字数ではない）
+	it("バイト長で上限判定する", () => {
+		// 日本語1文字 = UTF-8 で3バイト。上限ちょうどは有効
+		const justUnder = "あ".repeat(Math.floor(MAX_HTML_BYTES / 3));
+		expect(validatePastedHtml(justUnder).ok).toBe(true);
+	});
+});
+
+// 入力受け口のルート。app.request() で HTTP 契約を検証する
+describe("paste-input routes", () => {
+	// 貼り付けフォームを SSR で提供し、フォールスルー前に評価される
+	it("GET /paste はフォームを返す", async () => {
+		const res = await app.request("/paste", {}, env);
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).toContain("<form");
+		expect(body).toContain('name="html"');
+	});
+
+	// 正常系: 受け取った HTML のバイト長を返し、受け口が機能していることを確認する
+	it("POST /paste は有効な HTML を受理する", async () => {
+		const html = "<html><body>求人詳細</body></html>";
+		const form = new URLSearchParams({ html });
+		const res = await app.request(
+			"/paste",
+			{
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: form.toString(),
+			},
+			env,
+		);
+		expect(res.status).toBe(200);
+		await expect(res.json()).resolves.toMatchObject({
+			ok: true,
+			bytes: new TextEncoder().encode(html).length,
+		});
+	});
+
+	// 空入力は 400 で拒否する
+	it("POST /paste は空入力を 400 で拒否する", async () => {
+		const form = new URLSearchParams({ html: "" });
+		const res = await app.request(
+			"/paste",
+			{
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: form.toString(),
+			},
+			env,
+		);
+		expect(res.status).toBe(400);
+		await expect(res.json()).resolves.toMatchObject({
+			ok: false,
+			reason: "empty",
+		});
+	});
+
+	// 上限超過は 413 で拒否する
+	it("POST /paste は上限超過を 413 で拒否する", async () => {
+		const form = new URLSearchParams({ html: "a".repeat(MAX_HTML_BYTES + 1) });
+		const res = await app.request(
+			"/paste",
+			{
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: form.toString(),
+			},
+			env,
+		);
+		expect(res.status).toBe(413);
+		await expect(res.json()).resolves.toMatchObject({
+			ok: false,
+			reason: "too-large",
+		});
+	});
+});

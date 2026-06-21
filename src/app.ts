@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { runAiHealthCheck } from "./ai";
+import { pasteInput } from "./paste-input";
 
 // Worker の env バインディング型。後続フェーズ（D1 / R2 / KV）でここに追記する
 export interface Bindings {
@@ -21,6 +22,10 @@ app.get("/ai-health", async (c) => {
 	const result = await runAiHealthCheck(c.env.AI);
 	return c.json(result, result.ok ? 200 : 503);
 });
+
+// HTML 貼り付けフォールバックの入力受け口（GET /paste・POST /paste）。
+// 静的資産フォールスルー（app.get("*")）より前に評価させる。
+app.route("/", pasteInput);
 
 // SSR ルートに該当しない GET は静的資産へフォールスルーする
 app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
