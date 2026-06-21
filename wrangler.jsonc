@@ -1,0 +1,16 @@
+{
+	// フォーク先がアカウント固有値を差し替えるだけで動くよう、秘匿値は wrangler secrets / .dev.vars に外出しする
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ai-job-rating",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-14",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": {
+		"enabled": true
+	},
+	// 静的資産を Worker から配信する。SSR ルートに該当しない GET はここへフォールスルーする
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS"
+	}
+}
