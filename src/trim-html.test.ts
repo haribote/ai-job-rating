@@ -144,4 +144,46 @@ describe("trimHtml", () => {
 		expect(out).toBe("&#xD800;&#xDFFF;");
 		expect(/[\ud800-\udfff]/.test(out)).toBe(false);
 	});
+
+	// 課題1: C0 制御文字は本文でなく下流 #11 の JSON 直列化を壊すため除去する。
+	// tab/改行は空白として扱うので対象外。NUL(&#0;)・BS(&#8;)・ESC 等の数値参照も除去する。
+	it("数値参照由来の C0 制御文字を除去する", () => {
+		expect(trimHtml("<p>前&#0;後</p>")).toBe("前後");
+		expect(trimHtml("<p>前&#8;後</p>")).toBe("前後");
+		expect(trimHtml("<p>前&#x1b;後</p>")).toBe("前後");
+	});
+
+	// 課題1: 生 HTML 中に紛れた C0 制御文字・DEL も同様に除去する。
+	it("生の制御文字を除去する", () => {
+		expect(trimHtml("<p>前\x00\x08\x1b\x7f後</p>")).toBe("前後");
+	});
+
+	// 課題1: 垂直タブ・改ページ・復帰は空白として畳む（連続でも 1 つの空白）。
+	it("垂直系空白を空白として正規化する", () => {
+		expect(trimHtml("<p>前\v\f\r後</p>")).toBe("前 後");
+	});
+
+	// 課題2: 本文中の生 `<`〜`>` をタグと誤認して削除しない（不等号・範囲表記の保全）。
+	it("本文中の生の山括弧をタグ誤認で削除しない", () => {
+		expect(trimHtml("<p>経験 < 3年 > 不可</p>")).toBe("経験 < 3年 > 不可");
+	});
+
+	// 課題2: タグらしい形（英字・/・!・? で始まる）のみ除去し、それ以外の `<` は残す。
+	it("タグらしくない山括弧は本文として残す", () => {
+		expect(trimHtml("<p>x < y かつ y > z</p>")).toBe("x < y かつ y > z");
+	});
+
+	// 課題3: 求人本文に現れる名前付き実体（通貨・記号）を拡充してデコードする。
+	it("拡充した名前付き実体をデコードする", () => {
+		expect(
+			trimHtml("<p>&yen;500 &times; &middot; &bull; &deg; &euro;</p>"),
+		).toBe("¥500 × · • ° €");
+	});
+
+	// 課題2: 宣言・CDATA・PI は本文でないので除去する（不等号保全のために漏らさない）。
+	it("宣言・CDATA・PI を除去する", () => {
+		expect(trimHtml("<!DOCTYPE html><p>本文</p>")).toBe("本文");
+		expect(trimHtml("<p>前<![CDATA[ junk ]]>後</p>")).toBe("前 後");
+		expect(trimHtml("<p>前<?xml version='1.0'?>後</p>")).toBe("前 後");
+	});
 });
