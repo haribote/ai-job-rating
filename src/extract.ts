@@ -23,6 +23,11 @@ import {
 // 最終的なデフォルトモデルは日本語抽出精度の比較スパイク（#15）で確定する（要手動検証）。
 export const EXTRACTION_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
+// 抽出結果のステータス。呼び出し側が「unknown 中立」と「抽出失敗」を区別できるようにする（§5.2）。
+// - ok: AI 呼出が成功（個々の項目が unknown でも、それは中立として正しく扱える）。
+// - extraction_failed: upstream 障害等でそもそも抽出できなかった。全 unknown は「失敗の畳み込み」であり中立ではない。
+export type ExtractionStatus = "ok" | "extraction_failed";
+
 // 抽出結果。スコアリング（#12）が再利用するため、正規スキーマと監査用メタを保存できる形にする。
 // §5.3: この結果を保存しておけば重み・希望値の変更では再実行しない。
 export interface ExtractionResult {
@@ -30,6 +35,20 @@ export interface ExtractionResult {
 	readonly model: string;
 	// ISO8601。再取得・再抽出の要否判断（ページ内容変更時のみ）に使う監査メタ。
 	readonly extractedAt: string;
+	// 抽出が成立したか。extraction_failed の全 unknown を中立スコアと誤認させないための区別。
+	readonly status: ExtractionStatus;
+}
+
+// transient な upstream 障害のリトライ上限（初回 + リトライ）。Phase 0 では過剰にせず最小限に抑える。
+export const MAX_EXTRACTION_ATTEMPTS = 3;
+
+// 既定の指数バックオフ基準（ms）。テストでは 0 を注入して即時化する。
+const DEFAULT_BACKOFF_MS = 200;
+
+// extractJob の任意オプション。リトライ挙動を呼び出し側／テストから調整できるようにする。
+export interface ExtractJobOptions {
+	// 指数バックオフの基準値（ms）。attempt 回目の待機は backoffMs * 2^(attempt-1)。
+	readonly backoffMs?: number;
 }
 
 // 抽出時に AI へ要求する「正規キーごとの生抽出文字列」。値は素のテキスト（正規化前）。
@@ -100,11 +119,21 @@ export function buildExtractionJsonSchema(): ExtractionJsonSchema {
 	return { type: "object", properties };
 }
 
+// 注記・補足を除去する（決定的）。NFKC 後に括弧（半角/全角どちらも () へ正規化済み）の中身と
+// ※/＊ 以降の注記を落とす。
+// なぜ: 「442名（グループ全体 ※2025年11月時点）」の括弧内日付（2025/11）を本体の数値と混ぜると
+// min/max が破損するため、数値抽出より前にノイズ源を除く（単位換算・categorical 化には踏み込まない）。
+function stripAnnotations(normalized: string): string {
+	return normalized
+		.replace(/\([^)]*\)/g, "") // 括弧（補足）ごと除去
+		.replace(/[※＊].*$/gm, ""); // ※/＊ 以降の注記を各行末まで除去（多行値でも行単位で効かせる）
+}
+
 // 生表記から数値を取り出す（決定的）。「700万〜900万」「122日」「700万」等を扱う。
 // 同一項目内の表記は単位が揃う前提で、表記上の数値（700万→700）をそのまま min/max 比較に使う。
 // 単位を跨いだ換算（万円 ↔ 円）はスコアリング側の関心事のため、ここでは行わない。
 function parseNumbers(raw: string): number[] {
-	const normalized = raw.normalize("NFKC");
+	const normalized = stripAnnotations(raw.normalize("NFKC"));
 	const numbers: number[] = [];
 	// 数値（カンマ・小数点許容）を順に拾う
 	const re = /[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?/g;
@@ -198,35 +227,91 @@ function safeParse(text: string): unknown {
 	}
 }
 
+// throw された値が transient な upstream 障害（504 等）か判定する（決定的）。
+// なぜ: live 検証ができないため、Workers AI の InferenceUpstreamError の正確な形に依存せず、
+// 典型的なエラー形（httpCode/status/code/name/message）から 504 / gateway timeout の兆候を拾う。
+// 恒久的エラー（400 系等）はリトライ対象外として即失敗にするため、ここで弾く。
+function isTransientUpstreamError(cause: unknown): boolean {
+	if (typeof cause !== "object" || cause === null) return false;
+	const e = cause as {
+		httpCode?: unknown;
+		status?: unknown;
+		statusCode?: unknown;
+		code?: unknown;
+		name?: unknown;
+		message?: unknown;
+	};
+	const codes = [e.httpCode, e.status, e.statusCode, e.code];
+	if (codes.some((c) => c === 504 || c === "504")) return true;
+	const text = `${typeof e.name === "string" ? e.name : ""} ${
+		typeof e.message === "string" ? e.message : ""
+	}`.toLowerCase();
+	return text.includes("504") || text.includes("gateway timeout");
+}
+
+// 指定 ms だけ待つ（バックオフ）。0 以下なら即時に解決する。
+function delay(ms: number): Promise<void> {
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // 求人本文を JSON Mode で構造化抽出し、正規スキーマへ寄せた抽出結果を返す（§7.1 / §5.3）。
 // - 空本文では AI を呼ばず全 unknown を返す（unknown 中立・コスト最小化）。
-// - AI が想定外形を返す/throw しても落とさず全 unknown へ畳む（抽出は堅牢に）。
+// - AI が想定外形を返しても落とさず全 unknown へ畳む（抽出は堅牢に）。throw でなければ status は ok。
+// - transient な upstream 504 は指数バックオフで限定回数リトライする。枯渇／非 transient エラーは
+//   extraction_failed として全 unknown を返し、呼び出し側が「unknown 中立」と区別できるようにする（§5.2）。
 export async function extractJob(
 	ai: AiRunner,
 	body: string,
+	options: ExtractJobOptions = {},
 ): Promise<ExtractionResult> {
 	const extractedAt = new Date().toISOString();
+	const backoffMs = options.backoffMs ?? DEFAULT_BACKOFF_MS;
 	// 空判定は trimHtml の出力契約（空文字の可能性）に従う。AI 呼出前に弾く。
 	if (body.trim() === "") {
-		return { job: allUnknownJob(), model: EXTRACTION_MODEL, extractedAt };
-	}
-
-	try {
-		const output = await ai.run(EXTRACTION_MODEL, {
-			messages: buildExtractionMessages(body),
-			response_format: {
-				type: "json_schema",
-				json_schema: buildExtractionJsonSchema(),
-			},
-		});
-		const fields = extractRawFields(output);
 		return {
-			job: rawFieldsToNormalizedJob(fields),
+			job: allUnknownJob(),
 			model: EXTRACTION_MODEL,
 			extractedAt,
+			status: "ok",
 		};
-	} catch {
-		// JSON Mode 未充足・upstream 障害等。抽出は落とさず全 unknown を返し、後段で中立に扱う。
-		return { job: allUnknownJob(), model: EXTRACTION_MODEL, extractedAt };
 	}
+
+	for (let attempt = 1; attempt <= MAX_EXTRACTION_ATTEMPTS; attempt += 1) {
+		try {
+			const output = await ai.run(EXTRACTION_MODEL, {
+				messages: buildExtractionMessages(body),
+				response_format: {
+					type: "json_schema",
+					json_schema: buildExtractionJsonSchema(),
+				},
+			});
+			// throw されない想定外レスポンス（JSON Mode 未充足等）は upstream 障害ではない。
+			// 全 unknown へ畳むが status は ok（リトライ対象外）。
+			const fields = extractRawFields(output);
+			return {
+				job: rawFieldsToNormalizedJob(fields),
+				model: EXTRACTION_MODEL,
+				extractedAt,
+				status: "ok",
+			};
+		} catch (cause) {
+			const lastAttempt = attempt === MAX_EXTRACTION_ATTEMPTS;
+			// transient 504 のみリトライ。非 transient は即失敗（無駄なリトライをしない）。
+			if (isTransientUpstreamError(cause) && !lastAttempt) {
+				await delay(backoffMs * 2 ** (attempt - 1));
+				continue;
+			}
+			break;
+		}
+	}
+
+	// リトライ枯渇 or 非 transient エラー。抽出は落とさず全 unknown を返すが、
+	// status: extraction_failed で「抽出失敗」を呼び出し側に伝える（中立スコアと誤認させない）。
+	return {
+		job: allUnknownJob(),
+		model: EXTRACTION_MODEL,
+		extractedAt,
+		status: "extraction_failed",
+	};
 }

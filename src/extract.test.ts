@@ -5,6 +5,7 @@ import {
 	buildExtractionMessages,
 	EXTRACTION_MODEL,
 	extractJob,
+	MAX_EXTRACTION_ATTEMPTS,
 	rawFieldsToNormalizedJob,
 } from "./extract";
 import { isUnknown, NORMALIZED_KEYS } from "./job-schema";
@@ -82,6 +83,61 @@ describe("rawFieldsToNormalizedJob", () => {
 			expect(job.annualHolidays.min).toBe(122);
 			expect(job.annualHolidays.max).toBe(122);
 		}
+	});
+
+	it("括弧内の注記の数値を拾わない（注記付き単数値を正しく取る）", () => {
+		// なぜ: 括弧内の補足（グループ全体・時点）の数値を本体の数値と混ぜると min/max が破損する。
+		const job = rawFieldsToNormalizedJob({
+			companySize: "442名（グループ全体　※2025年11月時点）",
+		});
+		expect(job.companySize.kind).toBe("numericRange");
+		if (job.companySize.kind === "numericRange") {
+			expect(job.companySize.min).toBe(442);
+			expect(job.companySize.max).toBe(442);
+		}
+	});
+
+	it("※以降の注記の数値を拾わない", () => {
+		// なぜ: 「※経験による」「※2024年実績」等の注記は本体のレンジに混入させない。
+		const job = rawFieldsToNormalizedJob({
+			annualSalary: "700万〜900万 ※経験により決定（2024年実績）",
+		});
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(700);
+			expect(job.annualSalary.max).toBe(900);
+		}
+	});
+
+	it("半角括弧の注記の数値も拾わない（NFKC 後も同等に扱う）", () => {
+		const job = rawFieldsToNormalizedJob({
+			companySize: "120名 (2025/03時点)",
+		});
+		expect(job.companySize.kind).toBe("numericRange");
+		if (job.companySize.kind === "numericRange") {
+			expect(job.companySize.min).toBe(120);
+			expect(job.companySize.max).toBe(120);
+		}
+	});
+
+	it("多行値でも各行の ※ 注記の数値を拾わない", () => {
+		// なぜ: 改行を含む値で ※ 注記が行末まで効かないと、注記内の数値が本体に混入する。
+		const job = rawFieldsToNormalizedJob({
+			annualSalary: "700万〜900万\n※経験により決定（2024年実績）",
+		});
+		expect(job.annualSalary.kind).toBe("numericRange");
+		if (job.annualSalary.kind === "numericRange") {
+			expect(job.annualSalary.min).toBe(700);
+			expect(job.annualSalary.max).toBe(900);
+		}
+	});
+
+	it("注記しか数値を含まない場合は unknown 中立に寄せる", () => {
+		// なぜ: 本体に数値がなく括弧内にだけ数値があるとき、注記を本体値と誤認しない。
+		const job = rawFieldsToNormalizedJob({
+			companySize: "非公開（2025年時点）",
+		});
+		expect(isUnknown(job.companySize)).toBe(true);
 	});
 
 	it("カテゴリ項目（リモート可否）は categorical へ寄せる", () => {
@@ -191,6 +247,79 @@ describe("extractJob", () => {
 		for (const key of NORMALIZED_KEYS) {
 			expect(isUnknown(result.job[key])).toBe(true);
 		}
+	});
+
+	it("成功時は status: ok を返す", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({ response: { annualSalary: "700万" } }),
+		};
+		const result = await extractJob(fakeAi, "本文");
+		expect(result.status).toBe("ok");
+	});
+
+	it("transient 504 は限定回数リトライし、成功すれば status: ok を返す", async () => {
+		// なぜ: upstream の一時的 504 を無言で全 unknown へ畳まず、まずリトライで救う。
+		let attempts = 0;
+		const fakeAi: AiRunner = {
+			run: async () => {
+				attempts += 1;
+				if (attempts < 2) {
+					throw { name: "InferenceUpstreamError", httpCode: 504 };
+				}
+				return { response: { annualSalary: "700万" } };
+			},
+		};
+		const result = await extractJob(fakeAi, "本文", { backoffMs: 0 });
+		expect(attempts).toBe(2);
+		expect(result.status).toBe("ok");
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("transient 504 がリトライ上限まで続けば extraction_failed として畳む（呼び出し側が区別可能）", async () => {
+		// なぜ: 「抽出失敗」と「unknown 中立」を呼び出し側が区別できる形にする（§5.2）。
+		let attempts = 0;
+		const fakeAi: AiRunner = {
+			run: async () => {
+				attempts += 1;
+				throw { name: "InferenceUpstreamError", httpCode: 504 };
+			},
+		};
+		const result = await extractJob(fakeAi, "本文", { backoffMs: 0 });
+		// 上限まで試行する
+		expect(attempts).toBe(MAX_EXTRACTION_ATTEMPTS);
+		expect(result.status).toBe("extraction_failed");
+		// 全 unknown へ畳む（堅牢性は維持）
+		for (const key of NORMALIZED_KEYS) {
+			expect(isUnknown(result.job[key])).toBe(true);
+		}
+	});
+
+	it("非 transient エラー（非 504）はリトライせず即 extraction_failed", async () => {
+		// なぜ: 恒久的エラーをリトライしても無駄。区別して即座に失敗扱いにする。
+		let attempts = 0;
+		const fakeAi: AiRunner = {
+			run: async () => {
+				attempts += 1;
+				throw new Error("invalid request");
+			},
+		};
+		const result = await extractJob(fakeAi, "本文", { backoffMs: 0 });
+		expect(attempts).toBe(1);
+		expect(result.status).toBe("extraction_failed");
+	});
+
+	it("想定外形（JSON Mode 未充足）はリトライせず status: ok の全 unknown（throw ではない）", async () => {
+		// なぜ: throw されない想定外レスポンスは upstream 障害ではないためリトライ対象外。
+		let attempts = 0;
+		const fakeAi: AiRunner = {
+			run: async () => {
+				attempts += 1;
+				return { error: "JSON Mode couldn't be met" };
+			},
+		};
+		const result = await extractJob(fakeAi, "本文", { backoffMs: 0 });
+		expect(attempts).toBe(1);
+		expect(result.status).toBe("ok");
 	});
 
 	it("抽出結果は再利用できる形（model と extractedAt を持つ）", async () => {
