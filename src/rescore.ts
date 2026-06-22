@@ -38,7 +38,8 @@ interface LatestExtraction {
 }
 
 // criteria_config 全行を読む（決定的順序は buildScoringConfig 側で担保）。
-async function readCriteriaConfig(
+// 設定 UI（#19）も同じ行を初期値描画に読むため export して共有する（読み出しの単一ソース）。
+export async function readCriteriaConfig(
 	db: D1Database,
 ): Promise<CriteriaConfigRow[]> {
 	const { results } = await db

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { runAiHealthCheck } from "./ai";
+import { criteriaForm } from "./criteria-form";
 import { pasteInput } from "./paste-input";
 import { readRanking } from "./ranking";
 import { renderRankingPage } from "./ranking-list";
@@ -32,9 +33,11 @@ app.get("/ai-health", async (c) => {
 
 // 求人 URL 入力の受け口（GET /fetch・POST /fetch）。SSR 取得の主経路（roadmap Phase 0）。
 // HTML 貼り付けフォールバックの入力受け口（GET /paste・POST /paste）。
+// 評価条件の設定 UI の受け口（GET /config・POST /config）。保存で即再ランキング（#19→#20）。
 // いずれも静的資産フォールスルー（app.get("*")）より前に評価させる。
 app.route("/", urlInput);
 app.route("/", pasteInput);
+app.route("/", criteriaForm);
 
 // ランキング一覧（#18）。永続 scores を読み、スコア順一覧＋項目別内訳を SSR で返す。
 // 読み出し・順序付けは ranking.ts（rankJobs に委譲・決定的）、描画は ranking-list.ts に分離。
