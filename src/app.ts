@@ -11,6 +11,8 @@ export interface Bindings {
 	AI: Ai;
 	// D1 バインディング（wrangler.jsonc の d1_databases.binding と一致, §6）。構造化データの永続化に使う
 	DB: D1Database;
+	// R2 バインディング（wrangler.jsonc の r2_buckets.binding と一致, §6）。生 HTML 等の保存に使う（#17）
+	RAW_HTML: R2Bucket;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）

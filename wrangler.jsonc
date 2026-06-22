@@ -27,5 +27,14 @@
 			"database_id": "00000000-0000-0000-0000-000000000000",
 			"migrations_dir": "migrations"
 		}
+	],
+	// R2 バインディング（§6, 生 HTML 等の大きめオブジェクト）。env.RAW_HTML でアクセスする。
+	// bucket_name はアカウント固有のため、フォーク先が `wrangler r2 bucket create` で作成した値に差し替える
+	// （フォーク容易性 §8）。ローカル開発・テストでは miniflare がファイルシステム上の in-memory R2 を与える。
+	"r2_buckets": [
+		{
+			"binding": "RAW_HTML",
+			"bucket_name": "ai-job-rating-raw-html"
+		}
 	]
 }
