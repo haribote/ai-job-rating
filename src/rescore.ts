@@ -11,19 +11,24 @@
 // - 各正規キー行に sub_score / included / weight。unknown 中立は included=0 / sub_score NULL。
 // - weight は criteria_config からのスナップショット（再現性のためコピー、#16 設計）。
 
-import { buildHardFilterMap, buildScoringConfig } from "./criteria-config";
+import {
+	buildDesiredSkills,
+	buildHardFilterMap,
+	buildScoringConfig,
+} from "./criteria-config";
 import {
 	type CriteriaConfigRow,
 	type ExtractionStatus,
 	TABLE_NAMES,
 	TOTAL_SCORE_CRITERION,
 } from "./db-schema";
-import type { NormalizedJob, NormalizedKey } from "./job-schema";
+import type { NormalizedJob } from "./job-schema";
 import {
 	type RescoredJob,
 	type RescoreExtensions,
 	rescoreJob,
 } from "./rescore-core";
+import { defaultSkillMatcher } from "./skill-matcher";
 
 // 最新抽出の読み出し結果（job_id ごと 1 件）。
 interface LatestExtraction {
@@ -156,9 +161,15 @@ function computeOne(
 ): RescoredJob {
 	const config = buildScoringConfig(configRows);
 	const hardFilters = buildHardFilterMap(configRows);
-	// 希望スキル集合（aiJudged 拡張点）。当面 criteria_config に希望スキルは持たないため空。
-	// #68 がここへ希望集合の在り処（categorical 希望値 等）を差す。
-	const desiredSkills: Partial<Record<NormalizedKey, readonly string[]>> = {};
+	// 希望スキル集合（aiJudged 拡張点・#68）。criteria_config の aiJudged 行の
+	// desired_value({skills}) を在り処にする。希望値の変更で AI は再実行しない（§5.3）。
+	const desiredSkills = buildDesiredSkills(configRows);
+	// 既定の決定的スキル突合を差す。呼び出し側が skillMatcher を指定すればそちらを優先する。
+	// 明示的な undefined で既定が消えないよう ?? で受ける（spread だと undefined が上書きする）。
+	const withMatcher: RescoreExtensions = {
+		...extensions,
+		skillMatcher: extensions.skillMatcher ?? defaultSkillMatcher,
+	};
 	return rescoreJob(
 		extraction.jobId,
 		extraction.job,
@@ -166,6 +177,6 @@ function computeOne(
 		config,
 		hardFilters,
 		desiredSkills,
-		extensions,
+		withMatcher,
 	);
 }
