@@ -44,23 +44,25 @@ async function readCriteriaConfig(
 	return results;
 }
 
-// 求人ごとの最新抽出（extracted_at 最大）を読む。failed/partial も含めて読む
-// （extraction_status は採点側 rescore-core が解釈する）。AI は呼ばない。
+// 求人ごとの最新抽出（extracted_at 最大）を 1 件だけ読む。failed/partial も含めて
+// 読む（extraction_status は採点側 rescore-core が解釈する）。AI は呼ばない。
 async function readLatestExtractions(
 	db: D1Database,
 	jobId?: string,
 ): Promise<LatestExtraction[]> {
-	// idx_extractions_job (job_id, extracted_at) を使い、job_id ごとの最新行を取る。
-	const where = jobId === undefined ? "" : "WHERE e.job_id = ?";
+	// job_id ごとに id を 1 つに畳む相関サブクエリで、extracted_at 同値の衝突時も
+	// 決定的に 1 行へ絞る（最大 extracted_at、同値なら最大 id を採用）。
+	const andJob = jobId === undefined ? "" : "AND e.job_id = ?";
 	const stmt = db.prepare(
 		`SELECT e.job_id AS job_id, e.structured_json AS structured_json, e.extraction_status AS extraction_status
 		 FROM ${TABLE_NAMES.extractions} e
-		 JOIN (
-		   SELECT job_id, MAX(extracted_at) AS max_at
-		   FROM ${TABLE_NAMES.extractions}
-		   GROUP BY job_id
-		 ) latest ON latest.job_id = e.job_id AND latest.max_at = e.extracted_at
-		 ${where}`,
+		 WHERE e.id = (
+		   SELECT i.id FROM ${TABLE_NAMES.extractions} i
+		   WHERE i.job_id = e.job_id
+		   ORDER BY i.extracted_at DESC, i.id DESC
+		   LIMIT 1
+		 )
+		 ${andJob}`,
 	);
 	const bound = jobId === undefined ? stmt : stmt.bind(jobId);
 	const { results } = await bound.all<{

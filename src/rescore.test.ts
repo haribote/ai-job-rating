@@ -159,6 +159,34 @@ describe("rescoreOne（保存済み抽出から再スコアリングして score
 		// 最新（800, desired 以上）→ 1.0
 		expect(scored?.score.total).toBe(1);
 	});
+
+	it("extracted_at 同値の衝突時も決定的に 1 件へ絞る（重複行を作らない）", async () => {
+		// 同 job_id・同 extracted_at の抽出を2件投入（id だけ異なる）。
+		await seed(
+			"j1",
+			jobWith({ annualSalary: { kind: "numericRange", min: 400, max: 400 } }),
+			"ok",
+			1000,
+		);
+		await env.DB.prepare(
+			`INSERT INTO ${TABLE_NAMES.extractions} (id, job_id, structured_json, model, mechanism, extraction_status, extracted_at) VALUES ('ext-j1-b','j1',?, 'm','json-mode','ok', 1000)`,
+		)
+			.bind(
+				JSON.stringify(
+					jobWith({
+						annualSalary: { kind: "numericRange", min: 800, max: 800 },
+					}),
+				),
+			)
+			.run();
+		await setCriterion("annualSalary", 5, { desired: 700, floor: 300 });
+		await rescoreOne(env.DB, "j1");
+		// scores は 1 セットのみ（annualSalary + __total__ の 2 行）
+		const { results } = await env.DB.prepare(
+			`SELECT criterion FROM ${TABLE_NAMES.scores} WHERE job_id='j1'`,
+		).all<{ criterion: string }>();
+		expect(results.length).toBe(2);
+	});
 });
 
 describe("rescoreAll（設定変更→即再ランキング・AI 非再実行・§5.3）", () => {
