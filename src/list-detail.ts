@@ -14,10 +14,18 @@ export type PageClassification =
 // 1 件では詳細ページ内の関連リンク等と区別できないため複数を要求する。
 const LIST_THRESHOLD = 2;
 
-// href の属性値を緩く拾う。引用符あり（" '）/なしの実データに耐える。
+// リンク抽出前に中身ごと落とす要素・コメント。
+// script/style/template の内側に書かれた a href リテラルや、コメントアウト済みリンクを
+// 実リンクと誤認しないため（regex スキャンの取りこぼし・水増しを防ぐ。trim-html と同方針）。
+const STRIP_WITH_CONTENT =
+	/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi;
+const HTML_COMMENT = /<!--[\s\S]*?-->/g;
+
+// a 要素の href 属性値を拾う。引用符あり（" '）/なしの実データに耐える。
+// 属性名直前に空白を要求し、data-href 等の接尾辞属性（\b では誤マッチ）を除外する。
 // 値の正当性（スキーム・オリジン）は normalizeUrl 側の URL パースで担保する。
 const HREF_PATTERN =
-	/<a\b[^>]*?\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'<>]+))/gi;
+	/<a\b[^>]*?\shref\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'<>]+))/gi;
 
 // href を base URL で絶対化し、フラグメント除去・末尾スラッシュ揃えで正規キーへ寄せる。
 // 解釈不能・非 http(s) は null（後続から除外する）。クエリは求人 ID を担うため温存する。
@@ -37,8 +45,14 @@ export function normalizeUrl(href: string, baseUrl: string): string | null {
 	}
 	// フラグメントは同一リソースを指すので捨てる
 	parsed.hash = "";
-	// 末尾スラッシュは表記揺れなのでルート以外で揃える（重複排除のため）
-	if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
+	// 末尾スラッシュは表記揺れなのでルート以外で揃える（重複排除のため）。
+	// ただしクエリ付き URL は /jobs/?id=1 と /jobs?id=1 を別リソースとするサイトがあり、
+	// クエリが求人 ID を担う前提と衝突するため畳まない（情報欠落を避ける）。
+	if (
+		parsed.search === "" &&
+		parsed.pathname.length > 1 &&
+		parsed.pathname.endsWith("/")
+	) {
 		parsed.pathname = parsed.pathname.replace(/\/+$/, "");
 	}
 	return parsed.toString();
@@ -55,9 +69,14 @@ export function extractDetailUrls(html: string, baseUrl: string): string[] {
 		return [];
 	}
 
+	// script/style/コメントの内側に書かれた a href リテラルを実リンクと誤認しないよう先に除去する
+	const scannable = html
+		.replace(STRIP_WITH_CONTENT, " ")
+		.replace(HTML_COMMENT, " ");
+
 	const seen = new Set<string>();
 	const urls: string[] = [];
-	for (const match of html.matchAll(HREF_PATTERN)) {
+	for (const match of scannable.matchAll(HREF_PATTERN)) {
 		const raw = match[2] ?? match[3] ?? match[4] ?? "";
 		const normalized = normalizeUrl(raw, baseUrl);
 		if (normalized === null) {

@@ -31,6 +31,14 @@ describe("normalizeUrl", () => {
 		).toBe("https://example.com/job?id=42");
 	});
 
+	// クエリ付き URL の末尾スラッシュは畳まない。/jobs/?id=1 と /jobs?id=1 を
+	// 別リソースとするサイトがあり、クエリで求人を区別する前提と衝突するため。
+	it("クエリ付き URL の末尾スラッシュは温存する", () => {
+		expect(
+			normalizeUrl("https://example.com/jobs/?id=1", "https://example.com"),
+		).toBe("https://example.com/jobs/?id=1");
+	});
+
 	// 解釈できない href は正規化対象外として null を返す（後続から除外する）
 	it("不正な href は null", () => {
 		expect(
@@ -99,6 +107,29 @@ describe("extractDetailUrls", () => {
 		expect(extractDetailUrls(html, base)).toEqual([
 			"https://example.com/jobs/1",
 			"https://example.com/jobs/2",
+		]);
+	});
+
+	// data-href 等の接尾辞属性は遷移先 href ではないので拾わない（解析用属性の誤抽出を防ぐ）
+	it("data-href 等の接尾辞属性は拾わない", () => {
+		const html = `
+			<a data-href="/tracking/1">解析用</a>
+			<a href="/jobs/1">本物</a>
+		`;
+		expect(extractDetailUrls(html, base)).toEqual([
+			"https://example.com/jobs/1",
+		]);
+	});
+
+	// script/style/コメント内の a href リテラルは実リンクではないので拾わない（件数水増しを防ぐ）
+	it("script・コメント内の href リテラルは拾わない", () => {
+		const html = `
+			<!-- <a href="/jobs/old">過去版</a> -->
+			<script>var s = '<a href="/jobs/script">';</script>
+			<a href="/jobs/1">本物</a>
+		`;
+		expect(extractDetailUrls(html, base)).toEqual([
+			"https://example.com/jobs/1",
 		]);
 	});
 });
