@@ -37,6 +37,7 @@ pasteInput.get("/paste", (c) =>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/styles.css" />
     <title>HTML 貼り付け入力 — ai-job-rating</title>
   </head>
   <body>
