@@ -64,4 +64,31 @@ describe("renderStylesheet", () => {
 	it("決定的に出力する（同一入力→同一出力, §8）", () => {
 		expect(renderStylesheet(tokenGroups)).toBe(renderStylesheet(tokenGroups));
 	});
+
+	it("SSR マークアップが使う要素のベーススタイルを網羅する", () => {
+		const css = renderStylesheet(tokenGroups);
+		// 既存 SSR ページ（main/h1/p/a/form/input/textarea/button/table）が素のままで整う最低限
+		for (const selector of [
+			"body {",
+			"main {",
+			"h1 {",
+			"a {",
+			"form {",
+			"button {",
+			"table {",
+		]) {
+			expect(css).toContain(selector);
+		}
+	});
+
+	it("ベーススタイルが参照する var() は全て宣言済みトークンを指す（名前タイポ検出）", () => {
+		const css = renderStylesheet(tokenGroups);
+		const declared = new Set(tokenGroups.flatMap((g) => Object.keys(g.tokens)));
+		// var(--ajr-<name>) を抽出し、未宣言の name が無いことを保証する
+		const refPattern = new RegExp(`var\\(--${TOKEN_PREFIX}-([\\w-]+)\\)`, "g");
+		const referenced = [...css.matchAll(refPattern)].map((m) => m[1]);
+		expect(referenced.length).toBeGreaterThan(0);
+		const undeclared = referenced.filter((name) => !declared.has(name));
+		expect(undeclared).toEqual([]);
+	});
 });
