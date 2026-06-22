@@ -17,6 +17,10 @@
 	"ai": {
 		"binding": "AI"
 	},
+	// Browser Rendering バインディング（SPA 取得フォールバック, roadmap Phase 1）。env.BROWSER でアクセスする
+	"browser": {
+		"binding": "BROWSER"
+	},
 	// D1 バインディング（§6, 構造化データ）。env.DB でアクセスする。
 	// database_id はアカウント固有のため、フォーク先が `wrangler d1 create` で発行した値に差し替える
 	// （フォーク容易性 §8）。migrations_dir のマイグレーションは `wrangler d1 migrations apply` で適用する。

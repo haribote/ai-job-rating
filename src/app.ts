@@ -12,6 +12,9 @@ export interface Bindings {
 	ASSETS: Fetcher;
 	// Workers AI バインディング（wrangler.jsonc の ai.binding と一致, §7.1）。型は wrangler types 生成の Ai
 	AI: Ai;
+	// Browser Rendering バインディング（wrangler.jsonc の browser.binding と一致）。SPA 取得フォールバックで使う。
+	// @cloudflare/puppeteer.launch へ渡す認証付きエンドポイント（Fetcher 形）。実起動は同 package が担う。
+	BROWSER: Fetcher;
 	// D1 バインディング（wrangler.jsonc の d1_databases.binding と一致, §6）。構造化データの永続化に使う
 	DB: D1Database;
 	// R2 バインディング（wrangler.jsonc の r2_buckets.binding と一致, §6）。生 HTML 等の保存に使う（#17）
