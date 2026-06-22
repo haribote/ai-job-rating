@@ -34,7 +34,8 @@ export function formatSubScore(score: number | null): string {
 }
 
 // 正規キーの日本語ラベル。スコアリング設定のキー集合に対応する（表示用途のみ）。
-const JP_LABELS: Record<NormalizedKey, string> = {
+// ランキング一覧（#18）も同じラベル集合を参照するため export する（表示語彙の単一ソース）。
+export const JP_LABELS: Record<NormalizedKey, string> = {
 	annualSalary: "年収",
 	monthlySalary: "月給",
 	bonus: "賞与",
@@ -58,8 +59,11 @@ const JP_LABELS: Record<NormalizedKey, string> = {
 	companyPhase: "企業フェーズ",
 };
 
-// kind の日本語ラベル（評価方式の可読化）。
-const KIND_LABELS: Record<ScoreResult["breakdown"][number]["kind"], string> = {
+// kind の日本語ラベル（評価方式の可読化）。ランキング一覧（#18）と共有する。
+export const KIND_LABELS: Record<
+	ScoreResult["breakdown"][number]["kind"],
+	string
+> = {
 	numericRange: "数値レンジ",
 	categorical: "カテゴリ",
 	aiJudged: "AI 判定",
