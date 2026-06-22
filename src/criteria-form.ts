@@ -19,7 +19,7 @@ import {
 	TABLE_NAMES,
 } from "./db-schema";
 import { NORMALIZED_KEYS, type NormalizedKey } from "./job-schema";
-import { rescoreAll } from "./rescore";
+import { readCriteriaConfig, rescoreAll } from "./rescore";
 import { escapeHtml } from "./result-display";
 
 // ---------------------------------------------------------------------------
@@ -303,20 +303,8 @@ export function renderConfigForm(
 }
 
 // ---------------------------------------------------------------------------
-// DB I/O（設定の読み書き）
+// DB I/O（設定の書き込み。読み出しは rescore.ts の readCriteriaConfig を共有）
 // ---------------------------------------------------------------------------
-
-// criteria_config 全行を読む（描画の初期値用）。
-async function readCriteriaConfig(
-	db: D1Database,
-): Promise<CriteriaConfigRow[]> {
-	const { results } = await db
-		.prepare(
-			`SELECT criterion, desired_value, weight, hard_filter, updated_at FROM ${TABLE_NAMES.criteriaConfig}`,
-		)
-		.all<CriteriaConfigRow>();
-	return results;
-}
 
 // criteria_config 行群を upsert する（criterion を PK に冪等上書き）。updated_at は DB 既定に委ねる。
 async function upsertConfigRows(
