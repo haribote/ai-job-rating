@@ -16,8 +16,8 @@ export interface DetailJobMessage {
 
 // producer が依存する Queue binding の最小契約。実型（Queue<DetailJobMessage>）は構造的に適合する。
 // テストではこのインターフェースをモックし、実 binding なしで投入内容を検証する。
+// sendBatch のみ使う（複数詳細を 1 リクエストで投入する）。単発 send は呼び口がないため持たない。
 export interface DetailQueue {
-	send(body: DetailJobMessage): Promise<void>;
 	sendBatch(messages: Iterable<{ body: DetailJobMessage }>): Promise<void>;
 }
 
@@ -64,16 +64,17 @@ export async function enqueueDetailJobs(
 }
 
 // 失敗が再試行する価値があるか（retryable）を決定的に分類する。
-// timeout / network / 5xx は一過性なので retry、4xx は恒久的なので permanent。
+// timeout / network / 5xx は一過性なので retry、3xx・4xx は恒久的なので permanent。
 // FetchHtmlError 以外（抽出層の想定外例外など）は情報がないため安全側に倒して retryable とする。
 export function classifyRetryable(error: unknown): boolean {
 	if (!(error instanceof FetchHtmlError)) {
 		return true;
 	}
 	if (error.kind === "http") {
-		// 4xx はクライアント側起因で再試行しても回復しない。5xx 等は一時障害として再試行する。
+		// 5xx は上流の一時障害として再試行する。3xx（follow 不能なリダイレクト）・4xx は
+		// 再試行しても回復しない恒久的失敗。status 不明（0）は安全側に倒して再試行する。
 		const status = error.status ?? 0;
-		return status < 400 || status >= 500;
+		return status === 0 || status >= 500;
 	}
 	// timeout / network は一過性
 	return true;

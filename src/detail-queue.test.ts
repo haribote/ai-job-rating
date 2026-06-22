@@ -71,7 +71,7 @@ describe("enqueueDetailJobs", () => {
 	// producer は sendBatch でまとめて投入する（1 メッセージ = 1 詳細 URL）
 	it("各メッセージを sendBatch の body に詰めて投入する", async () => {
 		const sendBatch = vi.fn(async () => {});
-		const queue: DetailQueue = { send: vi.fn(), sendBatch };
+		const queue: DetailQueue = { sendBatch };
 		const classification: PageClassification = {
 			kind: "list",
 			detailUrls: [`${BASE}/1`, `${BASE}/2`],
@@ -90,7 +90,7 @@ describe("enqueueDetailJobs", () => {
 	// 0 件のときは sendBatch を呼ばない（空 batch 送信を避ける）
 	it("メッセージが 0 件なら sendBatch を呼ばず 0 を返す", async () => {
 		const sendBatch = vi.fn(async () => {});
-		const queue: DetailQueue = { send: vi.fn(), sendBatch };
+		const queue: DetailQueue = { sendBatch };
 		const classification: PageClassification = { kind: "list", detailUrls: [] };
 
 		const count = await enqueueDetailJobs(queue, classification, BASE);
@@ -102,7 +102,7 @@ describe("enqueueDetailJobs", () => {
 	// Queues の sendBatch 上限（100 件/バッチ）超過時はチャンク分割して複数回送る
 	it("100 件を超える場合は 100 件ごとにチャンク分割して送る", async () => {
 		const sendBatch = vi.fn<DetailQueue["sendBatch"]>(async () => {});
-		const queue: DetailQueue = { send: vi.fn(), sendBatch };
+		const queue: DetailQueue = { sendBatch };
 		const detailUrls = Array.from({ length: 250 }, (_, i) => `${BASE}/${i}`);
 		const classification: PageClassification = { kind: "list", detailUrls };
 
@@ -155,6 +155,23 @@ describe("classifyRetryable", () => {
 			message: "h",
 		});
 		expect(classifyRetryable(error)).toBe(false);
+	});
+
+	// follow 不能な 3xx も恒久的失敗（fetchHtml は redirect:follow だが Location 欠落等で到達しうる）
+	it("3xx の http FetchHtmlError は permanent（retryしない）", () => {
+		const error = new FetchHtmlError({
+			kind: "http",
+			url: BASE,
+			status: 302,
+			message: "h",
+		});
+		expect(classifyRetryable(error)).toBe(false);
+	});
+
+	// status 不明（0）の http は情報がないため安全側に倒して retryable
+	it("status 不明（0）の http は retryable", () => {
+		const error = new FetchHtmlError({ kind: "http", url: BASE, message: "h" });
+		expect(classifyRetryable(error)).toBe(true);
 	});
 
 	// FetchHtmlError 以外（抽出層など想定外）は安全側に倒して retryable とする

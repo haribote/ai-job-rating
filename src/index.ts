@@ -27,7 +27,7 @@ function buildProcessDeps(env: Bindings): ProcessDetailDeps {
 // アプリ本体は app.ts に分離してテスト可能にし、配線層は detail-queue.ts に分離してモック可能にしている。
 export default {
 	fetch: app.fetch,
-	// push consumer: 各メッセージを個別 try/catch で隔離し ack/retry する（detail-queue 側に委譲）。
+	// push consumer。ack/retry の隔離方針は detail-queue.processDetailBatch に委譲する。
 	async queue(
 		batch: MessageBatch<DetailJobMessage>,
 		env: Bindings,
