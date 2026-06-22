@@ -243,3 +243,88 @@ describe("fetchAuthedHtml", () => {
 		expect(error.kind).toBe("timeout");
 	});
 });
+
+// redirect セキュリティ: 認証下取得は Cookie を認可済みオリジン以外へ送ってはならない。
+// 取得層の redirect:"follow" は 3xx で別ホストへ Cookie を再送しうるため、認証層では
+// manual 追従し同一オリジンに限定する（cross-origin は追従せず Cookie を渡さない）。
+describe("fetchAuthedHtml redirect 安全性", () => {
+	const url = (input: string | URL): string =>
+		typeof input === "string" ? input : input.toString();
+
+	// 同一オリジンの redirect は認可済みなので Cookie を保持して追従し最終ページを返す
+	it("同一オリジンの redirect を Cookie 付きで追従し最終 HTML を返す", async () => {
+		const FINAL = "https://example.com/jobs/123/final";
+		const fetcher = vi.fn<Fetcher>(async (input) =>
+			url(input) === TARGET
+				? new Response(null, { status: 302, headers: { location: FINAL } })
+				: new Response("<html>final</html>", { status: 200 }),
+		);
+
+		const result = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, { fetcher });
+
+		expect(result.status).toBe(200);
+		expect(result.html).toBe("<html>final</html>");
+		// 追従は手動制御（runtime 任せにせず origin を検査するため）
+		expect(fetcher.mock.calls[0][1]?.redirect).toBe("manual");
+		// 同一オリジンの追従先には Cookie を再送する（認可済みオリジンなので安全）
+		expect(new Headers(fetcher.mock.calls[1][1]?.headers).get("cookie")).toBe(
+			"session=abc123; theme=dark",
+		);
+	});
+
+	// クロスオリジンの redirect では Cookie を渡さず、追従先を一度も fetch しない（漏洩防止）
+	it("クロスオリジンの redirect は Cookie を送らず追従せず kind=redirect で弾く", async () => {
+		const EVIL = "https://evil.example.org/steal";
+		const fetcher = vi.fn<Fetcher>(
+			async () =>
+				new Response(null, { status: 302, headers: { location: EVIL } }),
+		);
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("redirect");
+		// 別オリジンの追従先へは一度も fetch しない＝Cookie を渡さない
+		expect(fetcher).toHaveBeenCalledTimes(1);
+		assertNoSecret(error);
+	});
+
+	// scheme 差（https→http ダウングレード）も別オリジンとして弾く
+	it("scheme ダウングレードの redirect も Cookie を送らず弾く", async () => {
+		const DOWNGRADE = "http://example.com/jobs/123";
+		const fetcher = vi.fn<Fetcher>(
+			async () =>
+				new Response(null, { status: 302, headers: { location: DOWNGRADE } }),
+		);
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("redirect");
+		expect(fetcher).toHaveBeenCalledTimes(1);
+	});
+
+	// 同一オリジンでも redirect が上限を超えたら打ち切る（無限ループ防止）
+	it("redirect が上限を超えたら kind=redirect で打ち切る", async () => {
+		let n = 0;
+		const fetcher = vi.fn<Fetcher>(async () => {
+			n += 1;
+			return new Response(null, {
+				status: 302,
+				headers: { location: `https://example.com/hop/${n}` },
+			});
+		});
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("redirect");
+		assertNoSecret(error);
+	});
+});

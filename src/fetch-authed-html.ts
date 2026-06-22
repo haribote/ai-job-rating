@@ -23,9 +23,10 @@ export type CookieHeaderResult =
 	| { ok: true; value: string }
 	| { ok: false; reason: "empty" | "invalid" };
 
-// 認証失敗の分類。auth は 401/403（Cookie 失効・権限不足）、invalid-credential は投入 Cookie の構文不正。
+// 認証失敗の分類。auth は 401/403（Cookie 失効・権限不足）、invalid-credential は投入 Cookie の構文不正、
+// redirect は安全に追従できない redirect（クロスオリジン・Location 不明・追従上限超過）。
 // http/network/timeout 等は取得層の FetchHtmlError をそのまま透過し二重に包まない。
-export type AuthFetchErrorKind = "auth" | "invalid-credential";
+export type AuthFetchErrorKind = "auth" | "invalid-credential" | "redirect";
 
 // 認証下取得の失敗を表す例外。後続（#26）が失効/不正投入を判別できるよう種別を型で持つ。
 // 最小保持: Cookie 生値は一切保持・出力しない（message も含めない）。
@@ -97,6 +98,31 @@ export function buildCookieHeader(input: CookieInput): CookieHeaderResult {
 // 401/403 を認証失敗とみなす。Cookie 失効・権限不足の代表的ステータス。
 const AUTH_FAILURE_STATUSES = new Set([401, 403]);
 
+// Location で追従先を示す redirect ステータス（RFC9110）。これら以外の 3xx は追従しない。
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+// 認証下取得で追従する redirect の上限。リダイレクトループ・遅延攻撃を防ぐ。
+const MAX_AUTH_REDIRECTS = 5;
+
+// redirect 先が認可済みオリジン（取得開始 URL と同一オリジン）かを判定し、絶対 URL を返す。
+// 別オリジン・scheme ダウングレード・Location 不明・解決不能はすべて null（追従不可）。
+function resolveSameOriginRedirect(
+	location: string | undefined,
+	currentUrl: string,
+	authorizedOrigin: string,
+): string | null {
+	if (location === undefined) {
+		return null;
+	}
+	let target: URL;
+	try {
+		target = new URL(location, currentUrl);
+	} catch {
+		return null;
+	}
+	return target.origin === authorizedOrigin ? target.href : null;
+}
+
 export interface FetchAuthedHtmlOptions {
 	timeoutMs?: number;
 	// テスト用に fetch を差し替える。未指定時は fetchHtml が globalThis.fetch を使う
@@ -105,6 +131,8 @@ export interface FetchAuthedHtmlOptions {
 
 // Cookie/セッションを付与して認証下ページを取得する。
 // - Cookie 構文不正は取得を呼ばず AuthFetchError(invalid-credential) を投げる（無駄打ち・注入防止）。
+// - redirect は手動追従し、認可済みオリジン（取得開始 URL と同一オリジン）にのみ Cookie を再送する。
+//   別オリジンへの redirect は AuthFetchError(redirect) で弾き、Cookie を一切渡さない（漏洩防止）。
 // - 401/403 は AuthFetchError(auth) へ分類し、それ以外の取得失敗は FetchHtmlError を透過する。
 // - 最小保持: Cookie 生値は取得ヘッダにのみ使い、結果・例外・ログへ残さない。
 export async function fetchAuthedHtml(
@@ -122,28 +150,67 @@ export async function fetchAuthedHtml(
 		});
 	}
 
+	// Cookie を再送してよいのは取得開始 URL と同一オリジンのみ。不正 URL は origin を空にして全 redirect を弾く。
+	let authorizedOrigin = "";
 	try {
-		return await fetchHtml(url, {
-			fetcher: options.fetcher,
-			timeoutMs: options.timeoutMs,
-			headers: { cookie: header.value },
-		});
-	} catch (cause) {
-		// 401/403 のみ認証失敗へ昇格する。Cookie 生値は cause にも持たせない（status だけ引き継ぐ）。
-		if (
-			cause instanceof FetchHtmlError &&
-			cause.kind === "http" &&
-			cause.status !== undefined &&
-			AUTH_FAILURE_STATUSES.has(cause.status)
-		) {
-			throw new AuthFetchError({
-				kind: "auth",
-				url,
-				status: cause.status,
-				message: `authentication failed (HTTP ${cause.status}): ${url}`,
-			});
-		}
-		// その他の取得失敗（http(他)/network/timeout）は取得層の型のまま透過する。
-		throw cause;
+		authorizedOrigin = new URL(url).origin;
+	} catch {
+		authorizedOrigin = "";
 	}
+
+	let currentUrl = url;
+	for (let hop = 0; hop <= MAX_AUTH_REDIRECTS; hop++) {
+		try {
+			// redirect:"manual" で 3xx を捕捉し、追従可否を origin で自前判断する（runtime 任せにしない）。
+			return await fetchHtml(currentUrl, {
+				fetcher: options.fetcher,
+				timeoutMs: options.timeoutMs,
+				headers: { cookie: header.value },
+				redirect: "manual",
+			});
+		} catch (cause) {
+			if (
+				cause instanceof FetchHtmlError &&
+				cause.kind === "http" &&
+				cause.status !== undefined
+			) {
+				// 401/403 のみ認証失敗へ昇格する。Cookie 生値は cause にも持たせない（status だけ引き継ぐ）。
+				if (AUTH_FAILURE_STATUSES.has(cause.status)) {
+					throw new AuthFetchError({
+						kind: "auth",
+						url,
+						status: cause.status,
+						message: `authentication failed (HTTP ${cause.status}): ${url}`,
+					});
+				}
+				// redirect は同一オリジンのみ追従する。別オリジン等は Cookie を渡さず弾く。
+				if (REDIRECT_STATUSES.has(cause.status)) {
+					const next = resolveSameOriginRedirect(
+						cause.location,
+						currentUrl,
+						authorizedOrigin,
+					);
+					if (next === null) {
+						// クロスオリジン・Location 不明: 追従先へ fetch せず Cookie を漏らさない。
+						throw new AuthFetchError({
+							kind: "redirect",
+							url,
+							status: cause.status,
+							message: `blocked unsafe redirect in authed fetch: ${url}`,
+						});
+					}
+					currentUrl = next;
+					continue;
+				}
+			}
+			// その他の取得失敗（http(他)/network/timeout）は取得層の型のまま透過する。
+			throw cause;
+		}
+	}
+	// 追従上限超過。Cookie 生値は載せない。
+	throw new AuthFetchError({
+		kind: "redirect",
+		url,
+		message: `too many redirects in authed fetch: ${url}`,
+	});
 }
