@@ -60,6 +60,7 @@ export function renderFetchErrorPage(
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/styles.css" />
     <title>取得に失敗しました — ai-job-rating</title>
   </head>
   <body>
@@ -116,6 +117,7 @@ urlInput.get("/fetch", (c) =>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/styles.css" />
     <title>URL 入力 — ai-job-rating</title>
   </head>
   <body>
