@@ -82,7 +82,7 @@ interface PuppeteerModule {
 const PUPPETEER_MODULE = "@cloudflare/puppeteer";
 const defaultLaunch: BrowserLauncher = async (binding) => {
 	const { default: puppeteer } = (await import(
-		/* @vite-ignore */ PUPPETEER_MODULE
+		PUPPETEER_MODULE
 	)) as PuppeteerModule;
 	// @cloudflare/puppeteer の launch は BrowserWorker（env.BROWSER）を受ける。
 	return puppeteer.launch(binding);
