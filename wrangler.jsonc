@@ -16,5 +16,16 @@
 	// Workers AI バインディング（§7.1, JSON Mode 構造化抽出）。env.AI でアクセスする
 	"ai": {
 		"binding": "AI"
-	}
+	},
+	// D1 バインディング（§6, 構造化データ）。env.DB でアクセスする。
+	// database_id はアカウント固有のため、フォーク先が `wrangler d1 create` で発行した値に差し替える
+	// （フォーク容易性 §8）。migrations_dir のマイグレーションは `wrangler d1 migrations apply` で適用する。
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "ai-job-rating",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	]
 }
