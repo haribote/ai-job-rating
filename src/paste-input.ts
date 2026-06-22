@@ -1,9 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "./app";
-import { extractJob } from "./extract";
-import { renderResultPage } from "./result-display";
-import { DEFAULT_SCORING_CONFIG, scoreJob } from "./score";
-import { trimHtml } from "./trim-html";
+import { runExtractionPipeline } from "./extraction-pipeline";
 
 // 貼り付け HTML の上限（バイト）。後続のトリミング #9 / 抽出 #11 の負荷・コスト保護のための上限。
 // Phase 0 の検証用途には十分な余裕（2MB）を取る。
@@ -90,8 +87,5 @@ pasteInput.post("/result", async (c) => {
 		return c.json({ ok: false, reason: validated.reason }, status);
 	}
 
-	const body = trimHtml(validated.html);
-	const { job } = await extractJob(c.env.AI, body);
-	const score = scoreJob(job, DEFAULT_SCORING_CONFIG);
-	return c.html(renderResultPage(score, job));
+	return c.html(await runExtractionPipeline(c.env.AI, validated.html));
 });

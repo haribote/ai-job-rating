@@ -50,6 +50,10 @@ export interface FetchHtmlOptions {
 // 既定タイムアウト。SSR 取得が長時間ぶら下がるのを防ぐ
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+// 取得時に名乗る User-Agent。セルフホスト OSS であることを示し取得元が識別できるようにする（§8 取得マナー）。
+const USER_AGENT =
+	"ai-job-rating/0.1 (+https://github.com/haribote/ai-job-rating)";
+
 // 単一詳細 URL を取得し HTML(text) を返す。
 // 非 2xx・ネットワーク失敗・タイムアウトは FetchHtmlError に整形して throw する。
 export async function fetchHtml(
@@ -67,7 +71,8 @@ export async function fetchHtml(
 		const response = await fetcher(url, {
 			signal: controller.signal,
 			redirect: "follow",
-			headers: { accept: "text/html" },
+			// 取得マナー（§8）: 識別可能な User-Agent を名乗る。robots/レート制御の本格対応は Phase 1。
+			headers: { accept: "text/html", "user-agent": USER_AGENT },
 		});
 
 		// 非 2xx は取得失敗として扱う（本文の中身判定は後続層の責務）
