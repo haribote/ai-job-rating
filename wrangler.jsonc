@@ -16,5 +16,9 @@
 	// Workers AI バインディング（§7.1, JSON Mode 構造化抽出）。env.AI でアクセスする
 	"ai": {
 		"binding": "AI"
+	},
+	// Browser Rendering バインディング（SPA 取得フォールバック, roadmap Phase 1）。env.BROWSER でアクセスする
+	"browser": {
+		"binding": "BROWSER"
 	}
 }

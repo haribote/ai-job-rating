@@ -9,6 +9,9 @@ export interface Bindings {
 	ASSETS: Fetcher;
 	// Workers AI バインディング（wrangler.jsonc の ai.binding と一致, §7.1）。型は wrangler types 生成の Ai
 	AI: Ai;
+	// Browser Rendering バインディング（wrangler.jsonc の browser.binding と一致）。SPA 取得フォールバックで使う。
+	// @cloudflare/puppeteer.launch へ渡す認証付きエンドポイント（Fetcher 形）。実起動は同 package が担う。
+	BROWSER: Fetcher;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）
