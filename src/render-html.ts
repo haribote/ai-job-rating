@@ -77,13 +77,13 @@ interface PuppeteerModule {
 
 // 既定の launch を遅延 import する。テストが launch を注入する場合は @cloudflare/puppeteer を
 // 読み込まないので、ブラウザ binding 専用の依存をテスト実行へ持ち込まない。
-// 依存は runtime（Workers 上）でのみ必要。install 前でも typecheck を通すため、
-// 静的解決を避けて動的 import 指定子を変数経由にする（モジュール宣言で型をごまかさない）。
-const PUPPETEER_MODULE = "@cloudflare/puppeteer";
+// 指定子は文字列リテラルにする: 変数経由だと wrangler/esbuild が静的解析できず
+// @cloudflare/puppeteer をバンドルに含めないため、runtime で "No such module" になる
+// （unit test も dry-run も検出できず、実デプロイでのみ露見する）。型は最小サブセットへ寄せる。
 const defaultLaunch: BrowserLauncher = async (binding) => {
 	const { default: puppeteer } = (await import(
-		PUPPETEER_MODULE
-	)) as PuppeteerModule;
+		"@cloudflare/puppeteer"
+	)) as unknown as PuppeteerModule;
 	// @cloudflare/puppeteer の launch は BrowserWorker（env.BROWSER）を受ける。
 	return puppeteer.launch(binding);
 };
