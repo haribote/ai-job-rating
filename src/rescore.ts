@@ -165,9 +165,10 @@ function computeOne(
 	// desired_value({skills}) を在り処にする。希望値の変更で AI は再実行しない（§5.3）。
 	const desiredSkills = buildDesiredSkills(configRows);
 	// 既定の決定的スキル突合を差す。呼び出し側が skillMatcher を指定すればそちらを優先する。
+	// 明示的な undefined で既定が消えないよう ?? で受ける（spread だと undefined が上書きする）。
 	const withMatcher: RescoreExtensions = {
-		skillMatcher: defaultSkillMatcher,
 		...extensions,
+		skillMatcher: extensions.skillMatcher ?? defaultSkillMatcher,
 	};
 	return rescoreJob(
 		extraction.jobId,
