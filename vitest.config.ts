@@ -2,7 +2,7 @@ import {
 	cloudflareTest,
 	readD1Migrations,
 } from "@cloudflare/vitest-pool-workers";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // 本番マイグレーション（migrations/）を config ロード時に一度だけ読み、テストワーカーへ
 // TEST_MIGRATIONS バインディングとして渡す。各テストは applyD1Migrations(env.DB, env.TEST_MIGRATIONS)
@@ -12,6 +12,10 @@ const migrations = await readD1Migrations("./migrations");
 // Workers ランタイム上でテストを走らせ、本番と同じ assets バインディング等を再現する
 // vitest 4 / pool-workers 0.16 では defineWorkersConfig は廃止され、cloudflareTest プラグインで構成する
 export default defineConfig({
+	// e2e/ は Playwright 専用（実ブラウザ）。vitest（pool-workers）が .spec.ts を拾わないよう除外する。
+	test: {
+		exclude: [...configDefaults.exclude, "e2e/**"],
+	},
 	plugins: [
 		cloudflareTest({
 			main: "./src/index.ts",
