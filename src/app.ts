@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { runAiHealthCheck } from "./ai";
+import type { DetailJobMessage } from "./detail-queue";
 import { pasteInput } from "./paste-input";
 import { urlInput } from "./url-input";
 
@@ -9,6 +10,8 @@ export interface Bindings {
 	ASSETS: Fetcher;
 	// Workers AI バインディング（wrangler.jsonc の ai.binding と一致, §7.1）。型は wrangler types 生成の Ai
 	AI: Ai;
+	// 複数詳細ページ非同期処理キュー（#24, wrangler.jsonc の queues.producers と一致）。型は wrangler types 生成の Queue
+	JOB_QUEUE: Queue<DetailJobMessage>;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）
