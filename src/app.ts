@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { runAiHealthCheck } from "./ai";
+import { criteriaForm } from "./criteria-form";
 import { pasteInput } from "./paste-input";
 import { urlInput } from "./url-input";
 
@@ -30,9 +31,11 @@ app.get("/ai-health", async (c) => {
 
 // 求人 URL 入力の受け口（GET /fetch・POST /fetch）。SSR 取得の主経路（roadmap Phase 0）。
 // HTML 貼り付けフォールバックの入力受け口（GET /paste・POST /paste）。
+// 評価条件の設定 UI の受け口（GET /config・POST /config）。保存で即再ランキング（#19→#20）。
 // いずれも静的資産フォールスルー（app.get("*")）より前に評価させる。
 app.route("/", urlInput);
 app.route("/", pasteInput);
+app.route("/", criteriaForm);
 
 // SSR ルートに該当しない GET は静的資産へフォールスルーする
 app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
