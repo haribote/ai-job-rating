@@ -1,0 +1,216 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+	AuthFetchError,
+	buildCookieHeader,
+	fetchAuthedHtml,
+} from "./fetch-authed-html";
+import { type Fetcher, FetchHtmlError } from "./fetch-html";
+
+const TARGET = "https://example.com/jobs/123";
+// テスト用ダミー Cookie。実セッション値は決して埋め込まない（秘匿情報の非コミット）
+const DUMMY_COOKIE = "session=abc123; theme=dark";
+
+describe("buildCookieHeader", () => {
+	// 生 Cookie ヘッダ文字列はそのまま採用しつつ前後空白だけ整える（RFC6265 OWS）
+	it("単一の生 Cookie 文字列を受け取り前後空白を除いて返す", () => {
+		expect(buildCookieHeader("  session=abc123  ")).toEqual({
+			ok: true,
+			value: "session=abc123",
+		});
+	});
+
+	// name=value ペア配列は "; "（semicolon + SP）で連結する（RFC6265 cookie-string）
+	it("ペア配列を semicolon+space で連結する", () => {
+		expect(
+			buildCookieHeader([
+				{ name: "session", value: "abc123" },
+				{ name: "theme", value: "dark" },
+			]),
+		).toEqual({ ok: true, value: "session=abc123; theme=dark" });
+	});
+
+	// 空入力・空白のみは認証情報なしとして弾く（無駄な認証付き取得を避ける）
+	it("空文字・空白のみは reason=empty で弾く", () => {
+		expect(buildCookieHeader("")).toEqual({ ok: false, reason: "empty" });
+		expect(buildCookieHeader("   ")).toEqual({ ok: false, reason: "empty" });
+		expect(buildCookieHeader([])).toEqual({ ok: false, reason: "empty" });
+	});
+
+	// CR/LF を含む値はヘッダインジェクションの恐れがあるため拒否する
+	it("CR/LF を含む生文字列は reason=invalid で弾く（ヘッダインジェクション防止）", () => {
+		expect(buildCookieHeader("session=abc\r\nX-Evil: 1")).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+		// 中間の改行は trim で消えないため確実に弾く（前後の改行は OWS として整形される）
+		expect(buildCookieHeader("a=1\nb=2")).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+	});
+
+	// ペアの name は token、value は cookie-octet 準拠でなければ拒否する（RFC6265 §4.1.1）
+	it("不正な name/value のペアは reason=invalid で弾く", () => {
+		// value に semicolon（区切り文字）
+		expect(buildCookieHeader([{ name: "session", value: "a;b" }])).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+		// value に空白
+		expect(buildCookieHeader([{ name: "session", value: "a b" }])).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+		// name が空
+		expect(buildCookieHeader([{ name: "", value: "x" }])).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+		// name に区切り文字
+		expect(buildCookieHeader([{ name: "a=b", value: "x" }])).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+	});
+});
+
+describe("fetchAuthedHtml", () => {
+	// Cookie ヘッダを付与して取得し、成功時は本文をそのまま返す
+	it("Cookie ヘッダを付与して取得し HTML を返す", async () => {
+		const html = "<html><body>authed job</body></html>";
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response(html, { status: 200 }),
+		);
+
+		const result = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, { fetcher });
+
+		expect(result).toEqual({ url: TARGET, status: 200, html });
+		const [, init] = fetcher.mock.calls[0];
+		// 取得リクエストには Cookie ヘッダが載る（大文字小文字を問わず検査）
+		const headers = new Headers(init?.headers);
+		expect(headers.get("cookie")).toBe("session=abc123; theme=dark");
+	});
+
+	// 401/403 は認証失敗として AuthFetchError(kind=auth) に分類する（#26 が失効を判別できる）
+	it("401 は kind=auth の AuthFetchError へ分類する", async () => {
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response("unauthorized", { status: 401 }),
+		);
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("auth");
+		expect(error.status).toBe(401);
+		expect(error.url).toBe(TARGET);
+	});
+
+	it("403 も kind=auth の AuthFetchError へ分類する", async () => {
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response("forbidden", { status: 403 }),
+		);
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("auth");
+		expect(error.status).toBe(403);
+	});
+
+	// 401/403 以外の HTTP エラーは取得層の FetchHtmlError をそのまま透過する
+	it("404 は FetchHtmlError(kind=http) のまま透過する", async () => {
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response("not found", { status: 404 }),
+		);
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(FetchHtmlError);
+		expect(error).not.toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("http");
+		expect(error.status).toBe(404);
+	});
+
+	// 不正な Cookie 入力は取得前に弾く（無駄な認証付き取得・インジェクション防止）
+	it("不正な Cookie 入力は取得を呼ばず AuthFetchError(kind=invalid-credential) を投げる", async () => {
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response("ok", { status: 200 }),
+		);
+
+		const error = await fetchAuthedHtml(TARGET, "bad=cookie\r\ninject", {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("invalid-credential");
+		expect(fetcher).not.toHaveBeenCalled();
+	});
+
+	// 最小保持: 取得結果に Cookie を一切含めない
+	it("取得結果オブジェクトに Cookie 値を含めない（最小保持）", async () => {
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response("<html></html>", { status: 200 }),
+		);
+
+		const result = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, { fetcher });
+
+		expect(JSON.stringify(result)).not.toContain("abc123");
+	});
+
+	// 最小保持: 認証失敗エラーの message / 直列化に Cookie 値を含めない（ログ漏洩防止）
+	it("AuthFetchError は Cookie 値を message に埋め込まない（ログ漏洩防止）", async () => {
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response("unauthorized", { status: 401 }),
+		);
+
+		const error: AuthFetchError = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error.message).not.toContain("abc123");
+		expect(JSON.stringify({ ...error, message: error.message })).not.toContain(
+			"abc123",
+		);
+	});
+
+	// 最小保持: ネットワーク失敗時の例外にも Cookie 値を含めない
+	it("ネットワーク失敗の例外にも Cookie 値を含めない（最小保持）", async () => {
+		const cause = new TypeError("dns failure");
+		const fetcher = vi.fn<Fetcher>(async () => {
+			throw cause;
+		});
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(FetchHtmlError);
+		expect(JSON.stringify({ ...error, message: error.message })).not.toContain(
+			"abc123",
+		);
+	});
+
+	// 取得層へタイムアウト等のオプションを委譲する
+	it("timeoutMs を取得層へ委譲する", async () => {
+		const fetcher: Fetcher = (_input, init) =>
+			new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => {
+					reject(new DOMException("aborted", "AbortError"));
+				});
+			});
+
+		const error = await fetchAuthedHtml(TARGET, DUMMY_COOKIE, {
+			fetcher,
+			timeoutMs: 5,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(FetchHtmlError);
+		expect(error.kind).toBe("timeout");
+	});
+});

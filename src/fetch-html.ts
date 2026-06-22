@@ -45,6 +45,8 @@ export interface FetchHtmlOptions {
 	timeoutMs?: number;
 	// テスト用に fetch を差し替える。未指定時は globalThis.fetch を使う
 	fetcher?: Fetcher;
+	// 追加で載せるリクエストヘッダ（認証下取得の Cookie 等）。既定ヘッダにマージする
+	headers?: Record<string, string>;
 }
 
 // 既定タイムアウト。SSR 取得が長時間ぶら下がるのを防ぐ
@@ -72,7 +74,12 @@ export async function fetchHtml(
 			signal: controller.signal,
 			redirect: "follow",
 			// 取得マナー（§8）: 識別可能な User-Agent を名乗る。robots/レート制御の本格対応は Phase 1。
-			headers: { accept: "text/html", "user-agent": USER_AGENT },
+			// 呼び出し側の追加ヘッダ（認証下取得の Cookie 等）を後勝ちでマージする。
+			headers: {
+				accept: "text/html",
+				"user-agent": USER_AGENT,
+				...options.headers,
+			},
 		});
 
 		// 非 2xx は取得失敗として扱う（本文の中身判定は後続層の責務）
