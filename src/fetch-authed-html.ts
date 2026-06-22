@@ -53,15 +53,21 @@ export class AuthFetchError extends Error {
 const COOKIE_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 // RFC6265 §4.1.1 cookie-octet（CTL・空白・DQUOTE・comma・semicolon・backslash を除く US-ASCII）。
 const COOKIE_VALUE_RE = /^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*$/;
+// 制御文字（C0 + DEL）。生文字列に 1 つでも含めば取得層へ渡さず弾く。
+// これらは fetch()/Headers が TypeError を投げ、その message に Cookie 生値が載って
+// cause 経由で漏れる（最小保持違反）。取得前に遮断して漏洩経路自体を塞ぐ。
+// biome-ignore lint/suspicious/noControlCharactersInRegex: 制御文字の検出が目的のため意図的
+const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
 
-// 生 Cookie 文字列は前後 OWS のみ整え、ヘッダインジェクション（CR/LF）だけ弾く。
-// 内部の name/value は利用者がブラウザからコピーした正規の Cookie 前提で過剰に弾かない。
+// 生 Cookie 文字列は前後 OWS のみ整え、制御文字を含めば弾く。
+// 内部の name/value 構文は利用者がブラウザからコピーした正規の Cookie 前提で過剰に弾かないが、
+// 制御文字（CR/LF・NUL 等）は注入・漏洩経路になるため必ず拒否する。
 function buildFromString(raw: string): CookieHeaderResult {
 	const trimmed = raw.trim();
 	if (trimmed === "") {
 		return { ok: false, reason: "empty" };
 	}
-	if (/[\r\n]/.test(trimmed)) {
+	if (CONTROL_CHAR_RE.test(trimmed)) {
 		return { ok: false, reason: "invalid" };
 	}
 	return { ok: true, value: trimmed };

@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import {
 	AuthFetchError,
@@ -9,6 +10,14 @@ import { type Fetcher, FetchHtmlError } from "./fetch-html";
 const TARGET = "https://example.com/jobs/123";
 // テスト用ダミー Cookie。実セッション値は決して埋め込まない（秘匿情報の非コミット）
 const DUMMY_COOKIE = "session=abc123; theme=dark";
+// 検出対象の秘匿断片。漏洩検査はこの値を例外チェーン全体から探す
+const SECRET = "abc123";
+
+// 例外チェーン（message + cause 連鎖 + 列挙プロパティ）に秘匿値が現れないことを保証する。
+// Error.cause は non-enumerable のため JSON.stringify では見えない。inspect で深く辿る。
+function assertNoSecret(error: unknown): void {
+	expect(inspect(error, { depth: 10 })).not.toContain(SECRET);
+}
 
 describe("buildCookieHeader", () => {
 	// 生 Cookie ヘッダ文字列はそのまま採用しつつ前後空白だけ整える（RFC6265 OWS）
@@ -44,6 +53,11 @@ describe("buildCookieHeader", () => {
 		});
 		// 中間の改行は trim で消えないため確実に弾く（前後の改行は OWS として整形される）
 		expect(buildCookieHeader("a=1\nb=2")).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+		// NUL 等 CR/LF 以外の制御文字も弾く（fetch の TypeError 経由 Cookie 漏洩を防ぐ）
+		expect(buildCookieHeader("session=abc123\x00")).toEqual({
 			ok: false,
 			reason: "invalid",
 		});
@@ -173,10 +187,9 @@ describe("fetchAuthedHtml", () => {
 			fetcher,
 		}).catch((e) => e);
 
-		expect(error.message).not.toContain("abc123");
-		expect(JSON.stringify({ ...error, message: error.message })).not.toContain(
-			"abc123",
-		);
+		expect(error.message).not.toContain(SECRET);
+		// cause 連鎖まで含めて秘匿値が残らないことを検査する
+		assertNoSecret(error);
 	});
 
 	// 最小保持: ネットワーク失敗時の例外にも Cookie 値を含めない
@@ -191,9 +204,25 @@ describe("fetchAuthedHtml", () => {
 		}).catch((e) => e);
 
 		expect(error).toBeInstanceOf(FetchHtmlError);
-		expect(JSON.stringify({ ...error, message: error.message })).not.toContain(
-			"abc123",
+		// cause 連鎖まで含めて秘匿値が残らないことを検査する
+		assertNoSecret(error);
+	});
+
+	// 最小保持の回帰防止: 制御文字入り Cookie は取得前に弾き、秘匿値を例外へ載せない。
+	// （素通しすると fetch の TypeError.message に Cookie 生値が載り cause 経由で漏れる）
+	it("制御文字入り Cookie は取得を呼ばず秘匿値を漏らさない", async () => {
+		const fetcher = vi.fn<Fetcher>(
+			async () => new Response("ok", { status: 200 }),
 		);
+
+		const error = await fetchAuthedHtml(TARGET, `session=${SECRET}\x00`, {
+			fetcher,
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("invalid-credential");
+		expect(fetcher).not.toHaveBeenCalled();
+		assertNoSecret(error);
 	});
 
 	// 取得層へタイムアウト等のオプションを委譲する
