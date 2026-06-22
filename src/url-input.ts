@@ -33,14 +33,19 @@ export function validateJobUrl(input: string): ValidatedUrl {
 const FETCH_ERROR_STATUS = 502;
 
 // 取得失敗の種別を人間可読な日本語に落とす（エラーページ表示用）。
+// kind は全 case を明示し、種別追加時に網羅漏れをコンパイルエラーで検知する（never チェック）。
 function describeFetchError(error: FetchHtmlError): string {
 	switch (error.kind) {
 		case "http":
 			return `取得先が HTTP ${error.status ?? ""} を返しました。`;
 		case "timeout":
 			return "取得がタイムアウトしました。";
-		default:
+		case "network":
 			return "取得中にネットワークエラーが発生しました。";
+		default: {
+			const exhaustive: never = error.kind;
+			return exhaustive;
+		}
 	}
 }
 
