@@ -7,7 +7,9 @@
 // - 並び順は #20 の rankJobs に委ねる（スコア降順・除外を外す・total=null 末尾・同点 jobId 昇順、
 //   決定的 §8）。本モジュールは順序ロジックを再実装しない。
 // - ハードフィルタ除外理由（rejectedBy）は scores に永続化されないため、criteria_config と
-//   保存済み抽出から決定的に再判定する（passesHardFilters）。AI は呼ばない。
+//   保存済み抽出から決定的に再判定する。判定は rescoreJob と同じ前処理（extraction_status 反映 →
+//   aiJudged 突合）を通してから passesHardFilters に渡す。さもないと failed 抽出（全項目 unknown
+//   として採点・永続化済み）の ranked/excluded 振り分けが永続スコアと食い違う。AI は呼ばない。
 // - 表示用の raw 値・kind は scores に持たないため、保存済み抽出（raw）と
 //   NORMALIZED_KEY_KINDS（kind）から補う。DB I/O のみを担い描画は ranking-list が行う（責務分離 §9）。
 
@@ -16,17 +18,29 @@ import {
 	buildScoringConfig,
 	NORMALIZED_KEY_KINDS,
 } from "./criteria-config";
-import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./db-schema";
+import {
+	type CriteriaConfigRow,
+	type ExtractionStatus,
+	TABLE_NAMES,
+	TOTAL_SCORE_CRITERION,
+} from "./db-schema";
 import type { NormalizedJob, NormalizedKey } from "./job-schema";
 import { type RankedJobView, rescoredToView } from "./ranking-list";
-import { passesHardFilters, type RescoredJob, rankJobs } from "./rescore-core";
-import type { ScoreBreakdownRow, ScoreResult } from "./score";
+import {
+	applyExtractionStatus,
+	applySkillMatch,
+	passesHardFilters,
+	type RescoredJob,
+	rankJobs,
+} from "./rescore-core";
+import type { ScoreBreakdownRow, ScoreResult, ScoringConfig } from "./score";
 
-// 1 求人の読み出し材料（jobs + 最新抽出 + 永続 scores）。
+// 1 求人の読み出し材料（jobs + 最新抽出）。status はハードフィルタ前処理に要る（failed→全 unknown）。
 interface JobMaterial {
 	readonly jobId: string;
 	readonly sourceUrl: string;
 	readonly job: NormalizedJob;
+	readonly status: ExtractionStatus;
 }
 
 // jobs と最新抽出を結合して読む。最新抽出は extracted_at 最大（同値は id 最大）で 1 件に畳む。
@@ -35,7 +49,7 @@ async function readJobsWithExtraction(
 ): Promise<Map<string, JobMaterial>> {
 	const { results } = await db
 		.prepare(
-			`SELECT j.id AS job_id, j.source_url AS source_url, e.structured_json AS structured_json
+			`SELECT j.id AS job_id, j.source_url AS source_url, e.structured_json AS structured_json, e.extraction_status AS extraction_status
 			 FROM ${TABLE_NAMES.jobs} j
 			 JOIN ${TABLE_NAMES.extractions} e ON e.id = (
 			   SELECT i.id FROM ${TABLE_NAMES.extractions} i
@@ -48,6 +62,7 @@ async function readJobsWithExtraction(
 			job_id: string;
 			source_url: string;
 			structured_json: string;
+			extraction_status: ExtractionStatus;
 		}>();
 	const map = new Map<string, JobMaterial>();
 	for (const r of results) {
@@ -55,6 +70,7 @@ async function readJobsWithExtraction(
 			jobId: r.job_id,
 			sourceUrl: r.source_url,
 			job: JSON.parse(r.structured_json) as NormalizedJob,
+			status: r.extraction_status,
 		});
 	}
 	return map;
@@ -114,19 +130,15 @@ async function readScoreResults(
 	return map;
 }
 
-// criteria_config 全行を読む（ハードフィルタ再判定・kind 補完に使う）。
-async function readCriteriaConfigRows(db: D1Database) {
+// criteria_config 全行を読む（ハードフィルタ再判定に使う）。行型は #16 の単一ソースを共有する。
+async function readCriteriaConfigRows(
+	db: D1Database,
+): Promise<CriteriaConfigRow[]> {
 	const { results } = await db
 		.prepare(
 			`SELECT criterion, desired_value, weight, hard_filter, updated_at FROM ${TABLE_NAMES.criteriaConfig}`,
 		)
-		.all<{
-			criterion: string;
-			desired_value: string | null;
-			weight: number;
-			hard_filter: "none" | "required" | "exclude";
-			updated_at: number;
-		}>();
+		.all<CriteriaConfigRow>();
 	return results;
 }
 
@@ -138,7 +150,7 @@ export interface RankingView {
 
 // scores からスコア順一覧を組む（決定的・AI 非依存）。
 // 手順: jobs+抽出・永続 scores・criteria_config を読む → 求人ごとに RescoredJob を組む
-// （score は scores 由来、hardFilter は config+抽出から再判定）→ rankJobs で順序確定 →
+// （score は scores 由来、hardFilter は rescoreJob と同じ前処理で再判定）→ rankJobs で順序確定 →
 // 通過分を ranked・除外分を excluded として表示ビューへ変換する。
 export async function readRanking(db: D1Database): Promise<RankingView> {
 	const materials = await readJobsWithExtraction(db);
@@ -147,39 +159,55 @@ export async function readRanking(db: D1Database): Promise<RankingView> {
 	const config = buildScoringConfig(configRows);
 	const hardFilters = buildHardFilterMap(configRows);
 
-	const rescored: RescoredJob[] = [];
+	const entries: { material: JobMaterial; rescored: RescoredJob }[] = [];
 	for (const [jobId, material] of materials) {
 		const score = scoreResults.get(jobId);
 		if (score === undefined) continue; // 未スコアリング求人は一覧に出さない
-		const hardFilter = passesHardFilters(material.job, config, hardFilters);
-		rescored.push({ jobId, score, hardFilter });
+		const hardFilter = recomputeHardFilter(material, config, hardFilters);
+		entries.push({ material, rescored: { jobId, score, hardFilter } });
 	}
 
-	const ranked = rankJobs(rescored).map((r) =>
-		toView(r, materials.get(r.jobId)),
-	);
+	const byJob = new Map(entries.map((e) => [e.rescored.jobId, e]));
+	const ranked = rankJobs(entries.map((e) => e.rescored))
+		.map((r) => byJob.get(r.jobId))
+		.filter((e): e is (typeof entries)[number] => e !== undefined)
+		.map(toView);
 	// 除外は rankJobs に含まれない。jobId 昇順で決定的に並べる。
-	const excluded = rescored
-		.filter((r) => !r.hardFilter.passed)
-		.sort((a, b) => (a.jobId < b.jobId ? -1 : a.jobId > b.jobId ? 1 : 0))
-		.map((r) => toView(r, materials.get(r.jobId)));
+	const excluded = entries
+		.filter((e) => !e.rescored.hardFilter.passed)
+		.sort((a, b) =>
+			a.rescored.jobId < b.rescored.jobId
+				? -1
+				: a.rescored.jobId > b.rescored.jobId
+					? 1
+					: 0,
+		)
+		.map(toView);
 
 	return { ranked, excluded };
 }
 
-// RescoredJob + 材料 → 表示ビュー。材料欠落は防御的に空 URL / 全 unknown で扱う。
-function toView(
-	rescored: RescoredJob,
-	material: JobMaterial | undefined,
-): RankedJobView {
-	const sourceUrl = material?.sourceUrl ?? "";
-	const job = material?.job ?? emptyJob();
-	return rescoredToView(rescored, sourceUrl, job);
+// ハードフィルタを rescoreJob と同一手順で再判定する（決定的・AI 非依存）。
+// extraction_status 反映（failed→全 unknown）→ aiJudged 突合（matcher 未指定なら無変化）→ 判定。
+// 突合の希望集合は criteria_config に未保持のため空（rescore.ts と同じ・#68 拡張点）。
+function recomputeHardFilter(
+	material: JobMaterial,
+	config: ScoringConfig,
+	hardFilters: ReturnType<typeof buildHardFilterMap>,
+): RescoredJob["hardFilter"] {
+	const statusApplied = applyExtractionStatus(material.job, material.status);
+	const matched = applySkillMatch(statusApplied, config, {}, {});
+	return passesHardFilters(matched, config, hardFilters);
 }
 
-// 材料が引けない場合のフォールバック求人（全 unknown）。raw が引けないだけで内訳行自体は出す。
-function emptyJob(): NormalizedJob {
-	const keys = Object.keys(NORMALIZED_KEY_KINDS) as NormalizedKey[];
-	const entries = keys.map((k) => [k, { kind: "unknown" }] as const);
-	return Object.fromEntries(entries) as NormalizedJob;
+// RescoredJob + 材料 → 表示ビュー。
+function toView(entry: {
+	material: JobMaterial;
+	rescored: RescoredJob;
+}): RankedJobView {
+	return rescoredToView(
+		entry.rescored,
+		entry.material.sourceUrl,
+		entry.material.job,
+	);
 }

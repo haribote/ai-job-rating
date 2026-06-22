@@ -20,17 +20,21 @@ function jobWith(
 	return { ...base, ...over } as NormalizedJob;
 }
 
-// jobs + 1 抽出を投入する。
-async function seed(jobId: string, job: NormalizedJob): Promise<void> {
+// jobs + 1 抽出を投入する。extraction_status は failed 時の前処理（全 unknown 化）検証に使う。
+async function seed(
+	jobId: string,
+	job: NormalizedJob,
+	status = "ok",
+): Promise<void> {
 	await env.DB.prepare(
 		"INSERT INTO jobs (id, source_url, source_type, fetched_at) VALUES (?, ?, 'detail', 0)",
 	)
 		.bind(jobId, `https://example.com/${jobId}`)
 		.run();
 	await env.DB.prepare(
-		`INSERT INTO ${TABLE_NAMES.extractions} (id, job_id, structured_json, model, mechanism, extraction_status, extracted_at) VALUES (?, ?, ?, 'm', 'json-mode', 'ok', 1000)`,
+		`INSERT INTO ${TABLE_NAMES.extractions} (id, job_id, structured_json, model, mechanism, extraction_status, extracted_at) VALUES (?, ?, ?, 'm', 'json-mode', ?, 1000)`,
 	)
-		.bind(`ext-${jobId}`, jobId, JSON.stringify(job))
+		.bind(`ext-${jobId}`, jobId, JSON.stringify(job), status)
 		.run();
 }
 
@@ -139,6 +143,30 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 		const { ranked, excluded } = await readRanking(env.DB);
 		expect(ranked).toHaveLength(0);
 		expect(excluded).toHaveLength(0);
+	});
+
+	it("failed 抽出は全 unknown 前処理を経てハードフィルタ判定する（永続スコアと整合）", async () => {
+		// raw JSON は値を持つが extraction_status=failed。rescore は全 unknown として採点し、
+		// required フィルタを満たせず除外している。ranking も同じ前処理を通すこと（raw 値で誤通過しない）。
+		await seed(
+			"failed",
+			jobWith({
+				remoteWork: { kind: "categorical", categories: ["full-remote"] },
+			}),
+			"failed",
+		);
+		await setCriterion(
+			"remoteWork",
+			1,
+			{ preferred: ["full-remote"] },
+			"required",
+		);
+		await rescoreAll(env.DB);
+
+		const { ranked, excluded } = await readRanking(env.DB);
+		// raw 値だけ見れば通過するが、failed → 全 unknown で required 不適合 → 除外が正。
+		expect(ranked.map((v) => v.jobId)).toEqual([]);
+		expect(excluded.map((v) => v.jobId)).toEqual(["failed"]);
 	});
 
 	it("総合スコア行（__total__）由来の total を表示用に反映する", async () => {
