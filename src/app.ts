@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { runAiHealthCheck } from "./ai";
 import { criteriaForm } from "./criteria-form";
 import { pasteInput } from "./paste-input";
+import { readRanking } from "./ranking";
+import { renderRankingPage } from "./ranking-list";
 import { urlInput } from "./url-input";
 
 // Worker の env バインディング型。後続フェーズ（D1 / R2 / KV）でここに追記する
@@ -36,6 +38,14 @@ app.get("/ai-health", async (c) => {
 app.route("/", urlInput);
 app.route("/", pasteInput);
 app.route("/", criteriaForm);
+
+// ランキング一覧（#18）。永続 scores を読み、スコア順一覧＋項目別内訳を SSR で返す。
+// 読み出し・順序付けは ranking.ts（rankJobs に委譲・決定的）、描画は ranking-list.ts に分離。
+// AI 抽出も再スコアリングも実行しない（§5.3 抽出とスコアリングの分離）。
+app.get("/ranking", async (c) => {
+	const { ranked, excluded } = await readRanking(c.env.DB);
+	return c.html(renderRankingPage(ranked, excluded));
+});
 
 // SSR ルートに該当しない GET は静的資産へフォールスルーする
 app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));

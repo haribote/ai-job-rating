@@ -88,6 +88,25 @@ describe("rescoreOne（保存済み抽出から再スコアリングして score
 		expect(await readTotal("j1")).toBe(1);
 	});
 
+	it("aiJudged は既定 matcher で求人スキル×希望集合を決定的に突合する（#68）", async () => {
+		// 求人の必須スキルは当該キーの categorical に載る（#20 extractJobSkills の取得元）。
+		await seed(
+			"j1",
+			jobWith({
+				requiredSkillsMatch: {
+					kind: "categorical",
+					categories: ["go", "ts", "rust"],
+				},
+			}),
+		);
+		// 希望集合 [go, ts] は desired_value({skills}) に持つ。matcher は注入しない。
+		await setCriterion("requiredSkillsMatch", 1, { skills: ["go", "ts"] });
+
+		const scored = await rescoreOne(env.DB, "j1");
+		// 求人 [go, ts, rust] のうち希望 [go, ts] が満たすのは 2/3
+		expect(scored?.score.total).toBeCloseTo(2 / 3);
+	});
+
 	it("各正規キー行と総合スコア行（__total__）を書く。unknown は included=0/sub_score NULL", async () => {
 		await seed(
 			"j1",

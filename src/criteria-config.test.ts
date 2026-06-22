@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	buildDesiredSkills,
 	buildHardFilterMap,
 	buildScoringConfig,
 	criteriaRowToItemConfig,
@@ -167,6 +168,54 @@ describe("buildScoringConfig（行群 → 設定）", () => {
 			row({ criterion: "remoteWork", desired_value: "{broken" }),
 		]);
 		expect(Object.keys(config.items)).toEqual(["annualSalary"]);
+	});
+});
+
+describe("buildDesiredSkills（aiJudged の希望スキル集合・#68 拡張点）", () => {
+	it("aiJudged 行の desired_value({skills}) を正規キーごとの希望集合へ展開する", () => {
+		const map = buildDesiredSkills([
+			row({
+				criterion: "requiredSkillsMatch",
+				desired_value: JSON.stringify({ skills: ["go", "ts"] }),
+			}),
+			row({
+				criterion: "preferredSkillsMatch",
+				desired_value: JSON.stringify({ skills: ["rust"] }),
+			}),
+		]);
+		expect(map).toEqual({
+			requiredSkillsMatch: ["go", "ts"],
+			preferredSkillsMatch: ["rust"],
+		});
+	});
+
+	it("aiJudged でないキー・壊れた JSON・skills 不在の行は希望集合を持たない", () => {
+		const map = buildDesiredSkills([
+			// categorical キーは aiJudged ではないので無視
+			row({
+				criterion: "remoteWork",
+				desired_value: JSON.stringify({ skills: ["x"] }),
+			}),
+			// 壊れた JSON
+			row({ criterion: "requiredSkillsMatch", desired_value: "{broken" }),
+			// skills 不在
+			row({
+				criterion: "preferredSkillsMatch",
+				desired_value: JSON.stringify({ preferred: ["x"] }),
+			}),
+		]);
+		expect(map).toEqual({});
+	});
+
+	it("skills が空配列の行は空集合として持つ（required の意味差を保つ）", () => {
+		// required は希望空でも「必須未充足=0.0」を出すため、空集合と未設定を区別する。
+		const map = buildDesiredSkills([
+			row({
+				criterion: "requiredSkillsMatch",
+				desired_value: JSON.stringify({ skills: [] }),
+			}),
+		]);
+		expect(map).toEqual({ requiredSkillsMatch: [] });
 	});
 });
 

@@ -77,6 +77,12 @@ interface CategoricalDesiredValue {
 	readonly preferred: readonly string[];
 }
 
+// aiJudged の desired_value: 希望スキル集合（#68）。スコアリング側で求人スキルと突合する。
+// 例: 必須スキル適合 → { "skills": ["go", "typescript"] }。
+interface SkillsDesiredValue {
+	readonly skills: readonly string[];
+}
+
 // 型ガード（決定的・実行時検証）。不正な JSON は評価不能として扱えるよう false を返す。
 function isNumericDesiredValue(v: unknown): v is NumericDesiredValue {
 	if (typeof v !== "object" || v === null) return false;
@@ -90,6 +96,14 @@ function isCategoricalDesiredValue(v: unknown): v is CategoricalDesiredValue {
 	return (
 		Array.isArray(o.preferred) &&
 		o.preferred.every((p) => typeof p === "string")
+	);
+}
+
+function isSkillsDesiredValue(v: unknown): v is SkillsDesiredValue {
+	if (typeof v !== "object" || v === null) return false;
+	const o = v as Record<string, unknown>;
+	return (
+		Array.isArray(o.skills) && o.skills.every((s) => typeof s === "string")
 	);
 }
 
@@ -164,6 +178,34 @@ export function buildScoringConfig(
 		items[row.criterion as NormalizedKey] = itemConfig;
 	}
 	return { items };
+}
+
+// ---------------------------------------------------------------------------
+// aiJudged の希望スキル集合（#68 拡張点）
+// ---------------------------------------------------------------------------
+
+// aiJudged 項目ごとの希望スキル集合。求人スキルとの突合（skill-matcher）に渡す。
+// ScoringItemConfig に載せないのは、score.ts が希望集合を参照せず（aiJudged は weight のみ）、
+// 突合は rescore-core の拡張点で行うため。希望集合の在り処をここに一元化する（§5.3）。
+export type DesiredSkillsMap = Partial<
+	Record<NormalizedKey, readonly string[]>
+>;
+
+// criteria_config から aiJudged キーの希望スキル集合を抽出する（決定的）。
+// desired_value({skills:[...]}) を持つ aiJudged 行だけを拾う。skills 不在・壊れた JSON・
+// aiJudged でないキーは持たない（= 未設定。matcher 側で中立扱い）。
+export function buildDesiredSkills(
+	rows: readonly CriteriaConfigRow[],
+): DesiredSkillsMap {
+	const map: Record<string, readonly string[]> = {};
+	for (const row of rows) {
+		const keyKind = NORMALIZED_KEY_KINDS[row.criterion as NormalizedKey];
+		if (keyKind?.kind !== "aiJudged") continue;
+		const dv = parseDesiredValue(row.desired_value);
+		if (!isSkillsDesiredValue(dv)) continue;
+		map[row.criterion] = dv.skills;
+	}
+	return map;
 }
 
 // ---------------------------------------------------------------------------
