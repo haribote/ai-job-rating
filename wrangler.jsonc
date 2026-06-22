@@ -20,5 +20,25 @@
 	// Browser Rendering バインディング（SPA 取得フォールバック, roadmap Phase 1）。env.BROWSER でアクセスする
 	"browser": {
 		"binding": "BROWSER"
-	}
+	},
+	// D1 バインディング（§6, 構造化データ）。env.DB でアクセスする。
+	// database_id はアカウント固有のため、フォーク先が `wrangler d1 create` で発行した値に差し替える
+	// （フォーク容易性 §8）。migrations_dir のマイグレーションは `wrangler d1 migrations apply` で適用する。
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "ai-job-rating",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	// R2 バインディング（§6, 生 HTML 等の大きめオブジェクト）。env.RAW_HTML でアクセスする。
+	// bucket_name はアカウント固有のため、フォーク先が `wrangler r2 bucket create` で作成した値に差し替える
+	// （フォーク容易性 §8）。ローカル開発・テストでは miniflare がファイルシステム上の in-memory R2 を与える。
+	"r2_buckets": [
+		{
+			"binding": "RAW_HTML",
+			"bucket_name": "ai-job-rating-raw-html"
+		}
+	]
 }
