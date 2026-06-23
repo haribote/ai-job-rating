@@ -2,8 +2,12 @@ import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AiRunner } from "./ai";
 import app from "./app";
+import type { DetailJobMessage, DetailQueue } from "./detail-queue";
 import type { Fetcher } from "./fetch-html";
 import { fetchAndRender, validateJobUrl } from "./url-input";
+
+// 詳細経路のテストはキューを使わない。投入を握り潰す no-op キュー。
+const noopQueue: DetailQueue = { sendBatch: async () => {} };
 
 // URL バリデーション（決定的）: 空・不正・非 http(s) を弾き、公開詳細 URL のみ後続へ渡す。
 describe("validateJobUrl", () => {
@@ -57,7 +61,13 @@ describe("fetchAndRender", () => {
 			new Response("<p>年収 700万〜900万</p>", { status: 200 });
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
 			"https://example.com/jobs/1",
 		);
 
@@ -72,7 +82,13 @@ describe("fetchAndRender", () => {
 			new Response("<p>年収 700万〜900万</p>", { status: 200 });
 
 		await fetchAndRender(
-			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
 			url,
 		);
 
@@ -104,7 +120,13 @@ describe("fetchAndRender", () => {
 			new Response("<p>本文</p>", { status: 200 });
 
 		const result = await fetchAndRender(
-			{ ai: failingAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
+			{
+				ai: failingAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
 			url,
 		);
 
@@ -118,13 +140,51 @@ describe("fetchAndRender", () => {
 		expect(job?.status).toBe("failed");
 	});
 
+	// #24 producer 配線: 一覧 URL は detailUrls をキューへ投入し、同期取込しない。
+	it("一覧 URL は detailUrls をキュー投入し同期取込しない", async () => {
+		const sent: DetailJobMessage[] = [];
+		const queue: DetailQueue = {
+			sendBatch: async (messages) => {
+				for (const m of messages) sent.push(m.body);
+			},
+		};
+		const listUrl = "https://example.com/jobs";
+		const fetcher: Fetcher = async () =>
+			new Response(
+				'<a href="/jobs/1">A</a><a href="/jobs/2">B</a><a href="/jobs/3">C</a>',
+				{ status: 200 },
+			);
+
+		const result = await fetchAndRender(
+			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML, queue },
+			listUrl,
+		);
+
+		// detailUrls が producer 経由でキューへ投入される（出自 listUrl を保持）。
+		expect(sent.length).toBe(3);
+		expect(sent.every((m) => m.listUrl === listUrl)).toBe(true);
+		// 一覧自体は同期取込しない（consumer の非同期処理へ委ねる）。
+		const jobCount = await env.DB.prepare(
+			"SELECT COUNT(*) AS n FROM jobs",
+		).first<{ n: number }>();
+		expect(jobCount?.n).toBe(0);
+		// ユーザーには投入件数と /ranking への導線を示す。
+		expect(result.html).toContain("キュー");
+	});
+
 	// 取得失敗（非 2xx）は 502 と貼付フォールバック誘導のエラーページ（落とさない）
 	it("HTTP エラー時は 502 と /paste 誘導のエラーページを返す", async () => {
 		const fetcher: Fetcher = async () =>
 			new Response("not found", { status: 404 });
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
 			"https://example.com/jobs/404",
 		);
 
@@ -140,7 +200,13 @@ describe("fetchAndRender", () => {
 		};
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
 			"https://example.com/jobs/1",
 		);
 
@@ -159,7 +225,14 @@ describe("fetchAndRender", () => {
 			});
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher, timeoutMs: 5, db: env.DB, bucket: env.RAW_HTML },
+			{
+				ai: fakeAi,
+				fetcher,
+				timeoutMs: 5,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
 			"https://example.com/jobs/slow",
 		);
 

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { runAiHealthCheck } from "./ai";
 import { criteriaForm } from "./criteria-form";
+import type { DetailJobMessage } from "./detail-queue";
 import { pasteInput } from "./paste-input";
 import { readRanking } from "./ranking";
 import { renderRankingPage } from "./ranking-list";
@@ -12,6 +13,8 @@ export interface Bindings {
 	ASSETS: Fetcher;
 	// Workers AI バインディング（wrangler.jsonc の ai.binding と一致, §7.1）。型は wrangler types 生成の Ai
 	AI: Ai;
+	// 複数詳細ページ非同期処理キュー（#24, wrangler.jsonc の queues.producers と一致）。型は wrangler types 生成の Queue
+	JOB_QUEUE: Queue<DetailJobMessage>;
 	// Browser Rendering バインディング（wrangler.jsonc の browser.binding と一致）。SPA 取得フォールバックで使う。
 	// @cloudflare/puppeteer.launch へ渡す認証付きエンドポイント（Fetcher 形）。実起動は同 package が担う。
 	BROWSER: Fetcher;
