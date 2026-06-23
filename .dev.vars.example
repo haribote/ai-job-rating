@@ -1,5 +1,2 @@
-# ローカル開発用シークレットの雛形。実値は .dev.vars に書く（コミット禁止）。
-# Phase 1 (MVP) では必須シークレットは無い。Workers AI はバインディング経由、
-# 認証下取得（#23）の Cookie は取り込み時に都度入力するため env には置かない。
-# Phase 2 で企業評判機能を使う場合に Claude API キーを設定する（docs/requirements.md §7.2）。
+# 企業評判機能を使う場合は Claude API キーを設定する
 # ANTHROPIC_API_KEY=""
