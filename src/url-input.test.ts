@@ -1,5 +1,5 @@
-import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { applyD1Migrations, env } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { AiRunner } from "./ai";
 import app from "./app";
 import type { Fetcher } from "./fetch-html";
@@ -44,18 +44,51 @@ describe("fetchAndRender", () => {
 		run: async () => ({ response: { annualSalary: "700万〜900万" } }),
 	};
 
+	// 永続化先（D1/R2）を毎回まっさらにして取込結果の検証を決定的にする。
+	beforeEach(async () => {
+		await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+		await env.DB.prepare("DELETE FROM jobs").run();
+		await env.DB.prepare("DELETE FROM criteria_config").run();
+	});
+
 	// 正常系: 取得した HTML を最小経路に通し 200 と結果ページを返す
 	it("取得成功時はスコア結果ページを 200 で返す", async () => {
 		const fetcher: Fetcher = async () =>
 			new Response("<p>年収 700万〜900万</p>", { status: 200 });
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher },
+			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
 			"https://example.com/jobs/1",
 		);
 
 		expect(result.status).toBe(200);
 		expect(result.html).toContain("スコア結果");
+	});
+
+	// #26: 取得成功は表示だけでなく jobs/extractions を永続化する（DoD 一気通貫）。
+	it("取得成功時に jobs/extractions を永続化する", async () => {
+		const url = "https://example.com/jobs/persist";
+		const fetcher: Fetcher = async () =>
+			new Response("<p>年収 700万〜900万</p>", { status: 200 });
+
+		await fetchAndRender(
+			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
+			url,
+		);
+
+		const job = await env.DB.prepare(
+			"SELECT id, source_type, status FROM jobs WHERE source_url = ?",
+		)
+			.bind(url)
+			.first<{ id: string; source_type: string; status: string }>();
+		expect(job?.source_type).toBe("detail");
+		expect(job?.status).toBe("scored");
+		const ext = await env.DB.prepare(
+			"SELECT COUNT(*) AS n FROM extractions WHERE job_id = ?",
+		)
+			.bind(job?.id)
+			.first<{ n: number }>();
+		expect(ext?.n).toBe(1);
 	});
 
 	// 取得失敗（非 2xx）は 502 と貼付フォールバック誘導のエラーページ（落とさない）
@@ -64,7 +97,7 @@ describe("fetchAndRender", () => {
 			new Response("not found", { status: 404 });
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher },
+			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
 			"https://example.com/jobs/404",
 		);
 
@@ -80,7 +113,7 @@ describe("fetchAndRender", () => {
 		};
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher },
+			{ ai: fakeAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
 			"https://example.com/jobs/1",
 		);
 
@@ -99,7 +132,7 @@ describe("fetchAndRender", () => {
 			});
 
 		const result = await fetchAndRender(
-			{ ai: fakeAi, fetcher, timeoutMs: 5 },
+			{ ai: fakeAi, fetcher, timeoutMs: 5, db: env.DB, bucket: env.RAW_HTML },
 			"https://example.com/jobs/slow",
 		);
 

@@ -1,7 +1,8 @@
-import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { applyD1Migrations, env } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
+import type { AiRunner } from "./ai";
 import app from "./app";
-import { MAX_HTML_BYTES, validatePastedHtml } from "./paste-input";
+import { ingestPaste, MAX_HTML_BYTES, validatePastedHtml } from "./paste-input";
 
 // 貼り付け入力の検証ロジック。決定的なので分岐を網羅してユニットテストで担保する
 describe("validatePastedHtml", () => {
@@ -112,5 +113,32 @@ describe("paste-input routes", () => {
 			ok: false,
 			reason: "too-large",
 		});
+	});
+});
+
+// 貼付 HTML の取込（#26）。AI を注入し、永続化＋結果ページ描画を実 D1/R2 で検証する。
+describe("ingestPaste（貼付経路の取込→永続化）", () => {
+	const fakeAi: AiRunner = {
+		run: async () => ({ response: { annualSalary: "700万〜900万" } }),
+	};
+
+	beforeEach(async () => {
+		await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+		await env.DB.prepare("DELETE FROM jobs").run();
+		await env.DB.prepare("DELETE FROM criteria_config").run();
+	});
+
+	it("貼付 HTML を永続化し結果ページを返す", async () => {
+		const html = await ingestPaste(
+			{ ai: fakeAi, db: env.DB, bucket: env.RAW_HTML },
+			"<html><body>年収 700万〜900万</body></html>",
+		);
+
+		expect(html).toContain("スコア結果");
+		const job = await env.DB.prepare(
+			"SELECT source_type, status FROM jobs",
+		).first<{ source_type: string; status: string }>();
+		expect(job?.source_type).toBe("paste");
+		expect(job?.status).toBe("scored");
 	});
 });

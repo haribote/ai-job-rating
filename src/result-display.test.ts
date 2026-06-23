@@ -1,5 +1,5 @@
-import { env } from "cloudflare:test";
-import { describe, expect, it, vi } from "vitest";
+import { applyD1Migrations, env } from "cloudflare:test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./app";
 import type { NormalizedJob } from "./job-schema";
 import {
@@ -159,10 +159,23 @@ describe("renderResultPage", () => {
 	});
 });
 
-// 結果表示ルート。貼付 HTML → trim → 抽出（AI モック）→ score → 表示を最小で通す。
+// 結果表示ルート。貼付 HTML → trim → 抽出（AI モック）→ 永続化 → score → 表示を通す（#26）。
 describe("POST /result", () => {
+	// 取込が jobs/extractions/R2 へ書くため、毎回まっさらな D1/R2 を用意する。
+	beforeEach(async () => {
+		await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+		await env.DB.prepare("DELETE FROM jobs").run();
+		await env.DB.prepare("DELETE FROM criteria_config").run();
+	});
+
 	// AI 抽出はモックで決定的にする（live は要手動検証）。年収だけ返させ表示まで通す。
 	it("貼付 HTML を抽出・スコアして結果ページを返す", async () => {
+		// スコアは保存済み criteria_config 駆動（#20/#26）。年収基準を入れて内訳に出させる。
+		await env.DB.prepare(
+			"INSERT INTO criteria_config (criterion, desired_value, weight, hard_filter) VALUES ('annualSalary', ?, 5, 'none')",
+		)
+			.bind(JSON.stringify({ desired: 700, floor: 300 }))
+			.run();
 		const aiRun = vi.fn(async () => ({
 			response: { annualSalary: "700万〜900万" },
 		}));
