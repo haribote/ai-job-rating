@@ -27,8 +27,6 @@ npm run dev
 
 `http://localhost:8787` で起動します。ローカル開発では miniflare が D1 / R2 / Queues / Browser を疑似提供するため、Cloudflare 上のリソース作成は不要です。
 
-現在のバージョンでは**必須のシークレットはありません**（Workers AI はバインディング経由、認証下取得の Cookie は取り込み時に都度入力）。シークレットの雛形は `.dev.vars.example` を参照してください。
-
 > `.npmrc` で `ignore-scripts=true`（サプライチェーン防御）を設定しているため、依存の postinstall は実行されません。本プロジェクトは postinstall に依存しません。
 
 ## 本番デプロイ（フォーク手順）
