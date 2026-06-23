@@ -1,6 +1,9 @@
 import { Hono } from "hono";
+import type { AiRunner } from "./ai";
 import type { Bindings } from "./app";
-import { runExtractionPipeline } from "./extraction-pipeline";
+import { ingestJob } from "./ingest";
+import type { RawHtmlBucket } from "./raw-html-store";
+import { renderExtractionFailedPage, renderResultPage } from "./result-display";
 
 // 貼り付け HTML の上限（バイト）。後続のトリミング #9 / 抽出 #11 の負荷・コスト保護のための上限。
 // Phase 0 の検証用途には十分な余裕（2MB）を取る。
@@ -73,9 +76,30 @@ pasteInput.post("/paste", async (c) => {
 	return c.json({ ok: true, bytes: result.bytes });
 });
 
-// 貼付 HTML を Phase 0 の最小経路（trim #9 → 抽出 #11 → スコア #12 → 表示 #13）に通し、
-// スコア結果ページを SSR で返す。各層は呼ぶだけで作り込まない（責務は表示）。
-// AI 抽出は c.env.AI を注入する。抽出とスコアリングの分離は壊さない（表示で再実行しない・1 リクエスト 1 抽出）。
+// 貼付経路の取込（#26）。検証済み HTML を取込→永続化（jobs/extractions/R2/scores）し、
+// 保存済みスコアから結果ページ HTML を返す。AI / D1 / R2 を注入してユニットテスト可能にする。
+// 抽出とスコアリングの分離は壊さない（抽出は 1 回・保存済みからスコア算出・§5.3）。
+export interface IngestPasteDeps {
+	ai: AiRunner;
+	db: D1Database;
+	bucket: RawHtmlBucket;
+}
+
+export async function ingestPaste(
+	deps: IngestPasteDeps,
+	html: string,
+): Promise<string> {
+	const ingested = await ingestJob(
+		{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
+		{ html, sourceType: "paste" },
+	);
+	// 抽出失敗は「評価できる項目なし」と取り違えないよう専用導線へ畳む（§8・#26）。
+	return ingested.extractionStatus === "failed"
+		? renderExtractionFailedPage()
+		: renderResultPage(ingested.score, ingested.job);
+}
+
+// 貼付 HTML を取込→永続化し、スコア結果ページを SSR で返す（フォールバック経路の DoD 結線）。
 pasteInput.post("/result", async (c) => {
 	const form = await c.req.parseBody();
 	const raw = form.html;
@@ -88,5 +112,10 @@ pasteInput.post("/result", async (c) => {
 		return c.json({ ok: false, reason: validated.reason }, status);
 	}
 
-	return c.html(await runExtractionPipeline(c.env.AI, validated.html));
+	return c.html(
+		await ingestPaste(
+			{ ai: c.env.AI, db: c.env.DB, bucket: c.env.RAW_HTML },
+			validated.html,
+		),
+	);
 });

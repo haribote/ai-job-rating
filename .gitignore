@@ -11,7 +11,15 @@ node_modules/
 
 # Cloudflare / Wrangler
 .wrangler/
+.wrangler-e2e/
 dist/
+
+# Playwright（E2E 生成物・撮影 PNG は PII を含み得るためコミットしない）
+/playwright-report/
+/test-results/
+/screenshots/
+/blob-report/
+/playwright/.cache/
 
 # Build output
 build/

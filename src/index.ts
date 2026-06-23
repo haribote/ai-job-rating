@@ -5,20 +5,24 @@ import {
 	type ProcessDetailDeps,
 	processDetailBatch,
 } from "./detail-queue";
-import { runExtractionPipeline } from "./extraction-pipeline";
 import { fetchHtml } from "./fetch-html";
+import { ingestJob } from "./ingest";
 
 // consumer(#24) が 1 詳細ジョブを処理するための deps を env から束ねる。
-// 取得（#21 fetch-html）→ 抽出パイプライン（#11 extraction-pipeline）を配線し、重い IO はここに集約する。
-// コアの配線層（detail-queue）はモック可能に保つため、env 依存はこの builder に閉じ込める。
-// Phase 0 は永続化なし: 抽出結果の保存は後続 #26 が担うため、ここでは取得・抽出の到達性のみ確認する。
+// 取得（#21 fetch-html）→ 取込→永続化（#26 ingestJob: jobs/extractions/R2/scores）を配線し、
+// 重い IO はここに集約する。コアの配線層（detail-queue）はモック可能に保つため env 依存をこの builder に閉じ込める。
+// 永続化まで通すことで、一覧→非同期取得→ranking 反映の DoD 一気通貫が queue 経路でも成立する。
 function buildProcessDeps(env: Bindings): ProcessDetailDeps {
 	return {
 		process: async (job: DetailJobMessage) => {
 			const { html } = await fetchHtml(job.url);
-			// runExtractionPipeline は表示用 HTML を返すが、永続化は #26 のスコープ。
-			// ここでは取得→抽出が通ること（例外を投げないこと）を担保する経路として呼ぶ。
-			await runExtractionPipeline(env.AI, html);
+			// 取得した詳細 HTML を取込→永続化する（同期経路 /fetch と同じ ingestJob を共有）。
+			// 失敗時は ingestJob 内で extraction_status=failed として保存され、例外は呼び出し元
+			// （processDetailBatch）が retry/ack 分類する。
+			await ingestJob(
+				{ ai: env.AI, db: env.DB, bucket: env.RAW_HTML },
+				{ html, sourceType: "detail", sourceUrl: job.url },
+			);
 		},
 	};
 }
