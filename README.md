@@ -38,7 +38,7 @@ npm run dev
 ### 1. 外部リソースを作成
 
 ```sh
-# D1（構造化データ）
+# D1（構造化データ）。出力される database_id を手順 2 で使う
 npx wrangler d1 create ai-job-rating
 # R2（生 HTML 保存）
 npx wrangler r2 bucket create ai-job-rating-raw-html
@@ -49,7 +49,7 @@ npx wrangler queues create ai-job-rating-details-dlq
 
 ### 2. `database_id` を差し替え
 
-`wrangler d1 create` が出力した `database_id` を `wrangler.jsonc` の D1 設定（placeholder `00000000-0000-0000-0000-000000000000`）に置き換えてください。
+手順 1 の `wrangler d1 create` が出力した `database_id`（`Created your new D1 database ...` に続けて表示される）を、`wrangler.jsonc` の D1 設定にある placeholder `00000000-0000-0000-0000-000000000000` と置き換えてください。
 
 ### 3. リモート D1 へマイグレーション適用
 
