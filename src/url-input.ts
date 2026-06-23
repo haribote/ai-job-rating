@@ -1,9 +1,14 @@
 import { Hono } from "hono";
 import type { AiRunner } from "./ai";
 import type { Bindings } from "./app";
-import { runExtractionPipeline } from "./extraction-pipeline";
 import { type Fetcher, FetchHtmlError, fetchHtml } from "./fetch-html";
-import { escapeHtml } from "./result-display";
+import { ingestJob } from "./ingest";
+import type { RawHtmlBucket } from "./raw-html-store";
+import {
+	escapeHtml,
+	renderExtractionFailedPage,
+	renderResultPage,
+} from "./result-display";
 
 // 公開詳細 URL 入力の決定的バリデーション。空入力と http(s) 以外のスキームを弾く。
 // roadmap Phase 0 は公開 SSR の単一詳細 URL のみ対象。誤投入・SSRF（file:/javascript: 等）を入口で排除する。
@@ -74,9 +79,13 @@ export function renderFetchErrorPage(
 </html>`;
 }
 
-// 取得 → 共有パイプライン、取得失敗時は誘導ページ。fetcher / AI を注入してユニットテスト可能にする。
+// 取得 → 取込（永続化）→ 結果表示、取得失敗時は誘導ページ。
+// fetcher / AI / D1 / R2 を注入してユニットテスト可能にする。
 export interface FetchAndRenderDeps {
 	ai: AiRunner;
+	// 取込結果の永続化先（#26）。
+	db: D1Database;
+	bucket: RawHtmlBucket;
 	// テスト用に fetch を差し替える。未指定時は fetchHtml が globalThis.fetch を使う
 	fetcher?: Fetcher;
 	// 取得タイムアウト（ms）。未指定時は fetchHtml の既定値
@@ -92,7 +101,16 @@ export async function fetchAndRender(
 			fetcher: deps.fetcher,
 			timeoutMs: deps.timeoutMs,
 		});
-		const html = await runExtractionPipeline(deps.ai, result.html);
+		// 取得した HTML を取込→永続化（jobs/extractions/R2/scores）し、保存済みスコアから表示する。
+		const ingested = await ingestJob(
+			{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
+			{ html: result.html, sourceType: "detail", sourceUrl: url },
+		);
+		// 抽出失敗は「評価できる項目なし」と取り違えないよう専用導線へ畳む（§8・#26）。
+		const html =
+			ingested.extractionStatus === "failed"
+				? renderExtractionFailedPage()
+				: renderResultPage(ingested.score, ingested.job);
 		return { status: 200, html };
 	} catch (cause) {
 		// 取得失敗は誘導ページへ畳む。想定外の例外（抽出層など）は握り潰さず再 throw する。
@@ -147,7 +165,7 @@ urlInput.post("/fetch", async (c) => {
 	}
 
 	const { status, html } = await fetchAndRender(
-		{ ai: c.env.AI },
+		{ ai: c.env.AI, db: c.env.DB, bucket: c.env.RAW_HTML },
 		validated.url,
 	);
 	return c.html(html, status);

@@ -1,11 +1,12 @@
-import { env } from "cloudflare:test";
-import { describe, expect, it, vi } from "vitest";
+import { applyD1Migrations, env } from "cloudflare:test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./app";
 import type { NormalizedJob } from "./job-schema";
 import {
 	escapeHtml,
 	formatScorePercent,
 	formatSubScore,
+	renderExtractionFailedPage,
 	renderResultPage,
 } from "./result-display";
 import type { ScoreResult } from "./score";
@@ -159,10 +160,36 @@ describe("renderResultPage", () => {
 	});
 });
 
-// 結果表示ルート。貼付 HTML → trim → 抽出（AI モック）→ score → 表示を最小で通す。
+// 抽出失敗の導線（#26）。スコア結果でも取得失敗でもない第三の状態を明示する。
+describe("renderExtractionFailedPage", () => {
+	// 抽出失敗を「評価できる項目なし（unknown 中立）」と混同させない明示メッセージを出す。
+	it("抽出失敗を明示し再試行・貼付フォールバックへ誘導する", () => {
+		const html = renderExtractionFailedPage();
+		expect(html).toContain("抽出に失敗しました");
+		// 再試行と貼付フォールバックの導線を置く（§8 エラーハンドリング）。
+		expect(html).toContain('href="/paste"');
+		// スコア結果ページと取り違えない（別状態であることを担保）。
+		expect(html).not.toContain("スコア結果");
+	});
+});
+
+// 結果表示ルート。貼付 HTML → trim → 抽出（AI モック）→ 永続化 → score → 表示を通す（#26）。
 describe("POST /result", () => {
+	// 取込が jobs/extractions/R2 へ書くため、毎回まっさらな D1/R2 を用意する。
+	beforeEach(async () => {
+		await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+		await env.DB.prepare("DELETE FROM jobs").run();
+		await env.DB.prepare("DELETE FROM criteria_config").run();
+	});
+
 	// AI 抽出はモックで決定的にする（live は要手動検証）。年収だけ返させ表示まで通す。
 	it("貼付 HTML を抽出・スコアして結果ページを返す", async () => {
+		// スコアは保存済み criteria_config 駆動（#20/#26）。年収基準を入れて内訳に出させる。
+		await env.DB.prepare(
+			"INSERT INTO criteria_config (criterion, desired_value, weight, hard_filter) VALUES ('annualSalary', ?, 5, 'none')",
+		)
+			.bind(JSON.stringify({ desired: 700, floor: 300 }))
+			.run();
 		const aiRun = vi.fn(async () => ({
 			response: { annualSalary: "700万〜900万" },
 		}));
