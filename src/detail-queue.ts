@@ -17,8 +17,10 @@ export interface DetailJobMessage {
 // producer が依存する Queue binding の最小契約。実型（Queue<DetailJobMessage>）は構造的に適合する。
 // テストではこのインターフェースをモックし、実 binding なしで投入内容を検証する。
 // sendBatch のみ使う（複数詳細を 1 リクエストで投入する）。単発 send は呼び口がないため持たない。
+// 戻り値は使わないため unknown にして、実 Queue（Promise<QueueSendBatchResponse>）と
+// テスト用 mock（Promise<void>）の双方を構造的に受けられるようにする。
 export interface DetailQueue {
-	sendBatch(messages: Iterable<{ body: DetailJobMessage }>): Promise<void>;
+	sendBatch(messages: Iterable<{ body: DetailJobMessage }>): Promise<unknown>;
 }
 
 // sendBatch の 1 リクエスト上限（Cloudflare Queues: 1 バッチ最大 100 メッセージ）。

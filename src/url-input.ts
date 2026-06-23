@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import type { AiRunner } from "./ai";
 import type { Bindings } from "./app";
+import { type DetailQueue, enqueueDetailJobs } from "./detail-queue";
 import { type Fetcher, FetchHtmlError, fetchHtml } from "./fetch-html";
 import { ingestJob } from "./ingest";
+import { classifyPage } from "./list-detail";
 import type { RawHtmlBucket } from "./raw-html-store";
 import {
 	escapeHtml,
@@ -79,13 +81,35 @@ export function renderFetchErrorPage(
 </html>`;
 }
 
-// 取得 → 取込（永続化）→ 結果表示、取得失敗時は誘導ページ。
-// fetcher / AI / D1 / R2 を注入してユニットテスト可能にする。
+// 一覧 URL の detailUrls をキュー投入したことを示すページ（#24 producer）。
+// 結果は非同期処理後に /ranking へ反映されるため、件数と導線を案内する。
+export function renderQueuedPage(count: number): string {
+	return `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>キュー投入しました — ai-job-rating</title>
+  </head>
+  <body>
+    <main>
+      <h1>キュー投入しました</h1>
+      <p>一覧から ${count} 件の詳細ページを取得キューに投入しました。順次取得・抽出・スコアリングされ、<a href="/ranking">ランキング</a> に反映されます。</p>
+    </main>
+  </body>
+</html>`;
+}
+
+// 取得 → 一覧なら detailUrls をキュー投入 / 詳細なら取込（永続化）→ 結果表示。取得失敗時は誘導ページ。
+// fetcher / AI / D1 / R2 / Queue を注入してユニットテスト可能にする。
 export interface FetchAndRenderDeps {
 	ai: AiRunner;
 	// 取込結果の永続化先（#26）。
 	db: D1Database;
 	bucket: RawHtmlBucket;
+	// 一覧 URL の detailUrls を非同期処理へ投入する producer（#24）。
+	queue: DetailQueue;
 	// テスト用に fetch を差し替える。未指定時は fetchHtml が globalThis.fetch を使う
 	fetcher?: Fetcher;
 	// 取得タイムアウト（ms）。未指定時は fetchHtml の既定値
@@ -101,6 +125,13 @@ export async function fetchAndRender(
 			fetcher: deps.fetcher,
 			timeoutMs: deps.timeoutMs,
 		});
+		// 一覧/詳細を判定（#21）。一覧は複数詳細 URL を非同期処理へ委ね（#24 producer）、
+		// 詳細はその場で取込→永続化して結果を返す（既存の単一詳細 UX を維持）。
+		const classification = classifyPage(result.html, url);
+		if (classification.kind === "list") {
+			const count = await enqueueDetailJobs(deps.queue, classification, url);
+			return { status: 200, html: renderQueuedPage(count) };
+		}
 		// 取得した HTML を取込→永続化（jobs/extractions/R2/scores）し、保存済みスコアから表示する。
 		const ingested = await ingestJob(
 			{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
@@ -165,7 +196,12 @@ urlInput.post("/fetch", async (c) => {
 	}
 
 	const { status, html } = await fetchAndRender(
-		{ ai: c.env.AI, db: c.env.DB, bucket: c.env.RAW_HTML },
+		{
+			ai: c.env.AI,
+			db: c.env.DB,
+			bucket: c.env.RAW_HTML,
+			queue: c.env.JOB_QUEUE,
+		},
 		validated.url,
 	);
 	return c.html(html, status);
