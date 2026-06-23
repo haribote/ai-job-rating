@@ -141,4 +141,20 @@ describe("ingestPaste（貼付経路の取込→永続化）", () => {
 		expect(job?.source_type).toBe("paste");
 		expect(job?.status).toBe("scored");
 	});
+
+	// #26: 抽出失敗時はスコア結果でなく抽出失敗の導線を返す。
+	it("抽出失敗時は抽出失敗ページを返す", async () => {
+		const failingAi: AiRunner = {
+			run: async () => {
+				throw { status: 400 };
+			},
+		};
+		const html = await ingestPaste(
+			{ ai: failingAi, db: env.DB, bucket: env.RAW_HTML },
+			"<html><body>本文</body></html>",
+		);
+
+		expect(html).toContain("抽出に失敗しました");
+		expect(html).not.toContain("スコア結果");
+	});
 });

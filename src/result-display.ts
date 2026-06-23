@@ -130,3 +130,25 @@ export function renderResultPage(
   </body>
 </html>`;
 }
+
+// 抽出失敗時の導線ページ（#26 / §8）。取得は成功したが構造化抽出が失敗した状態を表す。
+// 「評価できる項目なし（unknown 中立）」と混同させないため、スコア結果とは別ページで明示する。
+// 抽出失敗は upstream(Workers AI)の一時障害（504 等）の可能性があるため再試行を促す。
+export function renderExtractionFailedPage(): string {
+	return `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>抽出に失敗しました — ai-job-rating</title>
+  </head>
+  <body>
+    <main>
+      <h1>抽出に失敗しました</h1>
+      <p>ページの取得はできましたが、構造化抽出に失敗しました。一時的な障害の可能性があるため、時間をおいて再試行してください。</p>
+      <p>解消しない場合は、ページの HTML を <a href="/paste">貼り付け入力</a> で投入してお試しください。</p>
+    </main>
+  </body>
+</html>`;
+}

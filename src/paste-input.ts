@@ -3,7 +3,7 @@ import type { AiRunner } from "./ai";
 import type { Bindings } from "./app";
 import { ingestJob } from "./ingest";
 import type { RawHtmlBucket } from "./raw-html-store";
-import { renderResultPage } from "./result-display";
+import { renderExtractionFailedPage, renderResultPage } from "./result-display";
 
 // 貼り付け HTML の上限（バイト）。後続のトリミング #9 / 抽出 #11 の負荷・コスト保護のための上限。
 // Phase 0 の検証用途には十分な余裕（2MB）を取る。
@@ -93,7 +93,10 @@ export async function ingestPaste(
 		{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
 		{ html, sourceType: "paste" },
 	);
-	return renderResultPage(ingested.score, ingested.job);
+	// 抽出失敗は「評価できる項目なし」と取り違えないよう専用導線へ畳む（§8・#26）。
+	return ingested.extractionStatus === "failed"
+		? renderExtractionFailedPage()
+		: renderResultPage(ingested.score, ingested.job);
 }
 
 // 貼付 HTML を取込→永続化し、スコア結果ページを SSR で返す（フォールバック経路の DoD 結線）。

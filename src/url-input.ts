@@ -4,7 +4,11 @@ import type { Bindings } from "./app";
 import { type Fetcher, FetchHtmlError, fetchHtml } from "./fetch-html";
 import { ingestJob } from "./ingest";
 import type { RawHtmlBucket } from "./raw-html-store";
-import { escapeHtml, renderResultPage } from "./result-display";
+import {
+	escapeHtml,
+	renderExtractionFailedPage,
+	renderResultPage,
+} from "./result-display";
 
 // 公開詳細 URL 入力の決定的バリデーション。空入力と http(s) 以外のスキームを弾く。
 // roadmap Phase 0 は公開 SSR の単一詳細 URL のみ対象。誤投入・SSRF（file:/javascript: 等）を入口で排除する。
@@ -102,10 +106,12 @@ export async function fetchAndRender(
 			{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
 			{ html: result.html, sourceType: "detail", sourceUrl: url },
 		);
-		return {
-			status: 200,
-			html: renderResultPage(ingested.score, ingested.job),
-		};
+		// 抽出失敗は「評価できる項目なし」と取り違えないよう専用導線へ畳む（§8・#26）。
+		const html =
+			ingested.extractionStatus === "failed"
+				? renderExtractionFailedPage()
+				: renderResultPage(ingested.score, ingested.job);
+		return { status: 200, html };
 	} catch (cause) {
 		// 取得失敗は誘導ページへ畳む。想定外の例外（抽出層など）は握り潰さず再 throw する。
 		if (cause instanceof FetchHtmlError) {

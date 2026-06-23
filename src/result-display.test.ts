@@ -6,6 +6,7 @@ import {
 	escapeHtml,
 	formatScorePercent,
 	formatSubScore,
+	renderExtractionFailedPage,
 	renderResultPage,
 } from "./result-display";
 import type { ScoreResult } from "./score";
@@ -156,6 +157,19 @@ describe("renderResultPage", () => {
 		});
 		expect(html).not.toContain("<script>alert(1)</script>");
 		expect(html).toContain("&lt;script&gt;");
+	});
+});
+
+// 抽出失敗の導線（#26）。スコア結果でも取得失敗でもない第三の状態を明示する。
+describe("renderExtractionFailedPage", () => {
+	// 抽出失敗を「評価できる項目なし（unknown 中立）」と混同させない明示メッセージを出す。
+	it("抽出失敗を明示し再試行・貼付フォールバックへ誘導する", () => {
+		const html = renderExtractionFailedPage();
+		expect(html).toContain("抽出に失敗しました");
+		// 再試行と貼付フォールバックの導線を置く（§8 エラーハンドリング）。
+		expect(html).toContain('href="/paste"');
+		// スコア結果ページと取り違えない（別状態であることを担保）。
+		expect(html).not.toContain("スコア結果");
 	});
 });
 

@@ -91,6 +91,33 @@ describe("fetchAndRender", () => {
 		expect(ext?.n).toBe(1);
 	});
 
+	// #26: 取得成功でも抽出失敗時はスコア結果でなく抽出失敗の導線を返す（unknown 中立と区別）。
+	it("抽出失敗時は抽出失敗ページを返し job を failed で永続化する", async () => {
+		// 非 transient エラーで extraction_failed を起こす（リトライ待ちを避ける）。
+		const failingAi: AiRunner = {
+			run: async () => {
+				throw { status: 400 };
+			},
+		};
+		const url = "https://example.com/jobs/extract-fail";
+		const fetcher: Fetcher = async () =>
+			new Response("<p>本文</p>", { status: 200 });
+
+		const result = await fetchAndRender(
+			{ ai: failingAi, fetcher, db: env.DB, bucket: env.RAW_HTML },
+			url,
+		);
+
+		expect(result.html).toContain("抽出に失敗しました");
+		expect(result.html).not.toContain("スコア結果");
+		const job = await env.DB.prepare(
+			"SELECT status FROM jobs WHERE source_url = ?",
+		)
+			.bind(url)
+			.first<{ status: string }>();
+		expect(job?.status).toBe("failed");
+	});
+
 	// 取得失敗（非 2xx）は 502 と貼付フォールバック誘導のエラーページ（落とさない）
 	it("HTTP エラー時は 502 と /paste 誘導のエラーページを返す", async () => {
 		const fetcher: Fetcher = async () =>
