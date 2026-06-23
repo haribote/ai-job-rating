@@ -1,14 +1,18 @@
 # AI Job Rating
 
-求人情報をAIで抽出・スコアリングし、自分の希望条件に照らしてランキングするウェブアプリケーション。Cloudflare Workers 単体（Hono + 静的資産）で動くセルフホスト前提の OSS です。
+求人情報のURLを投入するとAIで内容を抽出・スコアリングし、自分の希望条件に照らしてランキングするウェブアプリケーション。  
+Cloudflare Workers 単体（Hono + 静的資産）で動くセルフホスト前提の OSS です。  
 
-抽出とスコアリングは分離されており、重みや希望条件を変えても AI は再実行されず即座に再ランキングされます（決定的スコアリング）。
+求人情報のURLは、単一の求人情報が掲載された詳細ページでも、複数の求人情報にリンクしている一覧ページでも、どちらでも投入可能です。  
+抽出とスコアリングは分離されており、重みや希望条件を変えても AI の再実行なしに再ランキングされます。
 
 ## 必要なもの
 
-- **Cloudflare アカウント（Workers 有料プラン）** — Browser Rendering（SPA 取得フォールバック）と Queues（複数詳細ページの非同期取得）を使うため。
+- **Cloudflare アカウント（Workers 有料プラン）** 
+  -  Browser Rendering（SPA 取得用）と Queues（複数ページの非同期取得）を使うため。
 - **Node.js `>=20`** と **npm**。
-- **wrangler** — 本リポジトリの devDependency に含まれるため `npx wrangler ...` で実行できます。初回は `npx wrangler login` で認証します。
+- **wrangler** 
+  - `npx wrangler ...` で実行できます。初回は `npx wrangler login` で認証します。
 
 Workers AI / D1 / R2 / Queues / Browser Rendering の各バインディングは `wrangler.jsonc` に定義済みです。フォーク先で手編集が必要なのは **D1 の `database_id` 1 箇所のみ**です（後述）。
 
@@ -23,7 +27,7 @@ npm run dev
 
 `http://localhost:8787` で起動します。ローカル開発では miniflare が D1 / R2 / Queues / Browser を疑似提供するため、Cloudflare 上のリソース作成は不要です。
 
-Phase 1 では**必須のシークレットはありません**（Workers AI はバインディング経由、認証下取得の Cookie は取り込み時に都度入力）。シークレットの雛形は `.dev.vars.example` を参照してください。
+現在のバージョンでは**必須のシークレットはありません**（Workers AI はバインディング経由、認証下取得の Cookie は取り込み時に都度入力）。シークレットの雛形は `.dev.vars.example` を参照してください。
 
 > `.npmrc` で `ignore-scripts=true`（サプライチェーン防御）を設定しているため、依存の postinstall は実行されません。本プロジェクトは postinstall に依存しません。
 
@@ -38,14 +42,14 @@ Phase 1 では**必須のシークレットはありません**（Workers AI は
 npx wrangler d1 create ai-job-rating
 # R2（生 HTML 保存）
 npx wrangler r2 bucket create ai-job-rating-raw-html
-# Queues（複数詳細ページの非同期取得 + DLQ）
+# Queues（複数ページの非同期取得 + DLQ）
 npx wrangler queues create ai-job-rating-details
 npx wrangler queues create ai-job-rating-details-dlq
 ```
 
-### 2. `database_id` を差し替え（唯一の手編集）
+### 2. `database_id` を差し替え
 
-`wrangler d1 create` が出力した `database_id` を `wrangler.jsonc` の D1 設定（placeholder `00000000-0000-0000-0000-000000000000`）に貼り替えます。R2 バケット名・Queue 名は上記コマンドの名前と一致しているため変更不要です。
+`wrangler d1 create` が出力した `database_id` を `wrangler.jsonc` の D1 設定（placeholder `00000000-0000-0000-0000-000000000000`）に置き換えてください。
 
 ### 3. リモート D1 へマイグレーション適用
 
@@ -61,17 +65,15 @@ npx wrangler d1 migrations apply ai-job-rating --remote
 npm run deploy
 ```
 
-静的 CSS（`public/styles.css`）はコミット済みのため、デプロイ前のビルドは不要です。
-
 ### 5. Cloudflare ダッシュボードでの有効化
 
-**Workers AI** と **Browser Rendering** はアカウント側で有効化が必要な場合があります。デプロイ後に `/ai-health` が 200 を返せば Workers AI への疎通は OK です。
+**Workers AI** と **Browser Rendering** はアカウント側で有効化が必要な場合があります。
 
 ## 使い方
 
 | 動線 | 内容 |
 |---|---|
-| `GET/POST /fetch` | 求人 URL を投入。詳細 URL は即取り込み、一覧 URL は詳細 URL 群をキューに投入して非同期取り込み。 |
+| `GET/POST /fetch` | 求人URLを投入。詳細URLは即取り込み、一覧URLはそこからリンクしている詳細URLを抽出してキューに投入して非同期取り込み。 |
 | `GET/POST /paste` | 取得できない場合のフォールバック。求人ページの HTML を貼り付けて取り込み。 |
 | `GET /ranking` | 取り込んだ求人をスコア順に一覧表示（項目別内訳つき）。 |
 | `GET/POST /config` | 重み・希望条件・ハードフィルタを設定。保存すると AI を再実行せず即再ランキング。 |
@@ -95,7 +97,7 @@ npm run build:css:check  # design-tokens と public/styles.css の同期確認
 npm run e2e              # Playwright E2E
 ```
 
-開発手法は t-wada メソッドの TDD。決定的ロジック（スコアリング等）はユニットテスト必須です。詳細は `CLAUDE.md` を参照してください。
+あわせて [`CLAUDE.md`](CLAUDE.md) も参照してください。
 
 ## Documentation
 
