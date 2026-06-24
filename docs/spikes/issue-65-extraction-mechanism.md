@@ -8,7 +8,10 @@
 >
 > **更新（2026-06-23）**: 既定モデルを確定する前に**検証対象を見直し**（一次ソース再確認）。live 実測の対象を `glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it`（＋現行 `llama-3.3-70b` baseline）に整理した。**現時点で候補間の優劣は判定せず**、live 実測で平等に比較して既定モデルを確定する。詳細は下記「検証対象モデル」「要手動検証」。機構の決定（アダプタ＋コード側 検証/修復/正規化）は不変。
 >
-> **更新（2026-06-24）**: 検証対象に [`@cf/qwen/qwen3-30b-a3b-fp8`](https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/) を追加（一次ソース確認）。Qwen3 MoE・reasoning 系・context 32,768・FC 対応・JSON Mode 非対応。他候補と**平等に** live 実測する。下表「検証対象モデル」「要手動検証」に反映。機構の決定は不変。
+> **更新（2026-06-24）**: 検証対象に2件追加（いずれも一次ソース確認）。他候補と**平等に** live 実測する。下表「検証対象モデル」「要手動検証」に反映。機構の決定は不変。
+>
+> - [`@cf/qwen/qwen3-30b-a3b-fp8`](https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/): Qwen3 MoE・reasoning 系・context 32,768・FC 対応・JSON Mode 非対応（→ アダプタ経由）。
+> - [`@cf/deepseek-ai/deepseek-r1-distill-qwen-32b`](https://developers.cloudflare.com/workers-ai/models/deepseek-r1-distill-qwen-32b/): DeepSeek-R1 を Qwen2.5 ベースに distill・reasoning 系・context 80,000・**JSON Mode 対応**（baseline 同様 JSON Mode 直叩き可）。出力単価が高い点に留意。
 
 ## 前提（#15 で判明した制約）
 
@@ -55,8 +58,10 @@
 | [`@cf/openai/gpt-oss-120b`](https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/) | 128,000 | Yes | 非対応 | $0.35 / $0.75 | reasoning 系・**Responses API 経由** |
 | [`@cf/google/gemma-4-26b-a4b-it`](https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/) | 256,000 | Yes | 非対応 | $0.10 / $0.30 | Gemma 4・reasoning 系・`response_format` param 有(公式保証外)・アダプタ経由 |
 | [`@cf/qwen/qwen3-30b-a3b-fp8`](https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/)（2026-06-24 追加） | 32,768 | Yes | 非対応 | $0.051 / $0.34 | Qwen3 MoE(A3B=active 3B)・reasoning 系（`content` 挙動を要確認）・多言語・Batch 対応・アダプタ経由 |
+| [`@cf/deepseek-ai/deepseek-r1-distill-qwen-32b`](https://developers.cloudflare.com/workers-ai/models/deepseek-r1-distill-qwen-32b/)（2026-06-24 追加） | 80,000 | （記載なし） | 対応 | $0.50 / $4.88 | DeepSeek-R1 を Qwen2.5 ベースに distill・reasoning 系（`content`/`<think>` 挙動を要確認）・JSON Mode 直叩き可・出力単価が高い |
 
 - JSON Mode 非対応の候補（glm-4.7-flash / llama-4-scout / gpt-oss-20b / gpt-oss-120b / gemma-4-26b-a4b-it / qwen3-30b-a3b-fp8）は**「prompt+検証+修復」または function calling アダプタ経由**でコード側保証が前提。
+- `deepseek-r1-distill-qwen-32b` は **JSON Mode 対応**のため baseline 同様 JSON Mode 直叩きで評価できるが、reasoning 系のため `content` 挙動の確認と出力単価（$4.88/M）に留意する。
 - 上記候補は live 実測で**同一サンプル・同一プロンプト/スキーマで横並び・平等に評価**する。
 
 ## 検討（Phase 1 での適合性）
@@ -74,7 +79,7 @@
    - これは §5.3 ガードレール（`EXTRACTION_MODEL` 差し替え）を**機構レベルに拡張**するもの。機構もモデルもアカウント固有値も `wrangler.jsonc` / 環境変数経由で差し替えられるようにする（フォーク容易性）。
 2. **品質保証は機構非依存のコードレイヤで作る**（§8 既定方針）。`JSON Mode couldn't be met` や不完全 JSON を含め、`検証（スキーマ）→ 修復（部分パース・欠損補完）→ 正規化（ラベル・unknown 中立）`の決定的パイプラインを通す。形式保証をモデルに委ねない。
    - 現行 `extract.ts` の「想定外形は落とさず全 unknown へ畳む」「504 リトライ」は維持。これに**部分的に取れたフィールドだけでも救う修復**（全 unknown へ畳む前に、得られたキーは活かす）を加える方向。
-3. **既定モデルは Phase 1 でも JSON Mode 対応モデルを incumbent として維持**しつつ、**長文・コスト対策の候補を「prompt+検証+修復」アダプタ経由で評価**する。検証対象は上表（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` ＋ 現行 baseline）。**現時点で優劣は付けず**、下記 live 実測で平等に比較して既定モデルを確定する（本 spike は機構を決め、モデル最終確定は #15 系の実測フォローに委ねる）。
+3. **既定モデルは Phase 1 でも JSON Mode 対応モデルを incumbent として維持**しつつ、**長文・コスト対策の候補を「prompt+検証+修復」アダプタ経由で評価**する。検証対象は上表（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b` ＋ 現行 baseline）。**現時点で優劣は付けず**、下記 live 実測で平等に比較して既定モデルを確定する（本 spike は機構を決め、モデル最終確定は #15 系の実測フォローに委ねる）。
 4. **LLM の役割は最小化する**。決定的に取れる項目（ラベル一致・数値・カテゴリ）は非 LLM のコードで処理し、LLM は不定形テキストからの抽出に限定する。既存の責務分離を維持。
 
 ### 採用しない/保留
@@ -109,9 +114,9 @@
 
 計測項目。**検証対象は平等に扱い、事前に優劣を付けない**。共通の記録: 21 正規キー充足数・correct/wrong/hallucinated/missed（KIMURA 真値判定）・latencyMs・504 有無・概算コスト。#15 の小入力（〜1,900 chars）・大入力（〜2,822 chars 以上）で実施:
 
-1. **検証対象（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` ＋ 現行 `llama-3.3-70b` baseline）を、同一サンプル・同一プロンプト/スキーマで横並び抽出**し、上記指標で平等に比較する。
-2. **reasoning 系（`glm-4.7-flash` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8`）は `content` 挙動を最初に確認**（`content=null`/`reasoning_content` か）。`gpt-oss` 系は Responses API 経由。本文が `content` に入らない場合の取り回しを記録。
-3. **JSON Mode 非対応候補（glm / scout / gpt-oss 20b・120b / qwen3-30b）は「prompt+検証+修復」アダプタ経由**で評価し、必要に応じ traditional function calling（`tools` → `tool_calls`）とも比較。`llama-4-scout` は `required` 列挙込み。各候補の context（qwen3-30b は 32,768、他は 128k 以上）で 504 が解消するかを確認。
+1. **検証対象（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b` ＋ 現行 `llama-3.3-70b` baseline）を、同一サンプル・同一プロンプト/スキーマで横並び抽出**し、上記指標で平等に比較する。
+2. **reasoning 系（`glm-4.7-flash` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b`）は `content` 挙動を最初に確認**（`content=null`/`reasoning_content`/`<think>` か）。`gpt-oss` 系は Responses API 経由。本文が `content` に入らない場合の取り回しを記録。
+3. **JSON Mode 非対応候補（glm / scout / gpt-oss 20b・120b / qwen3-30b）は「prompt+検証+修復」アダプタ経由**で評価し、必要に応じ traditional function calling（`tools` → `tool_calls`）とも比較。`llama-4-scout` は `required` 列挙込み。各候補の context（qwen3-30b は 32,768、他は 128k 以上）で 504 が解消するかを確認。**JSON Mode 対応の `deepseek-r1-distill-qwen-32b`（context 80,000）は baseline 同様 JSON Mode 直叩きで評価**し、reasoning 系の `content` 挙動・出力単価も併せて記録する。
 4. 各機構で **`JSON Mode couldn't be met` / 不完全 JSON / tool_calls 欠損**の発生率と、修復レイヤが救えた割合を記録（修復の有効性検証）。
 5. 概算コスト（入力 trim 後 token 数 × unit pricing）を機構別に出し、speed/cost/精度のトレードオフで**既定モデル + 既定機構を最終確定**。
 
