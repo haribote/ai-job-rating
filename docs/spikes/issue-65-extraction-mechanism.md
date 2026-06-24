@@ -19,7 +19,7 @@
 
 - **モデルが公式サポートリストに縛られる**。JSON Mode の公式対応モデルは Llama 3.x 系・hermes-2-pro・deepseek 系のみ（下表）。`llama-4-scout` / `gpt-oss-120b` は非対応で、scout は取りこぼし多発・gpt-oss は `content=null`。
 - **llama-3.3-70b は context 24,000 tokens が上限**。入力が増える（実測 2,822 chars）と単発呼び出しで **504 Gateway Timeout**。本番 `extractJob` は 504 を 3 回リトライするが、レイテンシ・失敗リスクは実在。
-- requirements §8 リスク表も「JSON Mode **＋ スキーマ検証 ＋ フォールバック**」とセットで規定しており、JSON Mode 単体に 100% は委ねていない。
+- requirements §10 リスク表も**機構非依存のコードレイヤ（検証 → 修復 → 正規化）で形式担保**と規定しており（[#87](https://github.com/haribote/ai-job-rating/pull/87) で本 spike の決定に整合）、JSON Mode 単体に委ねていない。
 
 つまり制約の本質は「**出力の構造化を JSON Mode という単一機構に縛っていること**」であり、`EXTRACTION_MODEL` 定数の差し替え（§5.3 ガードレール内）では解けない。本 spike は抽出機構そのものの設計判断を行う。
 
@@ -40,7 +40,7 @@
 | **JSON Mode**（現行） | `response_format: { type:"json_schema", json_schema }` | 公式対応モデルのみ（上記9種） | schema 準拠を試みるが**保証なし**（`couldn't be met` あり）。streaming 不可 | OpenAI 互換。`required` 必須 |
 | **Traditional function calling** | `tools: [{name, description, parameters}]` → `response.tool_calls` | function calling 対応モデル（scout=Yes / llama-3.3=Yes / hermes-2-pro 等） | tool_calls の arguments で構造化。**保証なし**（モデル次第） | 出典: function-calling/traditional/ |
 | **Embedded function calling** | `@cloudflare/ai-utils` の `runWithTools` | hermes-2-pro 等 | 関数実行まで束ねる用途。**本件は外部 API 呼ばないので不要** | 依存追加・サプライチェーン面で重い |
-| **prompt で JSON 指示 + スキーマ検証 + 修復** | 通常 `messages` のみ | **全 text-generation モデル**（scout/gpt-oss 含む） | コード側の検証で**機構として保証**を作る | §8 既定方針。モデル非依存 |
+| **prompt で JSON 指示 + スキーマ検証 + 修復** | 通常 `messages` のみ | **全 text-generation モデル**（scout/gpt-oss 含む） | コード側の検証で**機構として保証**を作る | §7.1 既定方針。モデル非依存 |
 | **非 LLM 併用**（正規表現・DOM・ラベル正規化） | LLM 呼ばない | N/A | 決定的（テストで担保） | 既に `job-schema.ts` に LABEL_ALIASES / `parseNumbers` 等あり |
 
 `guided_json` は scout 等で**パラメータは存在するが JSON Mode 公式保証外**（#15 根本原因より）。実体は上記「prompt+検証+修復」と同じ扱いに帰着する。
@@ -68,7 +68,7 @@
 
 - **JSON Mode 単体（現行維持）**: 小入力では忠実だが、context 24k と 504 が解消しない。長文求人・将来の一覧展開（#21）で詰む。形式保証もそもそも「保証なし」。→ 単体採用は不可。
 - **Traditional function calling**: tool_calls で構造化でき scout でも使えるが、**arguments の schema 準拠は同じく保証なし**。JSON Mode と保証レベルは変わらず、API 形が増えるだけ。単独の決め手にならない。
-- **prompt + スキーマ検証 + 修復**: 出力機構を**モデル非依存**にできる唯一の手段。検証・修復・正規化を**コード側の決定的ロジック**に置けば、どの構造化機構（JSON Mode / function calling / 素の prompt）を表面に使ってもバックエンドで品質を担保できる。§8 既定方針とも一致。
+- **prompt + スキーマ検証 + 修復**: 出力機構を**モデル非依存**にできる唯一の手段。検証・修復・正規化を**コード側の決定的ロジック**に置けば、どの構造化機構（JSON Mode / function calling / 素の prompt）を表面に使ってもバックエンドで品質を担保できる。§7.1 既定方針とも一致。
 - **非 LLM 併用**: ラベル正規化・数値パース・カテゴリ正規化は既に `job-schema.ts` / `extract.ts` の決定的ロジックに存在。**「LLM は正規キーごとの生抽出文字列を返すだけ、正規化と検証はコード」という現行の責務分離を維持・強化**するのが正しい。LLM の役割を最小化するほど速く・安く・揺れにくい。
 
 ## 決定（Phase 1 採用方針）
@@ -77,7 +77,7 @@
 
 1. **抽出アダプタを抽象化する**。AI への要求は現行どおり「正規キーごとの生抽出文字列」を返させる契約を維持し、その実現手段（JSON Mode / traditional function calling / 素の prompt）を**差し替え可能なアダプタ**として切り出す。`extractJob` 本体・正規化・スコアリングはアダプタに依存しない。
    - これは §5.3 ガードレール（`EXTRACTION_MODEL` 差し替え）を**機構レベルに拡張**するもの。機構もモデルもアカウント固有値も `wrangler.jsonc` / 環境変数経由で差し替えられるようにする（フォーク容易性）。
-2. **品質保証は機構非依存のコードレイヤで作る**（§8 既定方針）。`JSON Mode couldn't be met` や不完全 JSON を含め、`検証（スキーマ）→ 修復（部分パース・欠損補完）→ 正規化（ラベル・unknown 中立）`の決定的パイプラインを通す。形式保証をモデルに委ねない。
+2. **品質保証は機構非依存のコードレイヤで作る**（§7.1 既定方針）。`JSON Mode couldn't be met` や不完全 JSON を含め、`検証（スキーマ）→ 修復（部分パース・欠損補完）→ 正規化（ラベル・unknown 中立）`の決定的パイプラインを通す。形式保証をモデルに委ねない。
    - 現行 `extract.ts` の「想定外形は落とさず全 unknown へ畳む」「504 リトライ」は維持。これに**部分的に取れたフィールドだけでも救う修復**（全 unknown へ畳む前に、得られたキーは活かす）を加える方向。
 3. **既定モデルは Phase 1 でも JSON Mode 対応モデルを incumbent として維持**しつつ、**長文・コスト対策の候補を「prompt+検証+修復」アダプタ経由で評価**する。検証対象は上表（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b` ＋ 現行 baseline）。**現時点で優劣は付けず**、下記 live 実測で平等に比較して既定モデルを確定する（本 spike は機構を決め、モデル最終確定は #15 系の実測フォローに委ねる）。
 4. **LLM の役割は最小化する**。決定的に取れる項目（ラベル一致・数値・カテゴリ）は非 LLM のコードで処理し、LLM は不定形テキストからの抽出に限定する。既存の責務分離を維持。
