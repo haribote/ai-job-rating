@@ -16,5 +16,58 @@
 	// Workers AI バインディング（§7.1, JSON Mode 構造化抽出）。env.AI でアクセスする
 	"ai": {
 		"binding": "AI"
-	}
+	},
+	// 複数詳細ページの非同期取得・抽出キュー（#24, roadmap Phase 1）。
+	// 単一 Worker が producer（env.JOB_QUEUE.sendBatch で詳細 URL を投入）と
+	// push consumer（queue() ハンドラ）を兼ねる。
+	// 初回デプロイ前にキュー作成が必要:
+	//   wrangler queues create ai-job-rating-details
+	//   wrangler queues create ai-job-rating-details-dlq
+	"queues": {
+		"producers": [
+			{
+				"queue": "ai-job-rating-details",
+				"binding": "JOB_QUEUE"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "ai-job-rating-details",
+				// 1 メッセージ = 1 詳細取得・抽出。取得/抽出は遅く、また #25 のレート/同時実行制御を
+				// 効かせやすくするため小さめのバッチにする（max_batch_size は 1-100、既定 10）。
+				"max_batch_size": 10,
+				"max_batch_timeout": 5,
+				// 一過性失敗（timeout/network/5xx）の再試行回数。超過したメッセージは DLQ へ退避する。
+				"max_retries": 3,
+				// 取得元への配慮（§8 取得マナー）として一覧クロールの同時実行を絞る。#25 の制御と協調する。
+				"max_concurrency": 2,
+				// give-up したメッセージを失わないよう DLQ へ退避（取込時の永続化失敗系は #26 ingest が記録する）。
+				"dead_letter_queue": "ai-job-rating-details-dlq"
+			}
+		]
+	},
+	// Browser Rendering バインディング（SPA 取得フォールバック, roadmap Phase 1）。env.BROWSER でアクセスする
+	"browser": {
+		"binding": "BROWSER"
+	},
+	// D1 バインディング（§6, 構造化データ）。env.DB でアクセスする。
+	// database_id はアカウント固有のため、フォーク先が `wrangler d1 create` で発行した値に差し替える
+	// （フォーク容易性 §8）。migrations_dir のマイグレーションは `wrangler d1 migrations apply` で適用する。
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "ai-job-rating",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	// R2 バインディング（§6, 生 HTML 等の大きめオブジェクト）。env.RAW_HTML でアクセスする。
+	// bucket_name はアカウント固有のため、フォーク先が `wrangler r2 bucket create` で作成した値に差し替える
+	// （フォーク容易性 §8）。ローカル開発・テストでは miniflare がファイルシステム上の in-memory R2 を与える。
+	"r2_buckets": [
+		{
+			"binding": "RAW_HTML",
+			"bucket_name": "ai-job-rating-raw-html"
+		}
+	]
 }

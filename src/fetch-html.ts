@@ -18,11 +18,15 @@ export class FetchHtmlError extends Error {
 	readonly kind: FetchHtmlErrorKind;
 	readonly url: string;
 	readonly status?: number;
+	// 3xx 応答の Location ヘッダ値（redirect:"manual" 時のみ意味を持つ）。
+	// 認証下取得（#23）が追従先 origin を検査して Cookie のクロスオリジン再送を防ぐために使う。
+	readonly location?: string;
 
 	constructor(args: {
 		kind: FetchHtmlErrorKind;
 		url: string;
 		status?: number;
+		location?: string;
 		message: string;
 		cause?: unknown;
 	}) {
@@ -31,6 +35,7 @@ export class FetchHtmlError extends Error {
 		this.kind = args.kind;
 		this.url = args.url;
 		this.status = args.status;
+		this.location = args.location;
 	}
 }
 
@@ -45,6 +50,12 @@ export interface FetchHtmlOptions {
 	timeoutMs?: number;
 	// テスト用に fetch を差し替える。未指定時は globalThis.fetch を使う
 	fetcher?: Fetcher;
+	// 追加で載せるリクエストヘッダ（認証下取得の Cookie 等）。既定ヘッダにマージする
+	headers?: Record<string, string>;
+	// redirect 方式。既定は "follow"（公開取得の従来挙動）。認証下取得は "manual" を渡し、
+	// 呼び出し側が origin を検査して Cookie のクロスオリジン再送を防ぐ（#23）。
+	// DOM lib の RequestRedirect に依存せずリテラルで持つ（Workers 型環境で未定義のため）。
+	redirect?: "follow" | "manual" | "error";
 }
 
 // 既定タイムアウト。SSR 取得が長時間ぶら下がるのを防ぐ
@@ -70,17 +81,24 @@ export async function fetchHtml(
 	try {
 		const response = await fetcher(url, {
 			signal: controller.signal,
-			redirect: "follow",
+			redirect: options.redirect ?? "follow",
 			// 取得マナー（§8）: 識別可能な User-Agent を名乗る。robots/レート制御の本格対応は Phase 1。
-			headers: { accept: "text/html", "user-agent": USER_AGENT },
+			// 呼び出し側の追加ヘッダ（認証下取得の Cookie 等）を後勝ちでマージする。
+			headers: {
+				accept: "text/html",
+				"user-agent": USER_AGENT,
+				...options.headers,
+			},
 		});
 
-		// 非 2xx は取得失敗として扱う（本文の中身判定は後続層の責務）
+		// 非 2xx は取得失敗として扱う（本文の中身判定は後続層の責務）。
+		// redirect:"manual" 時は 3xx も非 2xx として届くため、追従先判断用に Location を載せる。
 		if (!response.ok) {
 			throw new FetchHtmlError({
 				kind: "http",
 				url,
 				status: response.status,
+				location: response.headers.get("location") ?? undefined,
 				message: `unexpected HTTP status ${response.status}: ${url}`,
 			});
 		}

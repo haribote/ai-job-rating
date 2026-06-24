@@ -1,0 +1,150 @@
+/*
+ * 自動生成ファイル — 直接編集しない。
+ * 生成元: src/design-tokens.ts（トークン）+ src/design-tokens-css.ts（変換）。
+ * 再生成: npm run build:css
+ */
+
+:root {
+	/* color */
+	--ajr-color-bg: #ffffff;
+	--ajr-color-surface: #f7f8fa;
+	--ajr-color-border: #d7dbe0;
+	--ajr-color-text: #1a1d21;
+	--ajr-color-text-muted: #5b6470;
+	--ajr-color-primary: #2557d6;
+	--ajr-color-primary-text: #ffffff;
+	--ajr-color-accent: #0a7d54;
+	--ajr-color-danger: #c0362c;
+	--ajr-color-focus-ring: #2557d6;
+	/* typography */
+	--ajr-font-sans: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", Meiryo, sans-serif;
+	--ajr-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+	--ajr-font-size-sm: 0.875rem;
+	--ajr-font-size-base: 1rem;
+	--ajr-font-size-lg: 1.25rem;
+	--ajr-font-size-xl: 1.75rem;
+	--ajr-line-height-tight: 1.25;
+	--ajr-line-height-base: 1.6;
+	--ajr-font-weight-normal: 400;
+	--ajr-font-weight-bold: 700;
+	/* spacing */
+	--ajr-space-0: 0;
+	--ajr-space-1: 0.25rem;
+	--ajr-space-2: 0.5rem;
+	--ajr-space-3: 0.75rem;
+	--ajr-space-4: 1rem;
+	--ajr-space-6: 1.5rem;
+	--ajr-space-8: 2rem;
+	/* surface */
+	--ajr-radius-sm: 4px;
+	--ajr-radius-md: 8px;
+	--ajr-border-width: 1px;
+	--ajr-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+	/* layout */
+	--ajr-layout-max-width: 72rem;
+}
+
+*, *::before, *::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	font-family: var(--ajr-font-sans);
+	font-size: var(--ajr-font-size-base);
+	line-height: var(--ajr-line-height-base);
+	color: var(--ajr-color-text);
+	background: var(--ajr-color-bg);
+}
+
+main {
+	max-width: var(--ajr-layout-max-width);
+	margin: 0 auto;
+	padding: var(--ajr-space-8) var(--ajr-space-4);
+}
+
+h1 {
+	font-size: var(--ajr-font-size-xl);
+	line-height: var(--ajr-line-height-tight);
+	font-weight: var(--ajr-font-weight-bold);
+	margin: 0 0 var(--ajr-space-6);
+}
+
+p {
+	margin: 0 0 var(--ajr-space-4);
+}
+
+a {
+	color: var(--ajr-color-primary);
+}
+
+strong {
+	font-weight: var(--ajr-font-weight-bold);
+}
+
+label {
+	display: block;
+	margin-bottom: var(--ajr-space-1);
+	color: var(--ajr-color-text-muted);
+	font-size: var(--ajr-font-size-sm);
+}
+
+input, textarea, select, button {
+	font: inherit;
+	color: var(--ajr-color-text);
+}
+
+input, textarea, select {
+	padding: var(--ajr-space-2) var(--ajr-space-3);
+	border: var(--ajr-border-width) solid var(--ajr-color-border);
+	border-radius: var(--ajr-radius-sm);
+	background: var(--ajr-color-bg);
+	max-width: 100%;
+}
+
+textarea {
+	width: 100%;
+	font-family: var(--ajr-font-mono);
+}
+
+button {
+	padding: var(--ajr-space-2) var(--ajr-space-6);
+	border: var(--ajr-border-width) solid transparent;
+	border-radius: var(--ajr-radius-sm);
+	background: var(--ajr-color-primary);
+	color: var(--ajr-color-primary-text);
+	font-weight: var(--ajr-font-weight-bold);
+	cursor: pointer;
+}
+
+:focus-visible {
+	outline: 2px solid var(--ajr-color-focus-ring);
+	outline-offset: 2px;
+}
+
+form {
+	margin: 0 0 var(--ajr-space-4);
+	display: flex;
+	gap: var(--ajr-space-3);
+	flex-wrap: wrap;
+	align-items: flex-start;
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 0 0 var(--ajr-space-6);
+	font-size: var(--ajr-font-size-sm);
+}
+
+th, td {
+	padding: var(--ajr-space-2) var(--ajr-space-3);
+	border-bottom: var(--ajr-border-width) solid var(--ajr-color-border);
+	text-align: left;
+}
+
+th {
+	background: var(--ajr-color-surface);
+	color: var(--ajr-color-text-muted);
+	font-weight: var(--ajr-font-weight-bold);
+}
