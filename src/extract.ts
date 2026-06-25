@@ -83,10 +83,27 @@ const KIND_BY_KEY: Record<NormalizedKey, NormalizationKind> = {
 };
 
 // JSON Schema の最小形（Workers AI/OpenAI 互換）。json_schema にそのまま渡せる object 型のみ扱う。
+// description は任意。構造的に誤りやすいキーに「何を抜き出すか」を載せ曖昧さを潰す（#88）。
 export interface ExtractionJsonSchema {
 	readonly type: "object";
-	readonly properties: Readonly<Record<string, { readonly type: "string" }>>;
+	readonly properties: Readonly<
+		Record<string, { readonly type: "string"; readonly description?: string }>
+	>;
 }
+
+// 構造的に誤りやすいキーへ付ける抽出指示（#88）。モデル非依存に揃って誤るのを、
+// プロパティ名の英単語だけに推測を委ねず description で「正解の定義」を明示して防ぐ。
+const KEY_DESCRIPTIONS: Partial<Record<NormalizedKey, string>> = {
+	companyPhase:
+		"企業の上場区分のみ（上場／未上場／上場準備）。設立年は含めない。",
+	holidaySystem:
+		"休日制度の区分（完全週休2日制・週休2日制・シフト制など）。年間休日の日数は含めない。",
+	workLocation: "勤務地の地名を原文のまま簡潔に。複数あれば併記する。",
+	techStack:
+		"使用技術・開発環境を原文の表記のまま列挙する。要約・翻訳・補完をしない。",
+	businessDomain:
+		"事業ドメイン・業界を原文のまま簡潔に（長い事業説明文にしない）。",
+};
 
 // 抽出メッセージ（OpenAI 互換）。AiRunner.run の inputs.messages に渡す。
 export interface ExtractionMessage {
@@ -99,6 +116,7 @@ export interface ExtractionMessage {
 const SYSTEM_PROMPT = [
 	"あなたは求人票から事実を抽出するアシスタントです。",
 	"与えられた求人本文から、指定スキーマの各キーに対応する記載を原文の表記のまま短く抜き出してください。",
+	"各キーの description に従い、要約・翻訳・言い換え・情報の補完はしないでください。",
 	"記載が見つからない項目は必ず「-」を返してください。推測や創作はしないでください。",
 ].join("");
 
@@ -113,9 +131,13 @@ export function buildExtractionMessages(body: string): ExtractionMessage[] {
 // 全正規キーを string property に持つ JSON Schema を組み立てる（決定的）。
 // 正規スキーマ外のキーは含めない（ラベル正規化の責務をコードに保つ）。
 export function buildExtractionJsonSchema(): ExtractionJsonSchema {
-	const properties: Record<string, { type: "string" }> = {};
+	const properties: Record<string, { type: "string"; description?: string }> =
+		{};
 	for (const key of NORMALIZED_KEYS) {
-		properties[key] = { type: "string" };
+		const description = KEY_DESCRIPTIONS[key];
+		properties[key] = description
+			? { type: "string", description }
+			: { type: "string" };
 	}
 	return { type: "object", properties };
 }
@@ -207,6 +229,28 @@ const CATEGORY_RULES: Partial<Record<NormalizedKey, readonly CategoryRule[]>> =
 			["裁量", "discretionary"],
 			["みなし労働", "discretionary"],
 			["みなし", "discretionary"],
+		],
+		// 休日制度 → 制度区分。年間休日「数」は annualHolidays の責務なので規則に入れない（#88）。
+		// 「完全週休2日」を「週休2日」より先に置く（部分一致先勝ち）。
+		holidaySystem: [
+			["完全週休2日", "fullTwoDayWeekoff"],
+			["週休2日", "twoDayWeekoff"],
+			["シフト", "shift"],
+			["交代", "shift"],
+			["4週8休", "fourWeekEightOff"],
+		],
+		// 上場区分 → listed / preIpo / private（#88: companyPhase の意味を上場区分に確定）。
+		// 「未上場/非上場」「上場準備」を「上場」より先に置く（「上場」は両者の部分文字列）。
+		companyPhase: [
+			["未上場", "private"],
+			["非上場", "private"],
+			["上場準備", "preIpo"],
+			["IPO準備", "preIpo"],
+			["東証", "listed"],
+			["プライム", "listed"],
+			["スタンダード", "listed"],
+			["グロース", "listed"],
+			["上場", "listed"],
 		],
 	};
 

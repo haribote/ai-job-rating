@@ -235,9 +235,9 @@ const LABEL_ALIASES: ReadonlyArray<readonly [string, NormalizedKey]> = [
 	["企業規模", "companySize"],
 	["従業員数", "companySize"],
 	["社員数", "companySize"],
+	// companyPhase は「上場区分」に意味を確定する（#88）。設立年（数値概念）は
+	// categorical の本キーと型が異なり「正解」を不定にするため、エイリアスに含めない。
 	["企業フェーズ", "companyPhase"],
-	["設立", "companyPhase"],
-	["設立年", "companyPhase"],
 	["上場区分", "companyPhase"],
 ];
 

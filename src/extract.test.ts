@@ -8,7 +8,7 @@ import {
 	MAX_EXTRACTION_ATTEMPTS,
 	rawFieldsToNormalizedJob,
 } from "./extract";
-import { isUnknown, NORMALIZED_KEYS } from "./job-schema";
+import { isUnknown, NORMALIZED_KEYS, type NormalizedKey } from "./job-schema";
 import { DEFAULT_SCORING_CONFIG, scoreJob } from "./score";
 
 // プロンプト組立（決定的）: trim 済み本文を含む messages を組み立てる。
@@ -26,6 +26,13 @@ describe("buildExtractionMessages", () => {
 		const b = buildExtractionMessages("本文");
 		expect(a).toEqual(b);
 	});
+
+	// #88: 要約・翻訳・補完を禁じ原文厳守を促す（モデル非依存の構造的誤りの抑制）。
+	it("system プロンプトは原文厳守（要約・翻訳しない）を指示する", () => {
+		const system = buildExtractionMessages("本文")[0].content;
+		expect(system).toContain("要約");
+		expect(system).toContain("原文");
+	});
 });
 
 // JSON Schema 定義（決定的）: 全正規キーを property に持つ object schema を返す。
@@ -42,6 +49,29 @@ describe("buildExtractionJsonSchema", () => {
 		const schema = buildExtractionJsonSchema();
 		const props = Object.keys(schema.properties);
 		expect(props.sort()).toEqual([...NORMALIZED_KEYS].sort());
+	});
+
+	// #88: 構造的に誤りやすいキーは「何を抜き出すか」を description で明示し曖昧さを潰す。
+	it("構造的に誤りやすい5キーに description を持たせる", () => {
+		const schema = buildExtractionJsonSchema();
+		const keysNeedingGuidance: NormalizedKey[] = [
+			"companyPhase",
+			"workLocation",
+			"techStack",
+			"holidaySystem",
+			"businessDomain",
+		];
+		for (const key of keysNeedingGuidance) {
+			const prop = schema.properties[key];
+			expect(prop.description).toBeDefined();
+			expect((prop.description ?? "").length).toBeGreaterThan(0);
+		}
+	});
+
+	it("techStack の description は原文厳守（要約/翻訳しない）を含意する", () => {
+		// 文言の完全一致ではなく、要約禁止の方針が読み取れるキーワードを含むことだけ固定する。
+		const schema = buildExtractionJsonSchema();
+		expect(schema.properties.techStack.description).toContain("原文");
 	});
 });
 
@@ -342,6 +372,91 @@ describe("rawFieldsToNormalizedJob", () => {
 		const job = rawFieldsToNormalizedJob({ remoteWork: "応相談" });
 		if (job.remoteWork.kind === "categorical") {
 			expect(job.remoteWork.categories).toEqual(["応相談"]);
+		}
+	});
+
+	// #88: 休日制度は決定的に canonical 化し LLM 依存を減らす（DoD「非 LLM へ寄せる」）。
+	it("休日制度を canonical へ寄せる（完全週休2日/週休2日/シフト/4週8休）", () => {
+		const cases: ReadonlyArray<readonly [string, string]> = [
+			["完全週休2日制", "fullTwoDayWeekoff"],
+			["週休2日制", "twoDayWeekoff"],
+			["シフト制", "shift"],
+			["交代制", "shift"],
+			["4週8休", "fourWeekEightOff"],
+		];
+		for (const [raw, expected] of cases) {
+			const job = rawFieldsToNormalizedJob({ holidaySystem: raw });
+			expect(job.holidaySystem.kind).toBe("categorical");
+			if (job.holidaySystem.kind === "categorical") {
+				expect(job.holidaySystem.categories).toEqual([expected]);
+			}
+		}
+	});
+
+	it("「完全週休2日」を「週休2日」より優先する（登録順の先勝ち罠）", () => {
+		// なぜ: 部分一致先勝ちのため「完全週休2日」を先に置かないと twoDayWeekoff に化ける。
+		const job = rawFieldsToNormalizedJob({
+			holidaySystem: "完全週休2日制（土日祝）",
+		});
+		if (job.holidaySystem.kind === "categorical") {
+			expect(job.holidaySystem.categories).toEqual(["fullTwoDayWeekoff"]);
+		}
+	});
+
+	it("年間休日数（日数）は holidaySystem では canonical 化しない（annualHolidays の責務）", () => {
+		// なぜ: 「年間休日120日」は制度名ではなく日数。誤って制度トークン化せず生表記を残す。
+		const job = rawFieldsToNormalizedJob({ holidaySystem: "年間休日120日" });
+		if (job.holidaySystem.kind === "categorical") {
+			expect(job.holidaySystem.categories).toEqual(["年間休日120日"]);
+		}
+	});
+
+	// #88: companyPhase は「上場区分」に確定し決定的に canonical 化する。
+	it("上場区分を canonical へ寄せる（listed/preIpo/private）", () => {
+		const cases: ReadonlyArray<readonly [string, string]> = [
+			["上場企業", "listed"],
+			["東証プライム", "listed"],
+			["東証グロース", "listed"],
+			["上場準備中", "preIpo"],
+			["IPO準備中", "preIpo"],
+			["未上場", "private"],
+			["非上場", "private"],
+		];
+		for (const [raw, expected] of cases) {
+			const job = rawFieldsToNormalizedJob({ companyPhase: raw });
+			expect(job.companyPhase.kind).toBe("categorical");
+			if (job.companyPhase.kind === "categorical") {
+				expect(job.companyPhase.categories).toEqual([expected]);
+			}
+		}
+	});
+
+	it("「未上場/非上場」を「上場」より優先する（登録順の先勝ち罠）", () => {
+		// なぜ: 「上場」は「未上場」の部分文字列。private を先に置かないと listed に化ける。
+		for (const raw of ["未上場", "非上場"]) {
+			const job = rawFieldsToNormalizedJob({ companyPhase: raw });
+			if (job.companyPhase.kind === "categorical") {
+				expect(job.companyPhase.categories).toEqual(["private"]);
+			}
+		}
+	});
+
+	// #88: 開集合キー（地名・技術列挙・事業説明）は canonical 化せず生表記を 1 カテゴリ保持する。
+	// canonical 化しない仕様をテストで固定し、将来の安易なルール追加・分割を防ぐ（情報を捨てない）。
+	it("開集合キー（workLocation/techStack/businessDomain）は生表記を 1 カテゴリ保持する", () => {
+		const cases: ReadonlyArray<readonly [NormalizedKey, string]> = [
+			["workLocation", "東京都港区（リモート可）"],
+			["techStack", "TypeScript, React, Go, AWS"],
+			["businessDomain", "BtoB SaaS（人事領域）"],
+		];
+		for (const [key, raw] of cases) {
+			const job = rawFieldsToNormalizedJob({ [key]: raw });
+			const value = job[key];
+			expect(value.kind).toBe("categorical");
+			if (value.kind === "categorical") {
+				expect(value.categories).toEqual([raw]);
+				expect(value.raw).toBe(raw);
+			}
 		}
 	});
 

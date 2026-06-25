@@ -54,6 +54,18 @@ describe("normalizeLabel", () => {
 		expect(normalizeLabel("受動喫煙防止措置")).toBeNull();
 		expect(normalizeLabel("")).toBeNull();
 	});
+
+	// companyPhase は「上場区分」に意味を確定する（#88）。設立年（数値概念）は混在させない。
+	it("companyPhase は上場区分系ラベルへ寄る", () => {
+		expect(normalizeLabel("企業フェーズ")).toBe("companyPhase");
+		expect(normalizeLabel("上場区分")).toBe("companyPhase");
+	});
+
+	it("「設立」「設立年」は companyPhase へ寄せない（概念汚染の除去・#88）", () => {
+		// 設立年は数値概念で categorical の companyPhase とは型が異なるため正規キーに寄せない
+		expect(normalizeLabel("設立")).toBeNull();
+		expect(normalizeLabel("設立年")).toBeNull();
+	});
 });
 
 // unknown 中立（§5.2）: 値が取れない項目を判定でき、スコアリングが分母から外せる。
