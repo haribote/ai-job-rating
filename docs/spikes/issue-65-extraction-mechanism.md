@@ -12,6 +12,8 @@
 >
 > - [`@cf/qwen/qwen3-30b-a3b-fp8`](https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/): Qwen3 MoE・reasoning 系・context 32,768・FC 対応・JSON Mode 非対応（→ アダプタ経由）。
 > - [`@cf/deepseek-ai/deepseek-r1-distill-qwen-32b`](https://developers.cloudflare.com/workers-ai/models/deepseek-r1-distill-qwen-32b/): DeepSeek-R1 を Qwen2.5 ベースに distill・reasoning 系・context 80,000・**JSON Mode 対応**（baseline 同様 JSON Mode 直叩き可）。出力単価が高い点に留意。
+>
+> **更新（2026-06-25）**: live 実測 + 手判定が完了し、**既定モデル + 機構を確定**した（下記「実測結果」）。**Phase 1 既定 = `@cf/meta/llama-3.3-70b-instruct-fp8-fast`（json_mode）**。受け入れ条件をすべて true 化。実測ハーネスは撤収済み。
 
 ## 前提（#15 で判明した制約）
 
@@ -79,7 +81,7 @@
    - これは §5.3 ガードレール（`EXTRACTION_MODEL` 差し替え）を**機構レベルに拡張**するもの。機構もモデルもアカウント固有値も `wrangler.jsonc` / 環境変数経由で差し替えられるようにする（フォーク容易性）。
 2. **品質保証は機構非依存のコードレイヤで作る**（§7.1 既定方針）。`JSON Mode couldn't be met` や不完全 JSON を含め、`検証（スキーマ）→ 修復（部分パース・欠損補完）→ 正規化（ラベル・unknown 中立）`の決定的パイプラインを通す。形式保証をモデルに委ねない。
    - 現行 `extract.ts` の「想定外形は落とさず全 unknown へ畳む」「504 リトライ」は維持。これに**部分的に取れたフィールドだけでも救う修復**（全 unknown へ畳む前に、得られたキーは活かす）を加える方向。
-3. **既定モデルは Phase 1 でも JSON Mode 対応モデルを incumbent として維持**しつつ、**長文・コスト対策の候補を「prompt+検証+修復」アダプタ経由で評価**する。検証対象は上表（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b` ＋ 現行 baseline）。**現時点で優劣は付けず**、下記 live 実測で平等に比較して既定モデルを確定する（本 spike は機構を決め、モデル最終確定は #15 系の実測フォローに委ねる）。
+3. **既定モデルは Phase 1 でも JSON Mode 対応モデルを incumbent として維持**しつつ、**長文・コスト対策の候補を「prompt+検証+修復」アダプタ経由で評価**する。検証対象は上表（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b` ＋ 現行 baseline）。**現時点で優劣は付けず**、下記 live 実測で平等に比較して既定モデルを確定する（実測の結果は下記「実測結果」で確定済み。既定 = `llama-3.3-70b-instruct-fp8-fast` / json_mode）。
 4. **LLM の役割は最小化する**。決定的に取れる項目（ラベル一致・数値・カテゴリ）は非 LLM のコードで処理し、LLM は不定形テキストからの抽出に限定する。既存の責務分離を維持。
 
 ### 採用しない/保留
@@ -108,17 +110,52 @@
   - もし「AI 主観判定」を残すなら、それは抽出フェーズで求人単体に閉じた指標（例: 職務記述の具体性）に限定し、希望条件依存の点数は持たせないこと。
 - データモデル含意（#16 へ波及）: スキル集合を保持するなら `requiredSkillsMatch` 系を抽出時点では **categorical（スキル名配列）として structured_json に格納**し、スコア値は scores テーブル側（#20）に置く。aiJudged の最終形は #68 で確定。
 
-## 要手動検証（live 実測。secrets 必須のため subagent 不可）
+## 実測結果（2026-06-25 確定）
 
-`.dev.vars` に `account_id` / API token を配置し、`wrangler dev` で実モデルを叩いて計測する（#15 の `POST /spike/compare` 同様のハーネスを使い捨てで用意）。PII を含む生抽出は gitignored の `spike/` にのみ保存し、本ファイルには自動指標のみ残す。
+`.dev.vars` に account/secrets を配置し `wrangler dev` で使い捨てハーネス（`POST /` の横並び抽出）を立て、実求人 5 サンプル × 21 正規キー = 105 セルを全候補で live 実測。生抽出（PII）は gitignored `spike/` にのみ保存し、本ファイルには自動指標と集計のみ残す。真値判定（correct/wrong/hallucinated/missed）は KIMURA が全 105 セル記入。
 
-計測項目。**検証対象は平等に扱い、事前に優劣を付けない**。共通の記録: 21 正規キー充足数・correct/wrong/hallucinated/missed（KIMURA 真値判定）・latencyMs・504 有無・概算コスト。#15 の小入力（〜1,900 chars）・大入力（〜2,822 chars 以上）で実施:
+### 候補の脱落（自動指標で確定）
 
-1. **検証対象（`glm-4.7-flash` / `llama-4-scout` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b` ＋ 現行 `llama-3.3-70b` baseline）を、同一サンプル・同一プロンプト/スキーマで横並び抽出**し、上記指標で平等に比較する。
-2. **reasoning 系（`glm-4.7-flash` / `gpt-oss-20b` / `gpt-oss-120b` / `gemma-4-26b-a4b-it` / `qwen3-30b-a3b-fp8` / `deepseek-r1-distill-qwen-32b`）は `content` 挙動を最初に確認**（`content=null`/`reasoning_content`/`<think>` か）。`gpt-oss` 系は Responses API 経由。本文が `content` に入らない場合の取り回しを記録。
-3. **JSON Mode 非対応候補（glm / scout / gpt-oss 20b・120b / qwen3-30b）は「prompt+検証+修復」アダプタ経由**で評価し、必要に応じ traditional function calling（`tools` → `tool_calls`）とも比較。`llama-4-scout` は `required` 列挙込み。各候補の context（qwen3-30b は 32,768、他は 128k 以上）で 504 が解消するかを確認。**JSON Mode 対応の `deepseek-r1-distill-qwen-32b`（context 80,000）は baseline 同様 JSON Mode 直叩きで評価**し、reasoning 系の `content` 挙動・出力単価も併せて記録する。
-4. 各機構で **`JSON Mode couldn't be met` / 不完全 JSON / tool_calls 欠損**の発生率と、修復レイヤが救えた割合を記録（修復の有効性検証）。
-5. 概算コスト（入力 trim 後 token 数 × unit pricing）を機構別に出し、speed/cost/精度のトレードオフで**既定モデル + 既定機構を最終確定**。
+8 候補のうち 4 候補を自動指標で除外:
+
+- **`llama-4-scout`**: prompt_repair で全セル取りこぼし（"-"）・function_calling は 8001 エラー → 脱落。
+- **`glm-4.7-flash`（2/5 が 504）/ `gemma-4-26b-a4b-it`（1/5 が 504）**: 504-prone で Phase 1 既定に不適。
+- **`qwen3-30b-a3b-fp8`**: 5 件中 2 件が空応答（keys avg 9.4、min 0）→ 不安定。max_tokens 再試はしない決定。
+
+残る**安定 4 候補**（5/5 成功・504 ゼロ）で手判定に進んだ。
+
+### 安定 4 候補の総合評価（5 サンプル × 21 キー = 105 セル）
+
+| 候補（model / 機構） | correct率 | wrong | hallu | missed | latency avg | cost avg $ | 504 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **baseline** `llama-3.3-70b-fp8-fast` / json_mode | **81.9%** | 11 | 1 | 7 | 32.3s | **0.00088** | 0/5 |
+| `deepseek-r1-distill-qwen-32b` / json_mode | **83.8%** | 13 | 0 | 4 | 31.2s | 0.00190 | 0/5 |
+| `gpt-oss-20b` / responses_api | 78.1% | 19 | 1 | 3 | **16.3s** | 0.00133 | 0/5 |
+| `gpt-oss-120b` / responses_api | 81.0% | 18 | 0 | 2 | 18.4s | 0.00276 | 0/5 |
+
+### 判定: 既定 = baseline `@cf/meta/llama-3.3-70b-instruct-fp8-fast`（json_mode）
+
+「**unknown は中立**」ガードレール（§5.2）により、`missed` は加重合計の分母から外れスコアを汚さない。スコアを実際に壊すのは **wrong + hallucinated（有害エラー）** のみ。これで再評価すると baseline が最良:
+
+| 候補 | 有害エラー（wrong+hallu） |
+| --- | --- |
+| **baseline** | **12（最少）** |
+| deepseek | 13 |
+| gpt-oss-120b | 18 |
+| gpt-oss-20b | 20 |
+
+確定根拠:
+
+1. **有害エラー最少（12）** — 決定的スコアの健全性に直結する指標で最良。
+2. **最安**（deepseek の 1/2.2、gpt-oss-120b の 1/3.1）。
+3. レイテンシ 32s は遅いが、抽出は**求人 1 件 1 回・async queue 処理**（§5.3 / 実装済）でありユーザー応答経路に乗らないため非クリティカル。
+4. 多めの missed（7）は **neutral unknown** に落ちる安全な劣化で、スコアを汚さない。
+
+deepseek は raw 精度最高・hallucination 0・データ捕捉多（missed 少）の対抗馬だがコスト 2.2 倍。gpt-oss 2 種は速度以外で劣り非採用。機構は **json_mode** を baseline の一実装として採用（アダプタ化は維持、§7.1）。
+
+### 申し送り: モデル非依存の構造的エラー（Phase 1 で要改善）
+
+全 4 候補が**同時に誤った**セルが複数あり（例: `businessDomain` / `holidaySystem` / `workLocation` / `techStack`）、誤り合算も `companyPhase`(11) / `workLocation`(10) / `techStack`(10) / `holidaySystem`(9) に集中。これは**モデルではなくプロンプト/スキーマ定義の問題**で、モデル選定とは別レイヤ。これらキーの抽出プロンプト・ラベル正規化・スキーマ定義の改善を Phase 1 のフォロー課題とする。
 
 ## 受け入れ条件
 
@@ -127,4 +164,4 @@
 | Phase 1 で採用する抽出機構の方針が決まったか | true（機構非依存アダプタ + コード側 検証/修復/正規化レイヤ） |
 | #16（extractions データモデル）への含意が明確か | true（structured_json / model / mechanism / extraction_status / 任意 raw_fields・schema_version） |
 | #68（aiJudged 突合方式）への含意が明確か | true（抽出はスキル集合を categorical 抽出、突合・0..100 算定はスコアリング側で決定的に） |
-| モデル別の日本語精度・速度・コストの確定 | 要手動検証（secrets 依存・上記マトリクス） |
+| モデル別の日本語精度・速度・コストの確定 | true（既定 = `llama-3.3-70b-instruct-fp8-fast` / json_mode。安定 4 候補を実測し有害エラー最少 + 最安で確定） |
