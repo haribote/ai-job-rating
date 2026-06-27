@@ -34,3 +34,6 @@ npm-debug.log*
 
 # Issue #15 spike — 投入した実求人 HTML（PII 含む）はコミットしない
 /spike/
+
+# superpowers ブレインストーミングのモックアップ（ローカル作業用）
+.superpowers/
