@@ -169,9 +169,10 @@ function scoreKeywordMatch(
 	config: KeywordMatchItemConfig,
 ): number | null {
 	if (value.kind !== "categorical") return null;
-	if (config.keywords.length === 0) return null; // keyword 未指定 = 意見なし（中立）
 	if (value.categories.length === 0) return null; // 求人スキル不明（中立）
-	return clamp01(matchSkills(value.categories, config.keywords) / 100);
+	// keyword 未指定・正規化後に空（意見なし）は matchSkills が null を返す（中立・分母から除外）。
+	const hit = matchSkills(value.categories, config.keywords);
+	return hit === null ? null : clamp01(hit / 100);
 }
 
 // 充足率のサブスコア（benefitsCoverage）。決定的。

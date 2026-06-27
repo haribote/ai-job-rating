@@ -21,11 +21,16 @@ describe("matchSkills（求人スキル × keyword の決定的ヒット率・0.
 		).toBe(100);
 	});
 
-	it("keyword が空なら 0（スコア側で中立判定する前提・ゼロ除算防御）", () => {
-		expect(matchSkills(["go", "ts"], [])).toBe(0);
+	it("keyword が空なら null（意見なし＝中立・ゼロ除算防御）", () => {
+		expect(matchSkills(["go", "ts"], [])).toBeNull();
 	});
 
-	it("求人スキルが空なら 0（どの keyword も満たさない）", () => {
+	it("正規化後に全て空へ潰れる keyword は null（装飾記号のみ等・減点でなく中立）", () => {
+		// "・" や "/" は canonicalizeLabel で空になり有効 keyword が 0 → null
+		expect(matchSkills(["go"], ["・", "/"])).toBeNull();
+	});
+
+	it("求人スキルが空なら 0（keyword はあるがどれも満たさない＝中立でなく不一致）", () => {
 		expect(matchSkills([], ["go"])).toBe(0);
 	});
 

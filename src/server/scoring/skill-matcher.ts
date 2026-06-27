@@ -23,13 +23,14 @@ function toSkillSet(skills: readonly string[]): ReadonlySet<string> {
 // 求人スキル × ユーザー keyword の決定的ヒット率（0..100）。
 // 分母はユーザー keyword（一意化後）の数。求人が列挙するスキル数では割らないので、技術を多く
 // 列挙する求人が不利にならない（「自分が欲しい keyword をどれだけ満たすか」を測る・#105）。
-// keyword が空（=スコア側で中立判定する前提）は 0 を返す（ゼロ除算を避ける防御）。
+// 有効な keyword が無い（未指定・正規化後に全て空に潰れる）は意見なし = null（中立）。0（ヒット 0）と
+// 区別することで、装飾記号だけの keyword を「減点」でなく「分母から除外」に倒す（§5.2 unknown 中立）。
 export function matchSkills(
 	jobSkills: readonly string[],
 	keywords: readonly string[],
-): number {
+): number | null {
 	const want = toSkillSet(keywords);
-	if (want.size === 0) return 0;
+	if (want.size === 0) return null;
 	const have = toSkillSet(jobSkills);
 	let matched = 0;
 	for (const k of want) if (have.has(k)) matched++;
