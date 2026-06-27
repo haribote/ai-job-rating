@@ -43,5 +43,12 @@ npm-debug.log*
 # Issue #15 spike — 投入した実求人 HTML（PII 含む）はコミットしない
 /spike/
 
+# golden-sample 抽出品質ゲート（#100）— 実求人 HTML/期待値は PII を含むためコミットしない。
+# サニタイズ済み雛形（*.example.json）と README/.gitignore のみ追跡する。
+/test-fixtures/golden/*
+!/test-fixtures/golden/.gitignore
+!/test-fixtures/golden/README.md
+!/test-fixtures/golden/*.example.json
+
 # superpowers ブレインストーミングのモックアップ（ローカル作業用）
 .superpowers/

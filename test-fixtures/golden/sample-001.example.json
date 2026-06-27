@@ -1,0 +1,10 @@
+{
+  "name": "sample-001",
+  "html": "<article><h1>バックエンドエンジニア（サンプル）</h1><dl><dt>年収</dt><dd>700万〜900万円</dd><dt>リモート</dt><dd>フルリモート可</dd><dt>休日制度</dt><dd>完全週休2日制（土日祝）</dd><dt>残業</dt><dd>みなし残業20時間</dd></dl></article>",
+  "expected": {
+    "annualSalary": { "kind": "numericRange", "min": 700, "max": 900, "raw": "700万〜900万円" },
+    "remoteWork": { "kind": "categorical", "categories": ["full"], "raw": "フルリモート可" },
+    "holidaySystem": { "kind": "categorical", "categories": ["fullTwoDayWeekoff"], "raw": "完全週休2日制（土日祝）" },
+    "overtime": { "kind": "categorical", "categories": ["みなし残業20時間"], "raw": "みなし残業20時間" }
+  }
+}
