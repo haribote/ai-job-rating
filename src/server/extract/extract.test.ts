@@ -632,8 +632,23 @@ describe("正規化統合（抽出→スコアリング）", () => {
 		const { breakdown } = scoreJob(job, DEFAULT_SCORING_CONFIG);
 		const row = breakdown.find((r) => r.key === "remoteWork");
 		expect(row?.included).toBe(true);
-		// "full" は preferred:["full","partial"] に一致 → 1.0。
+		// "full" は tier 採点で別格の 1.0（#104）。
 		expect(row?.score).toBe(1);
+	});
+
+	it("フルリモートは一部リモートより明確に高得点（別格加点・#104）", () => {
+		// 抽出→canonical→tier 採点まで通し、full が partial を明確に上回ることを実証する。
+		const fullRow = scoreJob(
+			rawFieldsToNormalizedJob({ remoteWork: "フルリモート" }),
+			DEFAULT_SCORING_CONFIG,
+		).breakdown.find((r) => r.key === "remoteWork");
+		const partialRow = scoreJob(
+			rawFieldsToNormalizedJob({ remoteWork: "一部リモート可" }),
+			DEFAULT_SCORING_CONFIG,
+		).breakdown.find((r) => r.key === "remoteWork");
+		expect(fullRow?.score).toBe(1);
+		expect(partialRow?.score).toBe(0.5);
+		expect(fullRow?.score ?? 0).toBeGreaterThan(partialRow?.score ?? 0);
 	});
 
 	// skillMatch は突合（rescore-core）を通さない scoreJob 単体では中立で total を引き下げない（§5.2）。

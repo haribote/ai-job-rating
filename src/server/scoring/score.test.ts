@@ -233,6 +233,67 @@ describe("categorical のサブスコア", () => {
 	});
 });
 
+describe("categorical の tier 採点（フルリモート別格・#104）", () => {
+	// なぜ tierScores か: preferred 集合一致率だと full/partial が等価（共に 1.0）になり
+	// 「フルリモート別格」を表現できない。順序づけスコアで full > partial > onsite を決定的に差別化する。
+	const config: ScoringConfig = {
+		items: {
+			remoteWork: {
+				weight: 1,
+				kind: "categorical",
+				preferred: ["full", "partial"],
+				tierScores: { full: 1, partial: 0.5, onsite: 0 },
+			},
+		},
+	};
+	const sub = (category: string): number =>
+		scoreJob(
+			jobWith({ remoteWork: { kind: "categorical", categories: [category] } }),
+			config,
+		).total ?? Number.NaN;
+
+	it("full は別格で 1.0", () => {
+		expect(sub("full")).toBe(1);
+	});
+
+	it("partial は full より明確に低い（0.5）", () => {
+		expect(sub("partial")).toBe(0.5);
+	});
+
+	it("onsite は 0.0", () => {
+		expect(sub("onsite")).toBe(0);
+	});
+
+	it("full > partial > onsite の順序が成立する（別格加点の不変条件）", () => {
+		expect(sub("full")).toBeGreaterThan(sub("partial"));
+		expect(sub("partial")).toBeGreaterThan(sub("onsite"));
+	});
+
+	it("canonical 外の生表記カテゴリは tier に無く 0.0（記載はあるので included=true・中立ではない）", () => {
+		const result = scoreJob(
+			jobWith({ remoteWork: { kind: "categorical", categories: ["応相談"] } }),
+			config,
+		);
+		expect(result.total).toBe(0);
+		const row = result.breakdown.find((b) => b.key === "remoteWork");
+		expect(row?.included).toBe(true);
+	});
+
+	it("記載なし(unknown)は従来どおり中立で分母から除外(null)", () => {
+		expect(scoreJob(jobWith({}), config).total).toBeNull();
+	});
+
+	it("複数カテゴリは tier スコアの平均（決定的・[full,onsite]→0.5）", () => {
+		const result = scoreJob(
+			jobWith({
+				remoteWork: { kind: "categorical", categories: ["full", "onsite"] },
+			}),
+			config,
+		);
+		expect(result.total).toBe(0.5);
+	});
+});
+
 describe("aiJudged のサブスコア", () => {
 	const config: ScoringConfig = {
 		items: { skillMatch: { weight: 1, kind: "aiJudged" } },
