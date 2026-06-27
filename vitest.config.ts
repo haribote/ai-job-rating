@@ -2,6 +2,7 @@ import {
 	cloudflareTest,
 	readD1Migrations,
 } from "@cloudflare/vitest-pool-workers";
+import react from "@vitejs/plugin-react";
 import { configDefaults, defineConfig } from "vitest/config";
 
 // 本番マイグレーション（migrations/）を config ロード時に一度だけ読み、テストワーカーへ
@@ -9,23 +10,44 @@ import { configDefaults, defineConfig } from "vitest/config";
 // で本番と同一スキーマを適用する。miniflare がテストファイルごとに独立した in-memory D1（DB）を与える。
 const migrations = await readD1Migrations("./migrations");
 
-// Workers ランタイム上でテストを走らせ、本番と同じ assets バインディング等を再現する
-// vitest 4 / pool-workers 0.16 では defineWorkersConfig は廃止され、cloudflareTest プラグインで構成する
+// 2 プロジェクト構成（vitest 4 の test.projects）:
+// - server: Workers ランタイム（@cloudflare/vitest-pool-workers）。本番と同じ assets/D1 バインディングを再現する。
+// - client: jsdom + @testing-library/react。React SPA（src/client）の DOM レンダリングを検証する。
+// pool-workers は custom environment（jsdom 等）を許さないため、両者をプロジェクトとして分離する。
+// 振り分け基準は配置: src/client/** は client、それ以外（src/server・src/shared・ルート）は server。
+// e2e/ は Playwright 専用（実ブラウザ）のため両プロジェクトから除外する。
 export default defineConfig({
-	// e2e/ は Playwright 専用（実ブラウザ）。vitest（pool-workers）が .spec.ts を拾わないよう除外する。
 	test: {
-		exclude: [...configDefaults.exclude, "e2e/**"],
-	},
-	plugins: [
-		cloudflareTest({
-			main: "./src/server/index.ts",
-			wrangler: { configPath: "./wrangler.jsonc" },
-			// AI binding は local simulator を持たず remote proxy に credentials を要するため、
-			// テストでは remote bindings を無効化しオフライン・決定的に保つ。実推論は AiRunner を fake する。
-			remoteBindings: false,
-			miniflare: {
-				bindings: { TEST_MIGRATIONS: migrations },
+		projects: [
+			{
+				plugins: [
+					cloudflareTest({
+						main: "./src/server/index.ts",
+						wrangler: { configPath: "./wrangler.jsonc" },
+						// AI binding は local simulator を持たず remote proxy に credentials を要するため、
+						// テストでは remote bindings を無効化しオフライン・決定的に保つ。実推論は AiRunner を fake する。
+						remoteBindings: false,
+						miniflare: {
+							bindings: { TEST_MIGRATIONS: migrations },
+						},
+					}),
+				],
+				test: {
+					name: "server",
+					include: ["src/**/*.test.ts"],
+					exclude: [...configDefaults.exclude, "e2e/**", "src/client/**"],
+				},
 			},
-		}),
-	],
+			{
+				plugins: [react()],
+				test: {
+					name: "client",
+					environment: "jsdom",
+					include: ["src/client/**/*.test.{ts,tsx}"],
+					setupFiles: ["./src/client/test-setup.ts"],
+					exclude: [...configDefaults.exclude, "e2e/**"],
+				},
+			},
+		],
+	},
 });
