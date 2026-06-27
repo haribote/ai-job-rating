@@ -115,6 +115,9 @@ export interface ExtractionJsonSchema {
 const KEY_DESCRIPTIONS: Partial<Record<NormalizedKey, string>> = {
 	skillMatch:
 		"使用技術・スキル・必須/歓迎要件を原文の表記のまま列挙する。要約・翻訳・補完をしない。",
+	// 賞与は金額でなく年間支給回数で評価する（#142）。金額・月数・「業績連動」は回数でないので返さない。
+	bonus:
+		"賞与の年間支給回数を数値で返す（例: 年2回→2）。賞与額・月数・『業績連動』等の文言は支給回数ではないので返さない。回数の記載が無ければ『-』。",
 	benefitsCoverage:
 		"福利厚生・休日制度・休暇制度・各種手当・退職金などの待遇を原文のまま列挙する。",
 	annualHolidays:
@@ -256,8 +259,12 @@ function parseNumbers(raw: string): number[] {
 // 再利用する（§5.3）。単位を「正規スキーマのキーへ寄せる」のは抽出（ラベル正規化）の関心事（§5.2）。
 const SALARY_KEYS: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 	"annualSalary",
-	// 賞与も通貨項目。円額（例: 300,000円）を万円へ正規化し、年収と単位を揃える（§5.2）。
-	// 「年2回」「2ヶ月分」など通貨単位を伴わない表記は salaryToManYen が拾わず unknown 中立になる。
+]);
+
+// 「回」単位を伴う数値を支給回数として numericRange へ寄せるキー（#142）。
+// なぜ: 賞与は金額開示が乏しく「年N回」の頻度のみのことが多い。回数（多いほど良い）で採点するため、
+// 金額・月数ではなく「N回」の N だけを採る（salaryToManYen が通貨単位限定で数値を採るのと同じ発想）。
+const PAYOUT_COUNT_KEYS: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 	"bonus",
 ]);
 
@@ -277,6 +284,22 @@ function salaryToManYen(raw: string): number[] {
 		if (!Number.isFinite(value)) continue;
 		// 「万」「万円」付きは万円単位。「円」は生の円額とみなして万円へ換算する。
 		numbers.push(unit === "円" ? value / 10000 : value);
+	}
+	return numbers;
+}
+
+// 「年N回」の支給回数だけを取り出す（決定的・#142）。
+// なぜ: 賞与欄には「2ヶ月分」「30万円」「業績連動」など回数でない数値が混じる。parseNumbers の裸数値拾い
+// だと「2ヶ月分」の 2 まで回数に化けるため、直後に「回」を伴う数値に限定する（salaryToManYen の通貨単位
+// 限定と同じ発想）。注記（※以降・括弧）は stripAnnotations が先に除く（「年2回 ※業績連動」→ 2）。
+function parsePayoutCount(raw: string): number[] {
+	const normalized = stripAnnotations(raw.normalize("NFKC"));
+	const numbers: number[] = [];
+	// 数値の直後に（空白を挟んでも）「回」が続くものだけを採る。
+	const re = /([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)\s*回/g;
+	for (const match of normalized.matchAll(re)) {
+		const value = Number(match[1].replace(/,/g, ""));
+		if (Number.isFinite(value)) numbers.push(value);
 	}
 	return numbers;
 }
@@ -390,10 +413,12 @@ function rawToFieldValue(
 	const kind = KIND_BY_KEY[key];
 
 	if (kind === "numericRange") {
-		// 通貨項目だけ円 → 万円へ単位正規化する（scoring の希望値が万円前提・§5.2）。
+		// 通貨項目だけ円 → 万円へ単位正規化、回数項目は「N回」だけを採る、他は素の数値（§5.2・#142）。
 		const numbers = SALARY_KEYS.has(key)
 			? salaryToManYen(value)
-			: parseNumbers(value);
+			: PAYOUT_COUNT_KEYS.has(key)
+				? parsePayoutCount(value)
+				: parseNumbers(value);
 		// 数値が取れなければ unknown 中立（値を持たせない）
 		if (numbers.length === 0) {
 			// overtime 特例: 残業の存在を肯定的に明記しているのに時間が読めない場合は、

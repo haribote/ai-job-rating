@@ -283,6 +283,14 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 			desired: 700,
 			floor: 300,
 		},
+		// 賞与: 年間支給回数が多いほど良い（#142）。年4回を満額の目安、年0回（賞与なし）を floor とする。
+		bonus: {
+			weight: 2,
+			kind: "numericRange",
+			direction: "higherBetter",
+			desired: 4,
+			floor: 0,
+		},
 		// 働き方: 残業は少ないほど良い（時間）。
 		overtime: {
 			weight: 3,

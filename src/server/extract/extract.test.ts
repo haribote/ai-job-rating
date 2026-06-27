@@ -261,20 +261,40 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	// #101: 賞与も通貨項目。年収と同じく円→万円へ正規化し単位を揃える。
-	it("円表記の賞与を万円へ正規化する（600,000円→60）", () => {
-		const job = rawFieldsToNormalizedJob({ bonus: "600,000円" });
+	// #142: 賞与は金額でなく年間支給回数で評価する。「年N回」の N のみを回数化する。
+	it("年N回の賞与は回数を numericRange へ寄せる（年2回→2）", () => {
+		const job = rawFieldsToNormalizedJob({ bonus: "年2回" });
 		expect(job.bonus.kind).toBe("numericRange");
 		if (job.bonus.kind === "numericRange") {
-			expect(job.bonus.min).toBe(60);
-			expect(job.bonus.max).toBe(60);
+			expect(job.bonus.min).toBe(2);
+			expect(job.bonus.max).toBe(2);
 		}
 	});
 
-	it("通貨単位を伴わない賞与表記（年2回）は unknown 中立にする", () => {
-		// なぜ: 「年2回」の 2 は金額ではない。通貨単位の無い裸数値を金額と誤認しない。
-		const job = rawFieldsToNormalizedJob({ bonus: "年2回" });
-		expect(isUnknown(job.bonus)).toBe(true);
+	it("年1回・年4回も回数化する（境界の単調性を固定）", () => {
+		const once = rawFieldsToNormalizedJob({ bonus: "年1回" });
+		const four = rawFieldsToNormalizedJob({ bonus: "年4回" });
+		expect(once.bonus).toMatchObject({ kind: "numericRange", min: 1, max: 1 });
+		expect(four.bonus).toMatchObject({ kind: "numericRange", min: 4, max: 4 });
+	});
+
+	it("回数＋注記が混在しても回数のみ採る（年2回 ※業績連動→2）", () => {
+		// なぜ: ※以降の注記は stripAnnotations で除かれ、回数だけが残る。
+		const job = rawFieldsToNormalizedJob({ bonus: "年2回 ※業績連動" });
+		expect(job.bonus).toMatchObject({ kind: "numericRange", min: 2, max: 2 });
+	});
+
+	it("月数・金額・業績連動のみは回数でないので unknown 中立にする", () => {
+		// なぜ: 「2ヶ月分」「30万円」「業績連動」の数値は支給回数ではない。誤抽出しない。
+		expect(
+			isUnknown(rawFieldsToNormalizedJob({ bonus: "2ヶ月分" }).bonus),
+		).toBe(true);
+		expect(isUnknown(rawFieldsToNormalizedJob({ bonus: "30万円" }).bonus)).toBe(
+			true,
+		);
+		expect(
+			isUnknown(rawFieldsToNormalizedJob({ bonus: "業績連動" }).bonus),
+		).toBe(true);
 	});
 
 	it("非通貨の numericRange は単位換算しない（年間休日 122日→122）", () => {
