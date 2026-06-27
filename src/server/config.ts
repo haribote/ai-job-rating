@@ -22,20 +22,20 @@ import {
 
 const HARD_FILTERS: readonly HardFilter[] = ["none", "required", "exclude"];
 
-// 設定 1 項目の更新入力。desired は kind 依存（numericRange/categorical/aiJudged）の構造化値。
+// 設定 1 項目の更新入力。desired は kind 依存（numericRange/categorical/keywordMatch）の構造化値。
 export interface CriteriaConfigInput {
 	criterion: string;
 	weight: number;
 	hardFilter: HardFilter;
 	// numericRange: { desired:number, floor?|ceil? } / categorical: { preferred:string[] } /
-	// aiJudged: { skills:string[] }。未指定・null は希望値なし（評価不能 = 中立 §5.2）。
+	// keywordMatch: { keywords:string[] }。未指定・null は希望値なし（評価不能 = 中立 §5.2）。
 	desired?: unknown;
 }
 
 // 設定 1 項目の取得出力。全正規キーぶん返す（未保存キーは既定 weight=1 / hardFilter=none）。
 export interface CriteriaConfigItem {
 	criterion: NormalizedKey;
-	kind: "numericRange" | "categorical" | "aiJudged" | "coverage";
+	kind: "numericRange" | "categorical" | "keywordMatch" | "coverage";
 	weight: number;
 	hardFilter: HardFilter;
 	desired: unknown;
@@ -88,17 +88,17 @@ function categoricalDesiredJson(desired: unknown): string | null {
 	return JSON.stringify({ preferred: list });
 }
 
-// aiJudged の希望スキル集合を desired_value JSON へ詰める（#68 拡張点）。空集合・非配列は null。
-function aiJudgedDesiredJson(desired: unknown): string | null {
+// keywordMatch の keyword 集合を desired_value JSON へ詰める（#105）。空集合・非配列は null（中立）。
+function keywordMatchDesiredJson(desired: unknown): string | null {
 	if (typeof desired !== "object" || desired === null) return null;
-	const skills = (desired as Record<string, unknown>).skills;
-	if (!Array.isArray(skills)) return null;
-	const list = skills
-		.filter((s): s is string => typeof s === "string")
-		.map((s) => s.trim())
-		.filter((s) => s !== "");
+	const keywords = (desired as Record<string, unknown>).keywords;
+	if (!Array.isArray(keywords)) return null;
+	const list = keywords
+		.filter((k): k is string => typeof k === "string")
+		.map((k) => k.trim())
+		.filter((k) => k !== "");
 	if (list.length === 0) return null;
-	return JSON.stringify({ skills: list });
+	return JSON.stringify({ keywords: list });
 }
 
 // coverage の重視 signal 集合を desired_value JSON へ詰める（#102）。空集合・非配列は null（中立・重み無し）。
@@ -144,8 +144,8 @@ export function inputsToConfigRows(
 			case "categorical":
 				desiredValue = categoricalDesiredJson(item.desired);
 				break;
-			case "aiJudged":
-				desiredValue = aiJudgedDesiredJson(item.desired);
+			case "keywordMatch":
+				desiredValue = keywordMatchDesiredJson(item.desired);
 				break;
 			case "coverage":
 				// coverage は重視 signal 集合（emphasis）を希望値として持つ（#102）。未指定は中立（null）。

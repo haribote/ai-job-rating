@@ -699,8 +699,8 @@ describe("正規化統合（抽出→スコアリング）", () => {
 		expect(fullRow?.score ?? 0).toBeGreaterThan(partialRow?.score ?? 0);
 	});
 
-	// skillMatch は突合（rescore-core）を通さない scoreJob 単体では中立で total を引き下げない（§5.2）。
-	it("skillMatch に値があっても scoreJob 単体では total を引き下げない（突合は採点側）", () => {
+	// skillMatch は既定設定（keyword 未指定）では中立で total を引き下げない（§5.2・#105）。
+	it("skillMatch に値があっても既定設定では total を引き下げない（keyword 未指定=中立）", () => {
 		const withSkills = rawFieldsToNormalizedJob({
 			annualSalary: "700万",
 			skillMatch: "TypeScript 3年 / AWS",
@@ -708,9 +708,9 @@ describe("正規化統合（抽出→スコアリング）", () => {
 		const withoutSkills = rawFieldsToNormalizedJob({ annualSalary: "700万" });
 		const a = scoreJob(withSkills, DEFAULT_SCORING_CONFIG);
 		const b = scoreJob(withoutSkills, DEFAULT_SCORING_CONFIG);
-		// skillMatch の有無で total が変わらない（突合は rescore-core の責務・ここでは中立）。
+		// skillMatch の有無で total が変わらない（既定 keyword は空＝中立）。
 		expect(a.total).toBe(b.total);
-		// breakdown 上も included=false（categorical 値は aiJudged config では中立）。
+		// breakdown 上も included=false（keyword 未指定の keywordMatch は中立）。
 		expect(a.breakdown.find((r) => r.key === "skillMatch")?.included).toBe(
 			false,
 		);

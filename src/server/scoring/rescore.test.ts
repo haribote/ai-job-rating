@@ -88,8 +88,8 @@ describe("rescoreOne（保存済み抽出から再スコアリングして score
 		expect(await readTotal("j1")).toBe(1);
 	});
 
-	it("aiJudged（skillMatch）は既定 matcher で求人スキル×希望集合を決定的に突合する（#68）", async () => {
-		// 求人スキルは当該キーの categorical に載る（#20 extractJobSkills の取得元）。
+	it("skillMatch は求人スキル × keyword を desired_value({keywords}) から決定的に採点する（#105）", async () => {
+		// 求人スキルは当該キーの categorical に載る。
 		await seed(
 			"j1",
 			jobWith({
@@ -99,12 +99,26 @@ describe("rescoreOne（保存済み抽出から再スコアリングして score
 				},
 			}),
 		);
-		// 希望集合 [go, ts] は desired_value({skills}) に持つ。matcher は注入しない。
-		await setCriterion("skillMatch", 1, { skills: ["go", "ts"] });
+		// keyword [go, ts] は desired_value({keywords}) に持つ。
+		await setCriterion("skillMatch", 1, { keywords: ["go", "ts"] });
 
 		const scored = await rescoreOne(env.DB, "j1");
-		// 求人 [go, ts, rust] のうち希望 [go, ts] が満たすのは 2/3
-		expect(scored?.score.total).toBeCloseTo(2 / 3);
+		// keyword [go, ts] はいずれも求人に出現 → 2/2 = 1.0
+		expect(scored?.score.total).toBe(1);
+	});
+
+	it("skillMatch は keyword の一部のみ満たすと割合になる（#105）", async () => {
+		await seed(
+			"j2",
+			jobWith({
+				skillMatch: { kind: "categorical", categories: ["go"] },
+			}),
+		);
+		// keyword [go, python] のうち求人 [go] が満たすのは go のみ 1/2 = 0.5
+		await setCriterion("skillMatch", 1, { keywords: ["go", "python"] });
+
+		const scored = await rescoreOne(env.DB, "j2");
+		expect(scored?.score.total).toBe(0.5);
 	});
 
 	it("各正規キー行と総合スコア行（__total__）を書く。unknown は included=0/sub_score NULL", async () => {

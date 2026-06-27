@@ -81,7 +81,7 @@ function sameCategorySet(a: readonly string[], b: readonly string[]): boolean {
 }
 
 // 抽出値が期待値に一致するか（決定的）。kind が違えば不一致。
-// 各 kind の同値性: numericRange=min/max 一致、categorical=集合一致、aiJudged=score 一致、unknown=両者 unknown。
+// 各 kind の同値性: numericRange=min/max 一致、categorical=集合一致、coverage=present/total 一致、unknown=両者 unknown。
 export function fieldMatches(
 	actual: NormalizedFieldValue,
 	expected: NormalizedFieldValue,
@@ -92,9 +92,6 @@ export function fieldMatches(
 	}
 	if (actual.kind === "categorical" && expected.kind === "categorical") {
 		return sameCategorySet(actual.categories, expected.categories);
-	}
-	if (actual.kind === "aiJudged" && expected.kind === "aiJudged") {
-		return actual.score === expected.score;
 	}
 	if (actual.kind === "coverage" && expected.kind === "coverage") {
 		return (
@@ -231,13 +228,6 @@ function parseFieldValue(value: unknown, ctx: string): NormalizedFieldValue {
 				);
 			}
 			return { kind: "categorical", categories: obj.categories, ...raw };
-		case "aiJudged":
-			if (typeof obj.score !== "number") {
-				throw new Error(
-					`golden: ${ctx} の aiJudged は score(number) が必要です`,
-				);
-			}
-			return { kind: "aiJudged", score: obj.score, ...raw };
 		case "coverage":
 			if (typeof obj.present !== "number" || typeof obj.total !== "number") {
 				throw new Error(

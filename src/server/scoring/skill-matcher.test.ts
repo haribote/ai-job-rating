@@ -1,78 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { defaultSkillMatcher } from "./skill-matcher";
+import { matchSkills } from "./skill-matcher";
 
-// 求人スキル集合 × 希望集合の決定的突合（#68・統合 skillMatch は #101）。
-// 突合は純粋関数（同一入力→同一値）・正規化（大小/全半角/装飾記号無視）・unknown 中立。
-describe("defaultSkillMatcher（求人スキル × 希望集合の決定的突合）", () => {
-	it("求人スキルが空なら突合不能 = null（unknown 中立）", () => {
-		expect(
-			defaultSkillMatcher({
-				criterion: "skillMatch",
-				desired: ["go"],
-				jobSkills: [],
-			}),
-		).toBeNull();
+// 求人スキル集合 × ユーザー keyword の決定的ヒット採点（#105）。
+// 純粋関数（同一入力→同一値）・正規化（大小/全半角/装飾記号無視）・ヒット率は keyword 基準。
+describe("matchSkills（求人スキル × keyword の決定的ヒット率・0..100）", () => {
+	it("keyword のうち求人に出現した割合を返す（matched / keyword 数）", () => {
+		// keyword [go, ts] のうち求人 [go, ts, rust] に出現するのは 2/2 = 100
+		expect(matchSkills(["go", "ts", "rust"], ["go", "ts"])).toBe(100);
 	});
 
-	it("希望集合が空なら意見なし = null（中立・加点も減点もしない）", () => {
+	it("一部のみヒットなら割合（keyword 基準）", () => {
+		// keyword [go, python] のうち求人 [go, ts] に出現するのは go のみ 1/2 = 50
+		expect(matchSkills(["go", "ts"], ["go", "python"])).toBe(50);
+	});
+
+	it("求人が多くのスキルを列挙しても keyword を満たせば不利にならない", () => {
+		// keyword [go, ts] を両方満たす → 求人の列挙数（5件）に関わらず 100
 		expect(
-			defaultSkillMatcher({
-				criterion: "skillMatch",
-				desired: [],
-				jobSkills: ["go", "ts"],
-			}),
-		).toBeNull();
+			matchSkills(["go", "ts", "react", "aws", "docker"], ["go", "ts"]),
+		).toBe(100);
+	});
+
+	it("keyword が空なら 0（スコア側で中立判定する前提・ゼロ除算防御）", () => {
+		expect(matchSkills(["go", "ts"], [])).toBe(0);
+	});
+
+	it("求人スキルが空なら 0（どの keyword も満たさない）", () => {
+		expect(matchSkills([], ["go"])).toBe(0);
 	});
 
 	it("大小文字・全半角・装飾記号を無視して突合する（ラベル正規化）", () => {
-		// 希望 "Go" と求人 "ＧＯ"（全角）は正規化後一致する
-		expect(
-			defaultSkillMatcher({
-				criterion: "skillMatch",
-				desired: ["Go"],
-				jobSkills: ["ＧＯ"],
-			}),
-		).toBe(1);
+		// keyword "Go" と求人 "ＧＯ"（全角）は正規化後一致する
+		expect(matchSkills(["ＧＯ"], ["Go"])).toBe(100);
+	});
+
+	it("keyword の重複は正規化後に一意化して分母に数えない", () => {
+		// keyword [go, Go] は正規化後 [go] の1件。求人 [go] と 1/1 = 100
+		expect(matchSkills(["go"], ["go", "Go"])).toBe(100);
 	});
 
 	it("同一入力なら同一値を返す（決定的・§8）", () => {
-		const input = {
-			criterion: "skillMatch" as const,
-			desired: ["go", "ts"],
-			jobSkills: ["go", "rust"],
-		};
-		expect(defaultSkillMatcher(input)).toBe(defaultSkillMatcher(input));
-	});
-
-	it("求人側スキルの重複は正規化後に一意化して分母に数えない", () => {
-		// 求人 [go, Go] は正規化後 [go] の1件。希望 [go] と一致割合 1.0。
-		expect(
-			defaultSkillMatcher({
-				criterion: "skillMatch",
-				desired: ["go"],
-				jobSkills: ["go", "Go"],
-			}),
-		).toBe(1);
-	});
-
-	it("一致割合（matched / 求人スキル数）を返す", () => {
-		// 求人 [go, ts, rust] のうち希望 [go, ts] が一致するのは 2/3
-		expect(
-			defaultSkillMatcher({
-				criterion: "skillMatch",
-				desired: ["go", "ts"],
-				jobSkills: ["go", "ts", "rust"],
-			}),
-		).toBeCloseTo(2 / 3);
-	});
-
-	it("求人スキルを全て希望していれば 1.0", () => {
-		expect(
-			defaultSkillMatcher({
-				criterion: "skillMatch",
-				desired: ["go", "ts", "extra"],
-				jobSkills: ["go", "ts"],
-			}),
-		).toBe(1);
+		expect(matchSkills(["go", "rust"], ["go", "ts"])).toBe(
+			matchSkills(["go", "rust"], ["go", "ts"]),
+		);
 	});
 });

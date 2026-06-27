@@ -11,7 +11,6 @@ import {
 	type RescoredJob,
 	rankJobs,
 	rescoreJob,
-	type SkillMatcher,
 } from "./rescore-core";
 import type { ScoringConfig } from "./score";
 
@@ -185,8 +184,8 @@ describe("rescoreJob（1 件再スコアリング・決定的・AI 非依存）"
 		const job = jobWith({
 			annualSalary: { kind: "numericRange", min: 800, max: 800 },
 		});
-		const a = rescoreJob("j1", job, "ok", salaryConfig, {}, {});
-		const b = rescoreJob("j1", job, "ok", salaryConfig, {}, {});
+		const a = rescoreJob("j1", job, "ok", salaryConfig, {});
+		const b = rescoreJob("j1", job, "ok", salaryConfig, {});
 		expect(a).toEqual(b);
 		expect(a.score.total).toBe(1);
 	});
@@ -195,7 +194,7 @@ describe("rescoreJob（1 件再スコアリング・決定的・AI 非依存）"
 		const job = jobWith({
 			annualSalary: { kind: "numericRange", min: 800, max: 800 },
 		});
-		const r = rescoreJob("j1", job, "failed", salaryConfig, {}, {});
+		const r = rescoreJob("j1", job, "failed", salaryConfig, {});
 		expect(r.score.total).toBeNull();
 	});
 
@@ -203,70 +202,48 @@ describe("rescoreJob（1 件再スコアリング・決定的・AI 非依存）"
 		const job = jobWith({
 			annualSalary: { kind: "numericRange", min: 800, max: 800 },
 		});
-		const r = rescoreJob(
-			"j1",
-			job,
-			"ok",
-			salaryConfig,
-			{ annualSalary: "exclude" },
-			{},
-		);
+		const r = rescoreJob("j1", job, "ok", salaryConfig, {
+			annualSalary: "exclude",
+		});
 		// 800 は desired 以上で exclude 該当 → 除外。だが score は出る。
 		expect(r.hardFilter.passed).toBe(false);
 		expect(r.score.total).toBe(1);
 	});
 
-	describe("aiJudged 拡張点（#68 協調・統合 skillMatch）", () => {
+	describe("skillMatch（keyword ヒット採点・#105）", () => {
 		const skillConfig: ScoringConfig = {
-			items: { skillMatch: { weight: 1, kind: "aiJudged" } },
+			items: {
+				skillMatch: { weight: 1, kind: "keywordMatch", keywords: ["go"] },
+			},
 		};
 
-		it("matcher 未指定なら aiJudged は unknown 中立のまま（分母から除外）", () => {
-			const job = jobWith({
-				skillMatch: { kind: "unknown" },
-			});
-			const r = rescoreJob("j1", job, "ok", skillConfig, {}, {});
-			expect(r.score.total).toBeNull();
-		});
-
-		it("matcher を差すと求人スキル×希望集合の突合結果を 0..1 で加重に組込む", () => {
-			// 求人スキルは当該キーの categorical に載る想定（拡張点の取得元）
+		it("求人スキル × keyword の決定的ヒット率を 0..1 で加重に組込む", () => {
+			// keyword [go] のうち求人 [go, ts] に出現するのは 1/1 = 100 → 1.0
 			const job = jobWith({
 				skillMatch: { kind: "categorical", categories: ["go", "ts"] },
 			});
-			// 希望集合 [go] と求人 [go, ts] の一致割合 0.5 を返す決定的 matcher
-			const matcher: SkillMatcher = ({ desired, jobSkills }) => {
-				if (jobSkills.length === 0) return null;
-				const want = new Set(desired);
-				return jobSkills.filter((s) => want.has(s)).length / jobSkills.length;
-			};
-			const r = rescoreJob(
-				"j1",
-				job,
-				"ok",
-				skillConfig,
-				{},
-				{ skillMatch: ["go"] },
-				{ skillMatcher: matcher },
-			);
-			expect(r.score.total).toBe(0.5);
+			const r = rescoreJob("j1", job, "ok", skillConfig, {});
+			expect(r.score.total).toBe(1);
 		});
 
-		it("matcher が突合不能(null)を返すと unknown 中立のまま", () => {
+		it("求人スキル不明（categories 空）は unknown 中立のまま（分母から除外）", () => {
 			const job = jobWith({
 				skillMatch: { kind: "categorical", categories: [] },
 			});
-			const matcher: SkillMatcher = ({ jobSkills }) =>
-				jobSkills.length === 0 ? null : 1;
-			const r = rescoreJob(
-				"j1",
-				job,
-				"ok",
-				skillConfig,
-				{},
-				{},
-				{ skillMatcher: matcher },
-			);
+			const r = rescoreJob("j1", job, "ok", skillConfig, {});
+			expect(r.score.total).toBeNull();
+		});
+
+		it("keyword 未指定（意見なし）は中立（分母から除外）", () => {
+			const neutral: ScoringConfig = {
+				items: {
+					skillMatch: { weight: 1, kind: "keywordMatch", keywords: [] },
+				},
+			};
+			const job = jobWith({
+				skillMatch: { kind: "categorical", categories: ["go", "ts"] },
+			});
+			const r = rescoreJob("j1", job, "ok", neutral, {});
 			expect(r.score.total).toBeNull();
 		});
 	});

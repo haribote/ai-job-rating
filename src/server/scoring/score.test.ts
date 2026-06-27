@@ -390,30 +390,69 @@ describe("categorical の tier 採点（フルリモート別格・#104）", () 
 	});
 });
 
-describe("aiJudged のサブスコア", () => {
+describe("keywordMatch のサブスコア（求人スキル × keyword ヒット率・#105）", () => {
 	const config: ScoringConfig = {
-		items: { skillMatch: { weight: 1, kind: "aiJudged" } },
+		items: {
+			skillMatch: { weight: 1, kind: "keywordMatch", keywords: ["go", "ts"] },
+		},
 	};
 
-	it("score(0..100) を 0..1 に正規化する", () => {
+	it("keyword のヒット率を 0..1 に正規化する", () => {
+		// keyword [go, ts] のうち求人 [go, ts, rust] に出現するのは 2/2 = 100 → 1.0
 		const result = scoreJob(
-			jobWith({ skillMatch: { kind: "aiJudged", score: 80 } }),
+			jobWith({
+				skillMatch: { kind: "categorical", categories: ["go", "ts", "rust"] },
+			}),
 			config,
 		);
-		expect(result.total).toBe(0.8);
+		expect(result.total).toBe(1);
 	});
 
-	it("範囲外の score は 0..1 にクランプする", () => {
-		const over = scoreJob(
-			jobWith({ skillMatch: { kind: "aiJudged", score: 150 } }),
+	it("一部ヒットは割合になる（keyword 基準）", () => {
+		// keyword [go, ts] のうち求人 [go] に出現するのは go のみ 1/2 = 0.5
+		const result = scoreJob(
+			jobWith({ skillMatch: { kind: "categorical", categories: ["go"] } }),
 			config,
 		);
-		const under = scoreJob(
-			jobWith({ skillMatch: { kind: "aiJudged", score: -10 } }),
+		expect(result.total).toBe(0.5);
+	});
+
+	it("keyword 未指定は中立（included=false・分母から除外）", () => {
+		const neutral: ScoringConfig = {
+			items: { skillMatch: { weight: 1, kind: "keywordMatch", keywords: [] } },
+		};
+		const result = scoreJob(
+			jobWith({ skillMatch: { kind: "categorical", categories: ["go"] } }),
+			neutral,
+		);
+		expect(result.total).toBeNull();
+		expect(result.breakdown.find((r) => r.key === "skillMatch")?.included).toBe(
+			false,
+		);
+	});
+
+	it("求人スキル不明（categories 空）・unknown は中立（分母から除外）", () => {
+		const emptyCats = scoreJob(
+			jobWith({ skillMatch: { kind: "categorical", categories: [] } }),
 			config,
 		);
-		expect(over.total).toBe(1);
-		expect(under.total).toBe(0);
+		const unknown = scoreJob(
+			jobWith({ skillMatch: { kind: "unknown" } }),
+			config,
+		);
+		expect(emptyCats.total).toBeNull();
+		expect(unknown.total).toBeNull();
+	});
+
+	it("旧 aiJudged 由来の保存値は categorical でないので安全に中立へ畳む（後方互換・#105）", () => {
+		// 廃止済みの { kind: "aiJudged", score } 形が structured_json に残っていても、
+		// keywordMatch は categorical 以外を中立（null）にするため誤採点しない。
+		const legacy = {
+			kind: "aiJudged",
+			score: 80,
+		} as unknown as NormalizedFieldValue;
+		const result = scoreJob(jobWith({ skillMatch: legacy }), config);
+		expect(result.total).toBeNull();
 	});
 });
 

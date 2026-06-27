@@ -11,10 +11,9 @@
 // - partial/ok: NormalizedJob の各値をそのまま採用する。取れなかった項目は値自体が
 //   unknown なので scoreJob が中立に扱う（partial を一律 unknown にはしない）。
 //
-// aiJudged 拡張点（#68 協調設計・統合 skillMatch は #101）:
-// - スキル適合（skillMatch）は「求人側スキル集合 × 希望集合 → 0..100」をスコアリング側で
-//   決定的に突合する方針（希望条件変更で AI 再実行＝§5.3 違反を避けるため）。本モジュールは
-//   SkillMatcher 契約と適用点を定義し、matcher 未指定の間は aiJudged 値を unknown 中立のままにする。
+// スキル適合（skillMatch）は「求人側スキル集合 × ユーザー keyword → 0..100」を score.ts が
+// 決定的に採点する（keyword は criteria_config の desired_value 由来で config に載る・#105）。
+// keyword 変更で AI を再実行しない（§5.3）。本モジュールは前処理・ハードフィルタ・順位付けのみ担う。
 
 import {
 	NORMALIZED_KEYS,
@@ -25,31 +24,6 @@ import {
 import type { ExtractionStatus } from "../storage/db-schema";
 import type { HardFilterMap } from "./criteria-config";
 import { type ScoreResult, type ScoringConfig, scoreJob } from "./score";
-
-// ---------------------------------------------------------------------------
-// aiJudged 拡張点（#68 が実値化する突合関数の入出力契約）
-// ---------------------------------------------------------------------------
-
-// スキル突合の決定的契約（#68 → #20）。
-// - desired: 希望スキル集合の在り処。criteria_config 側の希望値（正規化済みスキル文字列集合）。
-// - jobSkills: 求人側スキル集合の取得元。抽出済み NormalizedJob.skillMatch（categorical の
-//   categories）など、保存済み抽出から決定的に得られる正規化済みスキル集合。
-// - 戻り値: 0..1 に正規化したサブスコア（scoreJob の aiJudged は内部で 0..100→0..1 する
-//   ため、突合関数は 0..1 を返し、本モジュールが AiJudgedValue.score へ ×100 して載せる）。
-//   突合不能（双方空など）は null（= unknown 中立で分母から除外）。
-// 決定的であること（同一 desired・同一 jobSkills → 同一値）が必須（§8）。
-export interface SkillMatchInput {
-	readonly criterion: NormalizedKey;
-	readonly desired: readonly string[];
-	readonly jobSkills: readonly string[];
-}
-
-export type SkillMatcher = (input: SkillMatchInput) => number | null;
-
-// 再スコアリングの拡張点。matcher 未指定（#68 未実装）の間は aiJudged を中立のままにする。
-export interface RescoreExtensions {
-	readonly skillMatcher?: SkillMatcher;
-}
 
 // ---------------------------------------------------------------------------
 // extraction_status による値の前処理（failed/partial と unknown 中立の区別）
@@ -113,8 +87,8 @@ function matchesFilter(
 				? value.max >= config.desired
 				: value.min <= config.desired;
 		}
-		case "aiJudged":
-			// aiJudged はハードフィルタ対象外（突合スコアは soft 評価のみ）。判定不能。
+		case "keywordMatch":
+			// skillMatch はハードフィルタ対象外（keyword ヒットは soft 評価のみ）。判定不能。
 			return null;
 		case "coverage":
 			// coverage（充足率）はハードフィルタ対象外（soft 評価のみ）。判定不能。
@@ -155,50 +129,6 @@ export function passesHardFilters(
 }
 
 // ---------------------------------------------------------------------------
-// aiJudged 突合の適用（#68 拡張点）
-// ---------------------------------------------------------------------------
-
-// aiJudged 項目に skillMatcher を適用し、突合結果を AiJudgedValue として job に載せた
-// 新しい NormalizedJob を返す（決定的）。matcher 未指定・突合不能の項目は値を変えない
-// （元が unknown なら unknown のまま = 中立で分母から除外）。
-// 希望集合（desired）は config の categorical 希望値が無いため、当面は呼び出し側が渡す
-// desiredSkills マップから引く。#68 はこの適用点に実 matcher と希望集合の在り処を差す。
-export function applySkillMatch(
-	job: NormalizedJob,
-	config: ScoringConfig,
-	desiredSkills: Partial<Record<NormalizedKey, readonly string[]>>,
-	extensions: RescoreExtensions,
-): NormalizedJob {
-	const matcher = extensions.skillMatcher;
-	if (matcher === undefined) return job;
-
-	let next: Record<NormalizedKey, NormalizedFieldValue> | null = null;
-	for (const key of Object.keys(config.items) as NormalizedKey[]) {
-		const itemConfig = config.items[key];
-		if (itemConfig?.kind !== "aiJudged") continue;
-		const jobSkills = extractJobSkills(job[key]);
-		const desired = desiredSkills[key] ?? [];
-		const matched = matcher({ criterion: key, desired, jobSkills });
-		if (matched === null) continue;
-		if (next === null) next = { ...job };
-		next[key] = { kind: "aiJudged", score: clamp01(matched) * 100 };
-	}
-	return (next ?? job) as NormalizedJob;
-}
-
-// aiJudged の対象値から求人側スキル集合を取り出す（決定的）。
-// 抽出側は当面 categorical（categories）にスキルを載せる想定。それ以外は空集合。
-function extractJobSkills(value: NormalizedFieldValue): readonly string[] {
-	return value.kind === "categorical" ? value.categories : [];
-}
-
-function clamp01(value: number): number {
-	if (value < 0) return 0;
-	if (value > 1) return 1;
-	return value;
-}
-
-// ---------------------------------------------------------------------------
 // 1 求人の再スコアリング（決定的）
 // ---------------------------------------------------------------------------
 
@@ -210,7 +140,7 @@ export interface RescoredJob {
 }
 
 // 1 求人を再スコアリングする（決定的・AI 非依存）。
-// 手順: extraction_status 反映 → aiJudged 突合適用 → ハードフィルタ判定 → 加重平均。
+// 手順: extraction_status 反映 → ハードフィルタ判定 → 加重平均（skillMatch の keyword 突合は scoreJob 内）。
 // ハードフィルタで除外された求人も score は算出する（#18 が内訳表示できるように）。
 export function rescoreJob(
 	jobId: string,
@@ -218,18 +148,10 @@ export function rescoreJob(
 	status: ExtractionStatus,
 	config: ScoringConfig,
 	hardFilters: HardFilterMap,
-	desiredSkills: Partial<Record<NormalizedKey, readonly string[]>>,
-	extensions: RescoreExtensions = {},
 ): RescoredJob {
 	const statusApplied = applyExtractionStatus(job, status);
-	const matched = applySkillMatch(
-		statusApplied,
-		config,
-		desiredSkills,
-		extensions,
-	);
-	const hardFilter = passesHardFilters(matched, config, hardFilters);
-	const score = scoreJob(matched, config);
+	const hardFilter = passesHardFilters(statusApplied, config, hardFilters);
+	const score = scoreJob(statusApplied, config);
 	return { jobId, score, hardFilter };
 }
 

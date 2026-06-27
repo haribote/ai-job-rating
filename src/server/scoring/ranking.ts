@@ -7,8 +7,8 @@
 // - 並び順は #20 の rankJobs に委ねる（スコア降順・除外を外す・total=null 末尾・同点 jobId 昇順、
 //   決定的 §8）。本モジュールは順序ロジックを再実装しない。
 // - ハードフィルタ除外理由（rejectedBy）は scores に永続化されないため、criteria_config と
-//   保存済み抽出から決定的に再判定する。判定は rescoreJob と同じ前処理（extraction_status 反映 →
-//   aiJudged 突合）を通してから passesHardFilters に渡す。さもないと failed 抽出（全項目 unknown
+//   保存済み抽出から決定的に再判定する。判定は rescoreJob と同じ前処理（extraction_status 反映）を
+//   通してから passesHardFilters に渡す。さもないと failed 抽出（全項目 unknown
 //   として採点・永続化済み）の ranked/excluded 振り分けが永続スコアと食い違う。AI は呼ばない。
 // - 表示用の raw 値・kind は scores に持たないため、保存済み抽出（raw）と
 //   NORMALIZED_KEY_KINDS（kind）から補う。DB I/O のみを担い描画は ranking-list が行う（責務分離 §9）。
@@ -28,7 +28,6 @@ import {
 } from "./criteria-config";
 import {
 	applyExtractionStatus,
-	applySkillMatch,
 	passesHardFilters,
 	type RescoredJob,
 	rankJobs,
@@ -188,16 +187,15 @@ export async function readRanking(db: D1Database): Promise<RankingView> {
 }
 
 // ハードフィルタを rescoreJob と同一手順で再判定する（決定的・AI 非依存）。
-// extraction_status 反映（failed→全 unknown）→ aiJudged 突合（matcher 未指定なら無変化）→ 判定。
-// 突合の希望集合は criteria_config に未保持のため空（rescore.ts と同じ・#68 拡張点）。
+// extraction_status 反映（failed→全 unknown）→ 判定。skillMatch（keywordMatch）はハードフィルタ
+// 対象外（soft 評価のみ）なので前処理は不要（#105）。
 function recomputeHardFilter(
 	material: JobMaterial,
 	config: ScoringConfig,
 	hardFilters: ReturnType<typeof buildHardFilterMap>,
 ): RescoredJob["hardFilter"] {
 	const statusApplied = applyExtractionStatus(material.job, material.status);
-	const matched = applySkillMatch(statusApplied, config, {}, {});
-	return passesHardFilters(matched, config, hardFilters);
+	return passesHardFilters(statusApplied, config, hardFilters);
 }
 
 // RescoredJob + 材料 → 表示ビュー。
