@@ -16,6 +16,7 @@ import { type DetailQueue, enqueueDetailJobs } from "./queue/detail-queue";
 import {
 	NORMALIZED_KEY_KINDS,
 	type NormalizedKeyKind,
+	parseDesired,
 } from "./scoring/criteria-config";
 import {
 	type CriteriaConfigRow,
@@ -191,16 +192,6 @@ export interface JobDetail {
 function rawOf(job: NormalizedJob, key: NormalizedKey): string {
 	const value = job[key];
 	return "raw" in value && typeof value.raw === "string" ? value.raw : "";
-}
-
-// desired_value(JSON 文字列) を構造化値へ復元する（不正・null は null）。
-function parseDesired(raw: string | null): unknown {
-	if (raw == null) return null;
-	try {
-		return JSON.parse(raw);
-	} catch {
-		return null;
-	}
 }
 
 // 1 求人の詳細（jobs メタ・最新抽出・スコア内訳）を組む（決定的・AI 非依存）。

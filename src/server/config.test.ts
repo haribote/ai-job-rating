@@ -20,6 +20,13 @@ describe("parseWeight", () => {
 		expect(parseWeight(Number.NaN).ok).toBe(false);
 		expect(parseWeight("abc").ok).toBe(false);
 	});
+
+	it("数値型でない null/空文字/false を 0 に化けさせず拒否する（未入力を無効化と取り違えない）", () => {
+		expect(parseWeight(null).ok).toBe(false);
+		expect(parseWeight("").ok).toBe(false);
+		expect(parseWeight(false).ok).toBe(false);
+		expect(parseWeight("5").ok).toBe(false);
+	});
 });
 
 describe("inputsToConfigRows", () => {

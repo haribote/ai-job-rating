@@ -8,7 +8,7 @@
 //   criteria-config.ts の NORMALIZED_KEY_KINDS を単一ソースとして解釈する（ラベル正規化 §5.2）。
 
 import { NORMALIZED_KEYS, type NormalizedKey } from "../shared/job-schema";
-import { NORMALIZED_KEY_KINDS } from "./scoring/criteria-config";
+import { NORMALIZED_KEY_KINDS, parseDesired } from "./scoring/criteria-config";
 import { readCriteriaConfig, rescoreAll } from "./scoring/rescore";
 import {
 	type CriteriaConfigRow,
@@ -45,13 +45,16 @@ export interface CriteriaConfigItem {
 // 決定的バリデーション・変換（純関数・ユニットテスト対象）
 // ---------------------------------------------------------------------------
 
-// 重みの決定的バリデーション。非負の有限数のみ受理する（weight>=0 ガードレール §5.2）。
+// 重みの決定的バリデーション。非負の有限「数値」のみ受理する（weight>=0 ガードレール §5.2）。
+// null/空文字/false 等は Number() で 0 に化けるため、数値型でない入力は黙って 0 にせず拒否する
+// （重み 0 = 採点対象から除外と等価になり、未入力を「無効化」と取り違えるのを防ぐ）。
 export function parseWeight(
 	raw: unknown,
 ): { ok: true; value: number } | { ok: false } {
-	const value = typeof raw === "number" ? raw : Number(raw);
-	if (!Number.isFinite(value) || value < 0) return { ok: false };
-	return { ok: true, value };
+	if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+		return { ok: false };
+	}
+	return { ok: true, value: raw };
 }
 
 // numericRange の希望値を desired_value JSON へ詰める。direction に応じて反対端（floor|ceil）のみ採用する。
@@ -148,16 +151,6 @@ export function inputsToConfigRows(
 // ---------------------------------------------------------------------------
 // 取得（GET /api/config）: 全正規キーぶんの現行設定を返す
 // ---------------------------------------------------------------------------
-
-// desired_value(JSON 文字列|null) を構造化値へ復元する（不正・null は null）。
-function parseDesired(raw: string | null): unknown {
-	if (raw == null) return null;
-	try {
-		return JSON.parse(raw);
-	} catch {
-		return null;
-	}
-}
 
 // 全正規キーの設定項目を返す。未保存キーは既定（weight=1 / hardFilter=none / desired=null）で埋める。
 export async function readConfigItems(
