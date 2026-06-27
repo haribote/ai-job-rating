@@ -1,0 +1,6 @@
+# golden 実体（実求人 HTML・期待値）は PII を含むためコミットしない。
+# サニタイズ済みの雛形（*.example.json）だけを追跡する。
+*
+!.gitignore
+!README.md
+!*.example.json
