@@ -10,10 +10,11 @@
 
 import type { NormalizedKey } from "../../shared/job-schema";
 import type { CriteriaConfigRow, HardFilter } from "../storage/db-schema";
-import type {
-	NumericDirection,
-	ScoringConfig,
-	ScoringItemConfig,
+import {
+	type NumericDirection,
+	REMOTE_WORK_TIER_SCORES,
+	type ScoringConfig,
+	type ScoringItemConfig,
 } from "./score";
 
 // ---------------------------------------------------------------------------
@@ -26,7 +27,12 @@ import type {
 // フォーク先・後続フェーズ（#7 設定UI）はこのレジストリを差し替えるだけで項目を増減できる。
 export type NormalizedKeyKind =
 	| { readonly kind: "numericRange"; readonly direction: NumericDirection }
-	| { readonly kind: "categorical" }
+	| {
+			readonly kind: "categorical";
+			// 順序づけ tier 採点（任意・#104）。ユーザー編集の preferred とは別に、採点の順位差を
+			// コード側で固定する（フルリモート別格）。desired_value には持たせず DB へ漏らさない。
+			readonly tierScores?: Readonly<Record<string, number>>;
+	  }
 	| { readonly kind: "aiJudged" }
 	| { readonly kind: "coverage" };
 
@@ -39,8 +45,8 @@ export const NORMALIZED_KEY_KINDS: Record<NormalizedKey, NormalizedKeyKind> = {
 	overtime: { kind: "numericRange", direction: "lowerBetter" },
 	annualHolidays: { kind: "numericRange", direction: "higherBetter" },
 	benefitsCoverage: { kind: "coverage" },
-	// 柔軟な働き方。
-	remoteWork: { kind: "categorical" },
+	// 柔軟な働き方。remoteWork はフルリモート別格の tier 採点を持つ（#104）。
+	remoteWork: { kind: "categorical", tierScores: REMOTE_WORK_TIER_SCORES },
 	flexWork: { kind: "categorical" },
 	// 仕事・スキル。希望キーワードとの AI 非依存の決定的突合（aiJudged 機構を流用・#106 で keyword 化）。
 	skillMatch: { kind: "aiJudged" },
@@ -166,6 +172,10 @@ export function criteriaRowToItemConfig(
 				weight: row.weight,
 				kind: "categorical",
 				preferred: dv.preferred,
+				// tier 採点はレジストリ（コード側）から注入する。desired_value には持たせない（#104）。
+				...(keyKind.tierScores !== undefined
+					? { tierScores: keyKind.tierScores }
+					: {}),
 			};
 		}
 		case "aiJudged":

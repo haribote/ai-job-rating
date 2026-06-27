@@ -8,6 +8,7 @@ import {
 	criteriaRowToItemConfig,
 	NORMALIZED_KEY_KINDS,
 } from "./criteria-config";
+import { REMOTE_WORK_TIER_SCORES } from "./score";
 
 // criteria_config 行を組み立てるヘルパ（既定値を埋める）。
 function row(over: Partial<CriteriaConfigRow>): CriteriaConfigRow {
@@ -69,7 +70,24 @@ describe("criteriaRowToItemConfig（1 行 → 項目設定）", () => {
 		});
 	});
 
-	it("categorical の desired_value(JSON) を preferred 集合へ展開する", () => {
+	it("categorical の desired_value(JSON) を preferred 集合へ展開する（tier 無しキー）", () => {
+		// flexWork は tier 採点を持たないため preferred 集合一致率のまま（remoteWork は別テスト）。
+		const item = criteriaRowToItemConfig(
+			row({
+				criterion: "flexWork",
+				desired_value: JSON.stringify({ preferred: ["flex", "discretionary"] }),
+			}),
+		);
+		expect(item).toEqual({
+			weight: 1,
+			kind: "categorical",
+			preferred: ["flex", "discretionary"],
+		});
+	});
+
+	it("remoteWork は tier 採点（フルリモート別格）をレジストリから注入する（#104）", () => {
+		// preferred は desired_value から、tierScores は kind レジストリから注入する。
+		// desired_value に tierScores を持たせない（ユーザー編集の preferred だけが round-trip する）。
 		const item = criteriaRowToItemConfig(
 			row({
 				criterion: "remoteWork",
@@ -80,6 +98,7 @@ describe("criteriaRowToItemConfig（1 行 → 項目設定）", () => {
 			weight: 1,
 			kind: "categorical",
 			preferred: ["full", "partial"],
+			tierScores: REMOTE_WORK_TIER_SCORES,
 		});
 	});
 

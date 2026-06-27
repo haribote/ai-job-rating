@@ -167,13 +167,14 @@ spike #65 / PR #72 の live 実測で、モデル非依存に揃って誤る cat
 
 | キー | 意味（抽出対象） | 正規化方針 | canonical 許容値 |
 | --- | --- | --- | --- |
+| `remoteWork` | リモート勤務の度合い（#104） | コード側で決定的に canonical 化。フルリモートを別格加点（tier 採点） | `full`（フルリモート・完全在宅）/ `partial`（一部リモート・ハイブリッド）/ `onsite`（出社・常駐。リモート否定もここへ寄せる） |
 | `companyPhase` | 企業の**上場区分**（設立年は対象外） | コード側で決定的に canonical 化 | `listed`（上場・東証各市場）/ `preIpo`（上場準備・IPO準備）/ `private`（未上場・非上場） |
 | `holidaySystem` | 休日**制度**の区分（年間休日数は `annualHolidays` の責務で対象外） | コード側で決定的に canonical 化 | `fullTwoDayWeekoff`（完全週休2日）/ `twoDayWeekoff`（週休2日）/ `shift`（シフト・交代制）/ `fourWeekEightOff`（4週8休） |
 | `workLocation` | 勤務地の地名 | 開集合のため canonical 化せず生表記を保持 | （なし。プロンプト/description で「地名を簡潔に」と明示） |
 | `techStack` | 使用技術の列挙 | 開集合のため canonical 化せず生表記を保持 | （なし。プロンプト/description で「原文の技術名を列挙のまま・要約/翻訳しない」と明示） |
 | `businessDomain` | 事業ドメイン・業界 | 開集合のため canonical 化せず生表記を保持 | （なし。プロンプト/description で「事業ドメイン/業界を簡潔に」と明示） |
 
-- canonical 化するキー（companyPhase / holidaySystem）は `extract.ts` の `CATEGORY_RULES` に決定的規則を持たせ、LLM 依存を減らす（§7.1 / #65 決定方針）。マッピングに無い値は生表記を 1 カテゴリとして残し情報を捨てない。
+- canonical 化するキー（remoteWork / companyPhase / holidaySystem）は `extract.ts` の `CATEGORY_RULES` に決定的規則を持たせ、LLM 依存を減らす（§7.1 / #65 決定方針）。マッピングに無い値は生表記を 1 カテゴリとして残し情報を捨てない。
 - canonical トークン名は既存規約（`full` / `partial` / `onsite` 等）に合わせ英語小文字キャメル。
 
 ### 5.3 抽出とスコアリングの分離（再掲・重要）

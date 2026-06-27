@@ -46,6 +46,10 @@ export interface CategoricalItemConfig {
 	readonly weight: number;
 	readonly kind: "categorical";
 	readonly preferred: readonly string[];
+	// 順序づけ tier 採点（任意・#104）。canonical カテゴリ → サブスコア(0..1)。指定時は preferred 集合
+	// 一致率でなくこのマップで各カテゴリを採点し、順位差（例: フルリモート別格）を決定的に表現する。
+	// preferred はハードフィルタ「該当」判定に引き続き使う（tier は soft スコアのみに効く）。
+	readonly tierScores?: Readonly<Record<string, number>>;
 }
 
 // AI 判定項目の設定。抽出フェーズで得た 0..100 の score を 0..1 へ正規化する（§5.2 AI判定）。
@@ -130,14 +134,25 @@ function scoreNumericRange(
 	return clamp01(1 - (x - config.desired) / (ceil - config.desired));
 }
 
-// カテゴリのサブスコア。preferred 集合との一致割合（一致数 / カテゴリ総数）。
-// カテゴリが空なら評価不能（null）= unknown 扱いで分母から外す。
+// カテゴリのサブスコア。カテゴリが空なら評価不能（null）= unknown 扱いで分母から外す。
+// tierScores 指定時は順序づけ採点（各カテゴリの tier スコア平均）。canonical 外/未定義カテゴリは
+// 0（記載はあるので中立=null ではない・#104）。未指定時は preferred 集合との一致割合。
 function scoreCategorical(
 	value: NormalizedFieldValue,
 	config: CategoricalItemConfig,
 ): number | null {
 	if (value.kind !== "categorical") return null;
 	if (value.categories.length === 0) return null;
+	if (config.tierScores !== undefined) {
+		const tiers = config.tierScores;
+		// own プロパティのみ参照する。canonical 外の生表記が "constructor"/"toString" 等の
+		// プロトタイプ継承キーに一致しても関数値を拾って NaN 化させない（決定的・0 として扱う）。
+		const sum = value.categories.reduce(
+			(acc, c) => acc + (Object.hasOwn(tiers, c) ? tiers[c] : 0),
+			0,
+		);
+		return clamp01(sum / value.categories.length);
+	}
 	const preferred = new Set(config.preferred);
 	const matched = value.categories.filter((c) => preferred.has(c)).length;
 	return clamp01(matched / value.categories.length);
@@ -227,6 +242,16 @@ export function scoreJob(
 // 固定設定（Phase 0）。フォーク先が希望値・重みを差し替えやすいよう型付き定数で持つ。
 // ---------------------------------------------------------------------------
 
+// リモート可否の canonical tier 別格スコア（設計書 §5.2 / #104）。
+// なぜここで一元化するか: full を別格加点し partial/onsite と明確に差別化する順位は remoteWork の
+// 採点意味そのもの（ユーザーが個別に調整する希望値ではない）。DEFAULT 設定と DB 設定（criteria-config）
+// の双方がこの単一ソースを参照し、フルリモート別格を決定的に一致させる。
+export const REMOTE_WORK_TIER_SCORES: Readonly<Record<string, number>> = {
+	full: 1,
+	partial: 0.5,
+	onsite: 0,
+};
+
 // Phase 0 の既定スコアリング設定。希望値・重みは一般的な技術職の優先度を仮置きした初期値で、
 // フォーク先・後続フェーズ（#7 設定UI）で差し替える前提。アカウント固有値は含めない。
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
@@ -255,11 +280,13 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 			desired: 125,
 			floor: 105,
 		},
-		// リモート可否は full/partial を歓迎。
+		// リモート可否は full/partial を歓迎し、フルリモートを別格加点する（tier 採点・#104）。
+		// preferred はハードフィルタ「該当」判定に使う。soft スコアの順位差は tierScores が担う。
 		remoteWork: {
 			weight: 3,
 			kind: "categorical",
 			preferred: ["full", "partial"],
+			tierScores: REMOTE_WORK_TIER_SCORES,
 		},
 		// フレックス・裁量労働は有を歓迎。
 		flexWork: {
