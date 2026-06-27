@@ -50,5 +50,8 @@ npm-debug.log*
 !/test-fixtures/golden/README.md
 !/test-fixtures/golden/*.example.json
 
+# live golden eval ランナー（#106）の出力。golden 由来の値を含み得るためコミットしない。
+/eval-result.json
+
 # superpowers ブレインストーミングのモックアップ（ローカル作業用）
 .superpowers/

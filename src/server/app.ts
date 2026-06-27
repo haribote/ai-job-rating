@@ -6,6 +6,13 @@ import {
 	saveConfigAndRescore,
 } from "./config";
 import { runAiHealthCheck } from "./extract/ai";
+import { extractJobFromHtml, resolveExtractionModel } from "./extract/extract";
+import type { GoldenCase, GoldenExtractor } from "./extract/golden";
+import { parseGoldenCase } from "./extract/golden";
+import {
+	EXTRACTION_MODEL_CANDIDATES,
+	evaluateModels,
+} from "./extract/model-eval";
 import {
 	type IngestUrlResult,
 	ingestFromHtml,
@@ -37,6 +44,9 @@ export interface Bindings {
 	// 抽出モデル ID の上書き（wrangler.jsonc の vars.EXTRACTION_MODEL / .dev.vars, §7.1 / #106）。
 	// 未設定なら extract.ts の resolveExtractionModel がコード既定へフォールバックする（フォーク容易性 §8）。
 	EXTRACTION_MODEL?: string;
+	// live golden eval ランナー（#106）の dev 限定フラグ。"1" のときだけ /api/_eval-models を有効化する。
+	// 本番では未設定＝404 で、多数の AI 呼び出しを誘発するルートをコスト/濫用から守る（.dev.vars で付与）。
+	EXTRACTION_EVAL?: string;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）。
@@ -182,6 +192,53 @@ app.put("/api/config", async (c) => {
 
 	const count = await saveConfigAndRescore(c.env.DB, parsed.rows);
 	return c.json({ status: "rescored", count }, 200);
+});
+
+// 抽出モデルの live golden 横並び評価（#106・dev 限定）。本番安全のため EXTRACTION_EVAL==="1" のときだけ
+// 動作し、未設定/それ以外は 404（プロダクションでは存在しないのと同義）。多数の AI 呼び出しを誘発するため
+// gate を最優先で評価し、コスト/濫用から守る。
+// body は { cases: unknown[] }（golden ケースの生 JSON 配列・実体は PII で gitignore のため driver が送る）。
+// 各ケースは parseGoldenCase で型安全に検証し、本番パイプライン（content prep＋分割＋機構自動解決）に忠実な
+// extractor を候補ごとに生成して evaluateModels を呼び、ModelSelection を JSON で返す。
+app.post("/api/_eval-models", async (c) => {
+	if (c.env.EXTRACTION_EVAL !== "1") {
+		return c.json({ error: "not found" }, 404);
+	}
+
+	let body: { cases?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ error: "invalid json body", reason: "body" }, 400);
+	}
+	if (!Array.isArray(body.cases)) {
+		return c.json({ error: "cases must be an array", reason: "body" }, 400);
+	}
+
+	// 不正な golden は AI を呼ぶ前に弾く（コスト保護）。
+	let cases: GoldenCase[];
+	try {
+		cases = body.cases.map((raw) => parseGoldenCase(raw));
+	} catch (cause) {
+		const reason = cause instanceof Error ? cause.message : String(cause);
+		return c.json({ error: "invalid golden case", reason }, 400);
+	}
+
+	const baselineModel = resolveExtractionModel(c.env.EXTRACTION_MODEL);
+	const candidateModels = EXTRACTION_MODEL_CANDIDATES.map((m) => m.id);
+	// 本番取込（ingest）と同じ extractJobFromHtml 経路に通す。機構はモデル ID から自動解決される（#107）。
+	const makeExtractor =
+		(model: string): GoldenExtractor =>
+		(html) =>
+			extractJobFromHtml(c.env.AI, html, { model }).then((r) => r.job);
+
+	const selection = await evaluateModels(
+		cases,
+		baselineModel,
+		candidateModels,
+		makeExtractor,
+	);
+	return c.json(selection, 200);
 });
 
 // API ルートに該当しない GET は静的資産（SPA）へフォールスルーする。
