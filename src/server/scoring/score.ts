@@ -15,6 +15,10 @@ import {
 	type NormalizedJob,
 	type NormalizedKey,
 } from "../../shared/job-schema";
+import {
+	type BenefitSignalKey,
+	computeBenefitsCoverage,
+} from "./benefits-coverage";
 
 // ---------------------------------------------------------------------------
 // スコアリング設定（固定・型付き）
@@ -51,10 +55,11 @@ export interface AiJudgedItemConfig {
 }
 
 // 充足率項目の設定（benefitsCoverage 用・設計書 §5.2）。サブスコアは充足率 present/total。
-// canonical 閉集合の定義・signal 別重みは #102 が追加する（#101 は機構のみ）。
+// emphasis は重視する signal キー集合。指定されると当該 signal を重み付けして再採点する（AI 非再実行・#102）。
 export interface CoverageItemConfig {
 	readonly weight: number;
 	readonly kind: "coverage";
+	readonly emphasis?: readonly string[];
 }
 
 export type ScoringItemConfig =
@@ -144,9 +149,19 @@ function scoreAiJudged(value: NormalizedFieldValue): number | null {
 	return clamp01(value.score / 100);
 }
 
-// 充足率のサブスコア（benefitsCoverage）。present/total（決定的）。total が 0 なら評価不能（null）。
-function scoreCoverage(value: NormalizedFieldValue): number | null {
+// 充足率のサブスコア（benefitsCoverage）。決定的。
+// signals があれば canonical 閉集合での充足率（emphasis 重み込み）を 0..1 へ正規化する。
+// signals が無い保存値（旧データ）は present/total で後方互換に算出する。total が 0 なら評価不能（null）。
+function scoreCoverage(
+	value: NormalizedFieldValue,
+	config: CoverageItemConfig,
+): number | null {
 	if (value.kind !== "coverage") return null;
+	if (value.signals !== undefined) {
+		const present = new Set(value.signals) as ReadonlySet<BenefitSignalKey>;
+		const emphasis = config.emphasis as readonly BenefitSignalKey[] | undefined;
+		return clamp01(computeBenefitsCoverage(present, emphasis) / 100);
+	}
 	if (value.total <= 0) return null;
 	return clamp01(value.present / value.total);
 }
@@ -166,7 +181,7 @@ function scoreItem(
 		case "aiJudged":
 			return scoreAiJudged(value);
 		case "coverage":
-			return scoreCoverage(value);
+			return scoreCoverage(value, config);
 	}
 }
 

@@ -280,6 +280,66 @@ describe("coverage のサブスコア（benefitsCoverage 充足率）", () => {
 		);
 		expect(result.total).toBeNull();
 	});
+
+	it("signals があれば canonical 閉集合の充足率で算出する", () => {
+		const result = scoreJob(
+			jobWith({
+				benefitsCoverage: {
+					kind: "coverage",
+					present: 20,
+					total: 20,
+					signals: [
+						"twoDayWeekoff",
+						"completeTwoDayWeekoff",
+						"fourWeekEightOff",
+						"paidLeave",
+						"condolenceLeave",
+						"seasonalLeave",
+						"refreshLeave",
+						"familyCareLeave",
+						"specialLeave",
+						"nursingLeave",
+						"retirementAllowance",
+						"allowances",
+						"trainingSupport",
+						"healthCare",
+						"equityProgram",
+						"sideJob",
+						"socialInsurance",
+						"parentalRecord",
+						"shorterHours",
+						"companyHousing",
+					],
+				},
+			}),
+			config,
+		);
+		expect(result.total).toBe(1);
+	});
+
+	it("重視 signal を保有すると充足率が上がる（emphasis・AI 非再実行）", () => {
+		const job = jobWith({
+			benefitsCoverage: {
+				kind: "coverage",
+				present: 1,
+				total: 20,
+				signals: ["completeTwoDayWeekoff"],
+			},
+		});
+		const base = scoreJob(job, config).total;
+		const emphasized = scoreJob(job, {
+			items: {
+				benefitsCoverage: {
+					weight: 1,
+					kind: "coverage",
+					emphasis: ["completeTwoDayWeekoff"],
+				},
+			},
+		}).total;
+		expect(base).not.toBeNull();
+		expect(emphasized).not.toBeNull();
+		expect(emphasized as number).toBeGreaterThan(base as number);
+	});
 });
 
 describe("unknown 中立（§5.2）", () => {

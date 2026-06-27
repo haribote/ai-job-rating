@@ -90,11 +90,26 @@ describe("criteriaRowToItemConfig（1 行 → 項目設定）", () => {
 		expect(item).toEqual({ weight: 4, kind: "aiJudged" });
 	});
 
-	it("coverage（benefitsCoverage）は weight だけを取り込む（充足率は抽出値から算出・#102）", () => {
+	it("coverage（benefitsCoverage）は希望値なしなら weight だけを取り込む（充足率は抽出値から算出）", () => {
 		const item = criteriaRowToItemConfig(
 			row({ criterion: "benefitsCoverage", weight: 2, desired_value: null }),
 		);
 		expect(item).toEqual({ weight: 2, kind: "coverage" });
+	});
+
+	it("coverage は emphasis（重視 signal）を取り込む（#102）", () => {
+		const item = criteriaRowToItemConfig(
+			row({
+				criterion: "benefitsCoverage",
+				weight: 2,
+				desired_value: JSON.stringify({ emphasis: ["completeTwoDayWeekoff"] }),
+			}),
+		);
+		expect(item).toEqual({
+			weight: 2,
+			kind: "coverage",
+			emphasis: ["completeTwoDayWeekoff"],
+		});
 	});
 
 	it("正規キーでない criterion（番兵 __total__ 等）は null（評価対象外）", () => {

@@ -17,6 +17,10 @@ import {
 	type NormalizedJob,
 	type NormalizedKey,
 } from "../../shared/job-schema";
+import {
+	BENEFIT_SIGNAL_KEYS,
+	detectBenefitSignals,
+} from "../scoring/benefits-coverage";
 import type { AiRunner } from "./ai";
 
 // 抽出に使う既定モデル。要件 §7.1 候補のうち JSON Mode 対応かつ日本語実用域の Llama 3.3 を採用する。
@@ -288,9 +292,17 @@ function rawToFieldValue(
 	}
 
 	if (kind === "coverage") {
-		// benefitsCoverage の signal 抽出（canonical 閉集合・present/total）は #102 が実装する。
-		// #101 では unknown 中立として分母から除外する（§5.2）。生表記は監査用に保持。
-		return { kind: "unknown", raw: value };
+		// benefitsCoverage は canonical 閉集合に対する signal 検出で present/total を作る（設計書 §5.2・#102）。
+		// signals は決定的順（sort）で保存し、設定変更時に AI 非再実行で重視 signal 再採点できるようにする（§5.3）。
+		// 生表記があるのに該当 signal が 0 なら 0%（閉集合限定の充足率）。生表記が未記載なら上の isUnknownRaw で中立。
+		const signals = [...detectBenefitSignals(value)].sort();
+		return {
+			kind: "coverage",
+			present: signals.length,
+			total: BENEFIT_SIGNAL_KEYS.length,
+			signals,
+			raw: value,
+		};
 	}
 
 	// categorical: 主要キーは canonical トークンへ寄せ scoring の preferred と突合可能にする（§5.2）。
