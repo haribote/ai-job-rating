@@ -235,12 +235,12 @@ describe("categorical のサブスコア", () => {
 
 describe("aiJudged のサブスコア", () => {
 	const config: ScoringConfig = {
-		items: { requiredSkillsMatch: { weight: 1, kind: "aiJudged" } },
+		items: { skillMatch: { weight: 1, kind: "aiJudged" } },
 	};
 
 	it("score(0..100) を 0..1 に正規化する", () => {
 		const result = scoreJob(
-			jobWith({ requiredSkillsMatch: { kind: "aiJudged", score: 80 } }),
+			jobWith({ skillMatch: { kind: "aiJudged", score: 80 } }),
 			config,
 		);
 		expect(result.total).toBe(0.8);
@@ -248,15 +248,37 @@ describe("aiJudged のサブスコア", () => {
 
 	it("範囲外の score は 0..1 にクランプする", () => {
 		const over = scoreJob(
-			jobWith({ requiredSkillsMatch: { kind: "aiJudged", score: 150 } }),
+			jobWith({ skillMatch: { kind: "aiJudged", score: 150 } }),
 			config,
 		);
 		const under = scoreJob(
-			jobWith({ requiredSkillsMatch: { kind: "aiJudged", score: -10 } }),
+			jobWith({ skillMatch: { kind: "aiJudged", score: -10 } }),
 			config,
 		);
 		expect(over.total).toBe(1);
 		expect(under.total).toBe(0);
+	});
+});
+
+describe("coverage のサブスコア（benefitsCoverage 充足率）", () => {
+	const config: ScoringConfig = {
+		items: { benefitsCoverage: { weight: 1, kind: "coverage" } },
+	};
+
+	it("充足率 present/total を 0..1 で算出する", () => {
+		const result = scoreJob(
+			jobWith({ benefitsCoverage: { kind: "coverage", present: 3, total: 6 } }),
+			config,
+		);
+		expect(result.total).toBe(0.5);
+	});
+
+	it("total が 0 なら評価不能（unknown 中立で分母から除外）", () => {
+		const result = scoreJob(
+			jobWith({ benefitsCoverage: { kind: "coverage", present: 0, total: 0 } }),
+			config,
+		);
+		expect(result.total).toBeNull();
 	});
 });
 

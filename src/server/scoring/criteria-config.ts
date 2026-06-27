@@ -27,36 +27,26 @@ import type {
 export type NormalizedKeyKind =
 	| { readonly kind: "numericRange"; readonly direction: NumericDirection }
 	| { readonly kind: "categorical" }
-	| { readonly kind: "aiJudged" };
+	| { readonly kind: "aiJudged" }
+	| { readonly kind: "coverage" };
 
-// 正規キー → kind の対応。NormalizedKey の全キーを網羅する（型で担保）。
+// 正規キー → kind の対応。NormalizedKey の全キーを網羅する（型で担保）。5軸再カテゴリ化は #101。
 export const NORMALIZED_KEY_KINDS: Record<NormalizedKey, NormalizedKeyKind> = {
 	// 報酬: 高いほど良い。
 	annualSalary: { kind: "numericRange", direction: "higherBetter" },
-	monthlySalary: { kind: "numericRange", direction: "higherBetter" },
 	bonus: { kind: "numericRange", direction: "higherBetter" },
-	salaryRaise: { kind: "categorical" },
-	retirementAllowance: { kind: "categorical" },
-	// 働き方・WLB: 残業は低いほど良い、休日・有休消化は高いほど良い。
+	// 従業員への誠実さ: 残業は低いほど良い、年間休日は高いほど良い、福利厚生は充足率。
 	overtime: { kind: "numericRange", direction: "lowerBetter" },
 	annualHolidays: { kind: "numericRange", direction: "higherBetter" },
-	holidaySystem: { kind: "categorical" },
-	paidLeaveRate: { kind: "numericRange", direction: "higherBetter" },
+	benefitsCoverage: { kind: "coverage" },
+	// 柔軟な働き方。
 	remoteWork: { kind: "categorical" },
 	flexWork: { kind: "categorical" },
-	// 勤務条件。
-	workLocation: { kind: "categorical" },
-	employmentType: { kind: "categorical" },
-	employmentTerm: { kind: "categorical" },
-	// 仕事内容・スキル。スキル適合は AI 非依存の決定的突合（#68 が実値化）。
-	techStack: { kind: "categorical" },
-	requiredSkillsMatch: { kind: "aiJudged" },
-	preferredSkillsMatch: { kind: "aiJudged" },
-	businessDomain: { kind: "categorical" },
-	languageRequirement: { kind: "categorical" },
-	// 企業属性。
-	companySize: { kind: "categorical" },
-	companyPhase: { kind: "categorical" },
+	// 仕事・スキル。希望キーワードとの AI 非依存の決定的突合（aiJudged 機構を流用・#106 で keyword 化）。
+	skillMatch: { kind: "aiJudged" },
+	// 企業: 規模・資本金は高いほど良い。
+	companySize: { kind: "numericRange", direction: "higherBetter" },
+	capital: { kind: "numericRange", direction: "higherBetter" },
 };
 
 // ---------------------------------------------------------------------------
@@ -167,6 +157,9 @@ export function criteriaRowToItemConfig(
 		case "aiJudged":
 			// aiJudged は希望値を desired_value に持たない（突合は抽出側の score に集約、#68）。
 			return { weight: row.weight, kind: "aiJudged" };
+		case "coverage":
+			// coverage の充足率は抽出済みの present/total から算出する（signal 別重みは #102）。
+			return { weight: row.weight, kind: "coverage" };
 	}
 }
 

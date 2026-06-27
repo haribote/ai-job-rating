@@ -96,6 +96,11 @@ export function fieldMatches(
 	if (actual.kind === "aiJudged" && expected.kind === "aiJudged") {
 		return actual.score === expected.score;
 	}
+	if (actual.kind === "coverage" && expected.kind === "coverage") {
+		return (
+			actual.present === expected.present && actual.total === expected.total
+		);
+	}
 	return false;
 }
 
@@ -233,6 +238,18 @@ function parseFieldValue(value: unknown, ctx: string): NormalizedFieldValue {
 				);
 			}
 			return { kind: "aiJudged", score: obj.score, ...raw };
+		case "coverage":
+			if (typeof obj.present !== "number" || typeof obj.total !== "number") {
+				throw new Error(
+					`golden: ${ctx} の coverage は present/total(number) が必要です`,
+				);
+			}
+			return {
+				kind: "coverage",
+				present: obj.present,
+				total: obj.total,
+				...raw,
+			};
 		default:
 			throw new Error(`golden: ${ctx} の kind が不正です: ${String(kind)}`);
 	}

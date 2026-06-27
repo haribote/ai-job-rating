@@ -56,14 +56,13 @@ describe("buildExtractionJsonSchema", () => {
 	});
 
 	// #88: 構造的に誤りやすいキーは「何を抜き出すか」を description で明示し曖昧さを潰す。
-	it("構造的に誤りやすい5キーに description を持たせる", () => {
+	it("曖昧になりやすいキーに description を持たせる（skillMatch/benefitsCoverage/annualHolidays/capital）", () => {
 		const schema = buildExtractionJsonSchema();
 		const keysNeedingGuidance: NormalizedKey[] = [
-			"companyPhase",
-			"workLocation",
-			"techStack",
-			"holidaySystem",
-			"businessDomain",
+			"skillMatch",
+			"benefitsCoverage",
+			"annualHolidays",
+			"capital",
 		];
 		for (const key of keysNeedingGuidance) {
 			const prop = schema.properties[key];
@@ -72,10 +71,10 @@ describe("buildExtractionJsonSchema", () => {
 		}
 	});
 
-	it("techStack の description は原文厳守（要約/翻訳しない）を含意する", () => {
+	it("skillMatch の description は原文厳守（要約/翻訳しない）を含意する", () => {
 		// 文言の完全一致ではなく、要約禁止の方針が読み取れるキーワードを含むことだけ固定する。
 		const schema = buildExtractionJsonSchema();
-		expect(schema.properties.techStack.description).toContain("原文");
+		expect(schema.properties.skillMatch.description).toContain("原文");
 	});
 });
 
@@ -210,13 +209,20 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	it("円表記の月給を万円へ正規化する（30万円→30）", () => {
-		const job = rawFieldsToNormalizedJob({ monthlySalary: "300,000円" });
-		expect(job.monthlySalary.kind).toBe("numericRange");
-		if (job.monthlySalary.kind === "numericRange") {
-			expect(job.monthlySalary.min).toBe(30);
-			expect(job.monthlySalary.max).toBe(30);
+	// #101: 賞与も通貨項目。年収と同じく円→万円へ正規化し単位を揃える。
+	it("円表記の賞与を万円へ正規化する（600,000円→60）", () => {
+		const job = rawFieldsToNormalizedJob({ bonus: "600,000円" });
+		expect(job.bonus.kind).toBe("numericRange");
+		if (job.bonus.kind === "numericRange") {
+			expect(job.bonus.min).toBe(60);
+			expect(job.bonus.max).toBe(60);
 		}
+	});
+
+	it("通貨単位を伴わない賞与表記（年2回）は unknown 中立にする", () => {
+		// なぜ: 「年2回」の 2 は金額ではない。通貨単位の無い裸数値を金額と誤認しない。
+		const job = rawFieldsToNormalizedJob({ bonus: "年2回" });
+		expect(isUnknown(job.bonus)).toBe(true);
 	});
 
 	it("非通貨の numericRange は単位換算しない（年間休日 122日→122）", () => {
@@ -334,17 +340,6 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	it("月給のノイズ数値（賞与年2回の2）を salary レンジに拾わない", () => {
-		const job = rawFieldsToNormalizedJob({
-			monthlySalary: "月給28万円〜35万円 + 賞与年2回",
-		});
-		expect(job.monthlySalary.kind).toBe("numericRange");
-		if (job.monthlySalary.kind === "numericRange") {
-			expect(job.monthlySalary.min).toBe(28);
-			expect(job.monthlySalary.max).toBe(35);
-		}
-	});
-
 	it("単数の万円表記はそのまま 1 値で持つ（700万→[700]）", () => {
 		const job = rawFieldsToNormalizedJob({ annualSalary: "700万" });
 		expect(job.annualSalary.kind).toBe("numericRange");
@@ -354,16 +349,25 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	// 修正3: aiJudged キーは Phase 0 では unknown 中立（スコア分母から除外）。
-	it("aiJudged キー（必須/歓迎要件）は値があっても unknown 中立にする", () => {
+	// skillMatch は求人スキル集合を categorical として保持する（突合は採点側・#106）。
+	it("skillMatch は値を categorical（求人スキル集合）として保持する", () => {
 		const job = rawFieldsToNormalizedJob({
-			requiredSkillsMatch: "TypeScript / 3年以上の実務経験",
-			preferredSkillsMatch: "AWS",
+			skillMatch: "TypeScript / 3年以上の実務経験",
 		});
-		expect(isUnknown(job.requiredSkillsMatch)).toBe(true);
-		expect(isUnknown(job.preferredSkillsMatch)).toBe(true);
+		expect(job.skillMatch.kind).toBe("categorical");
 		// 監査用に生表記は保持する
-		expect(job.requiredSkillsMatch.raw).toBe("TypeScript / 3年以上の実務経験");
+		expect(job.skillMatch.raw).toBe("TypeScript / 3年以上の実務経験");
+	});
+
+	// benefitsCoverage の signal 抽出は #102。#101 では unknown 中立に畳む（生表記は保持）。
+	it("benefitsCoverage は #101 では unknown 中立にする（signal 抽出は #102）", () => {
+		const job = rawFieldsToNormalizedJob({
+			benefitsCoverage: "完全週休2日制 / 退職金制度 / 住宅手当",
+		});
+		expect(isUnknown(job.benefitsCoverage)).toBe(true);
+		expect(job.benefitsCoverage.raw).toBe(
+			"完全週休2日制 / 退職金制度 / 住宅手当",
+		);
 	});
 
 	it("canonical 化しても生表記は raw に保持する（監査・UI 用）", () => {
@@ -379,79 +383,10 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	// #88: 休日制度は決定的に canonical 化し LLM 依存を減らす（DoD「非 LLM へ寄せる」）。
-	it("休日制度を canonical へ寄せる（完全週休2日/週休2日/シフト/4週8休）", () => {
-		const cases: ReadonlyArray<readonly [string, string]> = [
-			["完全週休2日制", "fullTwoDayWeekoff"],
-			["週休2日制", "twoDayWeekoff"],
-			["シフト制", "shift"],
-			["交代制", "shift"],
-			["4週8休", "fourWeekEightOff"],
-		];
-		for (const [raw, expected] of cases) {
-			const job = rawFieldsToNormalizedJob({ holidaySystem: raw });
-			expect(job.holidaySystem.kind).toBe("categorical");
-			if (job.holidaySystem.kind === "categorical") {
-				expect(job.holidaySystem.categories).toEqual([expected]);
-			}
-		}
-	});
-
-	it("「完全週休2日」を「週休2日」より優先する（登録順の先勝ち罠）", () => {
-		// なぜ: 部分一致先勝ちのため「完全週休2日」を先に置かないと twoDayWeekoff に化ける。
-		const job = rawFieldsToNormalizedJob({
-			holidaySystem: "完全週休2日制（土日祝）",
-		});
-		if (job.holidaySystem.kind === "categorical") {
-			expect(job.holidaySystem.categories).toEqual(["fullTwoDayWeekoff"]);
-		}
-	});
-
-	it("年間休日数（日数）は holidaySystem では canonical 化しない（annualHolidays の責務）", () => {
-		// なぜ: 「年間休日120日」は制度名ではなく日数。誤って制度トークン化せず生表記を残す。
-		const job = rawFieldsToNormalizedJob({ holidaySystem: "年間休日120日" });
-		if (job.holidaySystem.kind === "categorical") {
-			expect(job.holidaySystem.categories).toEqual(["年間休日120日"]);
-		}
-	});
-
-	// #88: companyPhase は「上場区分」に確定し決定的に canonical 化する。
-	it("上場区分を canonical へ寄せる（listed/preIpo/private）", () => {
-		const cases: ReadonlyArray<readonly [string, string]> = [
-			["上場企業", "listed"],
-			["東証プライム", "listed"],
-			["東証グロース", "listed"],
-			["上場準備中", "preIpo"],
-			["IPO準備中", "preIpo"],
-			["未上場", "private"],
-			["非上場", "private"],
-		];
-		for (const [raw, expected] of cases) {
-			const job = rawFieldsToNormalizedJob({ companyPhase: raw });
-			expect(job.companyPhase.kind).toBe("categorical");
-			if (job.companyPhase.kind === "categorical") {
-				expect(job.companyPhase.categories).toEqual([expected]);
-			}
-		}
-	});
-
-	it("「未上場/非上場」を「上場」より優先する（登録順の先勝ち罠）", () => {
-		// なぜ: 「上場」は「未上場」の部分文字列。private を先に置かないと listed に化ける。
-		for (const raw of ["未上場", "非上場"]) {
-			const job = rawFieldsToNormalizedJob({ companyPhase: raw });
-			if (job.companyPhase.kind === "categorical") {
-				expect(job.companyPhase.categories).toEqual(["private"]);
-			}
-		}
-	});
-
-	// #88: 開集合キー（地名・技術列挙・事業説明）は canonical 化せず生表記を 1 カテゴリ保持する。
-	// canonical 化しない仕様をテストで固定し、将来の安易なルール追加・分割を防ぐ（情報を捨てない）。
-	it("開集合キー（workLocation/techStack/businessDomain）は生表記を 1 カテゴリ保持する", () => {
+	// 開集合キー（skillMatch）は canonical 化せず生表記を 1 カテゴリ保持する（情報を捨てない）。
+	it("開集合キー（skillMatch）は生表記を 1 カテゴリ保持する", () => {
 		const cases: ReadonlyArray<readonly [NormalizedKey, string]> = [
-			["workLocation", "東京都港区（リモート可）"],
-			["techStack", "TypeScript, React, Go, AWS"],
-			["businessDomain", "BtoB SaaS（人事領域）"],
+			["skillMatch", "TypeScript, React, Go, AWS"],
 		];
 		for (const [key, raw] of cases) {
 			const job = rawFieldsToNormalizedJob({ [key]: raw });
@@ -674,25 +609,21 @@ describe("正規化統合（抽出→スコアリング）", () => {
 		expect(row?.score).toBe(1);
 	});
 
-	// 修正3: aiJudged キーは unknown 中立として分母から除外され total を引き下げない（§5.2）。
-	it("aiJudged キーに値があっても total を引き下げない（分母除外）", () => {
+	// skillMatch は突合（rescore-core）を通さない scoreJob 単体では中立で total を引き下げない（§5.2）。
+	it("skillMatch に値があっても scoreJob 単体では total を引き下げない（突合は採点側）", () => {
 		const withSkills = rawFieldsToNormalizedJob({
 			annualSalary: "700万",
-			requiredSkillsMatch: "TypeScript 3年",
-			preferredSkillsMatch: "AWS",
+			skillMatch: "TypeScript 3年 / AWS",
 		});
 		const withoutSkills = rawFieldsToNormalizedJob({ annualSalary: "700万" });
 		const a = scoreJob(withSkills, DEFAULT_SCORING_CONFIG);
 		const b = scoreJob(withoutSkills, DEFAULT_SCORING_CONFIG);
-		// 必須/歓迎要件の有無で total が変わらない（中立＝分母除外）。
+		// skillMatch の有無で total が変わらない（突合は rescore-core の責務・ここでは中立）。
 		expect(a.total).toBe(b.total);
-		// breakdown 上も included=false（分母から外れている）。
-		expect(
-			a.breakdown.find((r) => r.key === "requiredSkillsMatch")?.included,
-		).toBe(false);
-		expect(
-			a.breakdown.find((r) => r.key === "preferredSkillsMatch")?.included,
-		).toBe(false);
+		// breakdown 上も included=false（categorical 値は aiJudged config では中立）。
+		expect(a.breakdown.find((r) => r.key === "skillMatch")?.included).toBe(
+			false,
+		);
 	});
 
 	// 修正2: 年収内のノイズ数値が min を汚染しサブスコアを破壊しないこと（決定性回帰）。

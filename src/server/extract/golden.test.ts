@@ -195,14 +195,11 @@ describe("runGolden", () => {
 		// 入力 HTML・期待値ともに合成のサニタイズ済みデータ（PII を含まない）。
 		const sanitized: GoldenCase = {
 			name: "sanitized-sample",
-			html: "<article>年収 700万〜900万 / フルリモート / 完全週休2日制</article>",
+			html: "<article>年収 700万〜900万 / フルリモート / 年間休日125日</article>",
 			expected: {
 				annualSalary: { kind: "numericRange", min: 700, max: 900 },
 				remoteWork: { kind: "categorical", categories: ["full"] },
-				holidaySystem: {
-					kind: "categorical",
-					categories: ["fullTwoDayWeekoff"],
-				},
+				annualHolidays: { kind: "numericRange", min: 125, max: 125 },
 			},
 		};
 		// 全項目を正しく抽出できた体の fake 抽出器

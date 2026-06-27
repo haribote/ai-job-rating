@@ -83,11 +83,18 @@ describe("criteriaRowToItemConfig（1 行 → 項目設定）", () => {
 		});
 	});
 
-	it("aiJudged は希望値を持たず weight だけを取り込む（#68 拡張点）", () => {
+	it("aiJudged（skillMatch）は希望値を持たず weight だけを取り込む（#68 拡張点）", () => {
 		const item = criteriaRowToItemConfig(
-			row({ criterion: "requiredSkillsMatch", weight: 4, desired_value: null }),
+			row({ criterion: "skillMatch", weight: 4, desired_value: null }),
 		);
 		expect(item).toEqual({ weight: 4, kind: "aiJudged" });
+	});
+
+	it("coverage（benefitsCoverage）は weight だけを取り込む（充足率は抽出値から算出・#102）", () => {
+		const item = criteriaRowToItemConfig(
+			row({ criterion: "benefitsCoverage", weight: 2, desired_value: null }),
+		);
+		expect(item).toEqual({ weight: 2, kind: "coverage" });
 	});
 
 	it("正規キーでない criterion（番兵 __total__ 等）は null（評価対象外）", () => {
@@ -172,21 +179,14 @@ describe("buildScoringConfig（行群 → 設定）", () => {
 });
 
 describe("buildDesiredSkills（aiJudged の希望スキル集合・#68 拡張点）", () => {
-	it("aiJudged 行の desired_value({skills}) を正規キーごとの希望集合へ展開する", () => {
+	it("aiJudged（skillMatch）行の desired_value({skills}) を希望集合へ展開する", () => {
 		const map = buildDesiredSkills([
 			row({
-				criterion: "requiredSkillsMatch",
+				criterion: "skillMatch",
 				desired_value: JSON.stringify({ skills: ["go", "ts"] }),
 			}),
-			row({
-				criterion: "preferredSkillsMatch",
-				desired_value: JSON.stringify({ skills: ["rust"] }),
-			}),
 		]);
-		expect(map).toEqual({
-			requiredSkillsMatch: ["go", "ts"],
-			preferredSkillsMatch: ["rust"],
-		});
+		expect(map).toEqual({ skillMatch: ["go", "ts"] });
 	});
 
 	it("aiJudged でないキー・壊れた JSON・skills 不在の行は希望集合を持たない", () => {
@@ -197,25 +197,19 @@ describe("buildDesiredSkills（aiJudged の希望スキル集合・#68 拡張点
 				desired_value: JSON.stringify({ skills: ["x"] }),
 			}),
 			// 壊れた JSON
-			row({ criterion: "requiredSkillsMatch", desired_value: "{broken" }),
-			// skills 不在
-			row({
-				criterion: "preferredSkillsMatch",
-				desired_value: JSON.stringify({ preferred: ["x"] }),
-			}),
+			row({ criterion: "skillMatch", desired_value: "{broken" }),
 		]);
 		expect(map).toEqual({});
 	});
 
-	it("skills が空配列の行は空集合として持つ（required の意味差を保つ）", () => {
-		// required は希望空でも「必須未充足=0.0」を出すため、空集合と未設定を区別する。
+	it("skills が空配列の行は空集合として持つ（未設定と区別する）", () => {
 		const map = buildDesiredSkills([
 			row({
-				criterion: "requiredSkillsMatch",
+				criterion: "skillMatch",
 				desired_value: JSON.stringify({ skills: [] }),
 			}),
 		]);
-		expect(map).toEqual({ requiredSkillsMatch: [] });
+		expect(map).toEqual({ skillMatch: [] });
 	});
 });
 

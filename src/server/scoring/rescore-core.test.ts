@@ -111,36 +111,36 @@ describe("passesHardFilters（required / exclude）", () => {
 
 	it("exclude: 該当すれば除外する", () => {
 		const job = jobWith({
-			employmentType: { kind: "categorical", categories: ["contract"] },
+			flexWork: { kind: "categorical", categories: ["discretionary"] },
 		});
 		const config: ScoringConfig = {
 			items: {
-				employmentType: {
+				flexWork: {
 					weight: 1,
 					kind: "categorical",
-					preferred: ["contract"],
+					preferred: ["discretionary"],
 				},
 			},
 		};
-		expect(
-			passesHardFilters(job, config, { employmentType: "exclude" }).passed,
-		).toBe(false);
+		expect(passesHardFilters(job, config, { flexWork: "exclude" }).passed).toBe(
+			false,
+		);
 	});
 
 	it("exclude: unknown は除外しない（判定不能は中立）", () => {
 		const job = jobWith({});
 		const config: ScoringConfig = {
 			items: {
-				employmentType: {
+				flexWork: {
 					weight: 1,
 					kind: "categorical",
-					preferred: ["contract"],
+					preferred: ["discretionary"],
 				},
 			},
 		};
-		expect(
-			passesHardFilters(job, config, { employmentType: "exclude" }).passed,
-		).toBe(true);
+		expect(passesHardFilters(job, config, { flexWork: "exclude" }).passed).toBe(
+			true,
+		);
 	});
 
 	it("required: numericRange は希望を満たすかで判定する", () => {
@@ -216,23 +216,23 @@ describe("rescoreJob（1 件再スコアリング・決定的・AI 非依存）"
 		expect(r.score.total).toBe(1);
 	});
 
-	describe("aiJudged 拡張点（#68 協調）", () => {
+	describe("aiJudged 拡張点（#68 協調・統合 skillMatch）", () => {
 		const skillConfig: ScoringConfig = {
-			items: { requiredSkillsMatch: { weight: 1, kind: "aiJudged" } },
+			items: { skillMatch: { weight: 1, kind: "aiJudged" } },
 		};
 
 		it("matcher 未指定なら aiJudged は unknown 中立のまま（分母から除外）", () => {
 			const job = jobWith({
-				requiredSkillsMatch: { kind: "unknown" },
+				skillMatch: { kind: "unknown" },
 			});
 			const r = rescoreJob("j1", job, "ok", skillConfig, {}, {});
 			expect(r.score.total).toBeNull();
 		});
 
 		it("matcher を差すと求人スキル×希望集合の突合結果を 0..1 で加重に組込む", () => {
-			// 求人スキルは techStack ではなく当該キーの categorical に載る想定（拡張点の取得元）
+			// 求人スキルは当該キーの categorical に載る想定（拡張点の取得元）
 			const job = jobWith({
-				requiredSkillsMatch: { kind: "categorical", categories: ["go", "ts"] },
+				skillMatch: { kind: "categorical", categories: ["go", "ts"] },
 			});
 			// 希望集合 [go] と求人 [go, ts] の一致割合 0.5 を返す決定的 matcher
 			const matcher: SkillMatcher = ({ desired, jobSkills }) => {
@@ -246,7 +246,7 @@ describe("rescoreJob（1 件再スコアリング・決定的・AI 非依存）"
 				"ok",
 				skillConfig,
 				{},
-				{ requiredSkillsMatch: ["go"] },
+				{ skillMatch: ["go"] },
 				{ skillMatcher: matcher },
 			);
 			expect(r.score.total).toBe(0.5);
@@ -254,7 +254,7 @@ describe("rescoreJob（1 件再スコアリング・決定的・AI 非依存）"
 
 		it("matcher が突合不能(null)を返すと unknown 中立のまま", () => {
 			const job = jobWith({
-				requiredSkillsMatch: { kind: "categorical", categories: [] },
+				skillMatch: { kind: "categorical", categories: [] },
 			});
 			const matcher: SkillMatcher = ({ jobSkills }) =>
 				jobSkills.length === 0 ? null : 1;
