@@ -209,5 +209,6 @@ function toView(entry: {
 		entry.rescored,
 		entry.material.sourceUrl,
 		entry.material.job,
+		entry.material.status,
 	);
 }

@@ -1,11 +1,23 @@
 import { Hono } from "hono";
-import { criteriaForm } from "./criteria-form";
+import {
+	type CriteriaConfigInput,
+	inputsToConfigRows,
+	readConfigItems,
+	saveConfigAndRescore,
+} from "./config";
 import { runAiHealthCheck } from "./extract/ai";
-import { pasteInput } from "./paste-input";
+import {
+	type IngestUrlResult,
+	ingestFromHtml,
+	ingestFromUrl,
+	readJobDetail,
+	reextractJob,
+	validateJobUrl,
+	validatePastedHtml,
+} from "./jobs";
 import type { DetailJobMessage } from "./queue/detail-queue";
-import { renderRankingPage } from "./ranking-list";
+import { toRankingItem } from "./ranking-list";
 import { readRanking } from "./scoring/ranking";
-import { urlInput } from "./url-input";
 
 // Worker の env バインディング型。後続フェーズ（D1 / R2 / KV）でここに追記する
 export interface Bindings {
@@ -24,36 +36,141 @@ export interface Bindings {
 	RAW_HTML: R2Bucket;
 }
 
-// アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）
+// アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）。
+// SSR HTML を撤去し、すべて /api/* の JSON エンドポイントへ再編した（#95 Task 2）。
+// HTML を返す経路は静的資産フォールスルー（c.env.ASSETS）のみで、API は JSON 契約に固定する。
 const app = new Hono<{ Bindings: Bindings }>();
 
-// 死活監視の契約。固定形式を返し、ユニットテストで担保する
-app.get("/health", (c) => c.json({ status: "ok" }));
+// 取得失敗の種別 → HTTP ステータス。上流取得の失敗は 502（Bad Gateway）へ集約する。
+const FETCH_ERROR_STATUS = 502;
+
+// 死活監視の契約。固定形式を返し、ユニットテストで担保する。
+app.get("/api/health", (c) => c.json({ status: "ok" }));
 
 // Workers AI binding の疎通確認（§7.1）。最小推論を投げて到達性を返す。
-// 整形・分岐は runAiHealthCheck に集約し fake でテストする。live 推論は手動検証。
-app.get("/ai-health", async (c) => {
+app.get("/api/ai-health", async (c) => {
 	const result = await runAiHealthCheck(c.env.AI);
 	return c.json(result, result.ok ? 200 : 503);
 });
 
-// 求人 URL 入力の受け口（GET /fetch・POST /fetch）。SSR 取得の主経路（roadmap Phase 0）。
-// HTML 貼り付けフォールバックの入力受け口（GET /paste・POST /paste）。
-// 評価条件の設定 UI の受け口（GET /config・POST /config）。保存で即再ランキング（#19→#20）。
-// いずれも静的資産フォールスルー（app.get("*")）より前に評価させる。
-app.route("/", urlInput);
-app.route("/", pasteInput);
-app.route("/", criteriaForm);
+// 求人投入。body は { url } または { html }（貼り付けフォールバック）。
+// detail/paste は取込→永続化して 201 { jobId, status }、一覧 URL はキュー投入して 202 { status, count }。
+// 検証失敗は 400、上流取得失敗は 502。AI を呼ぶ前に空入力・不正 URL・サイズ超過を弾く（コスト保護）。
+app.post("/api/jobs", async (c) => {
+	let body: { url?: unknown; html?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ error: "invalid json body", reason: "body" }, 400);
+	}
 
-// ランキング一覧（#18）。永続 scores を読み、スコア順一覧＋項目別内訳を SSR で返す。
-// 読み出し・順序付けは ranking.ts（rankJobs に委譲・決定的）、描画は ranking-list.ts に分離。
-// AI 抽出も再スコアリングも実行しない（§5.3 抽出とスコアリングの分離）。
-app.get("/ranking", async (c) => {
-	const { ranked, excluded } = await readRanking(c.env.DB);
-	return c.html(renderRankingPage(ranked, excluded));
+	const hasUrl = typeof body.url === "string";
+	const hasHtml = typeof body.html === "string";
+	// url と html は排他。両方・どちらも無いは入力エラー。
+	if (hasUrl === hasHtml) {
+		return c.json(
+			{ error: "provide exactly one of url or html", reason: "body" },
+			400,
+		);
+	}
+
+	if (hasUrl) {
+		const validated = validateJobUrl(body.url as string);
+		if (!validated.ok) {
+			return c.json({ error: "invalid url", reason: validated.reason }, 400);
+		}
+		const result: IngestUrlResult = await ingestFromUrl(
+			{
+				ai: c.env.AI,
+				db: c.env.DB,
+				bucket: c.env.RAW_HTML,
+				queue: c.env.JOB_QUEUE,
+			},
+			validated.url,
+		);
+		if (result.kind === "fetch-error") {
+			return c.json(
+				{ error: "failed to fetch url", reason: result.reason },
+				FETCH_ERROR_STATUS,
+			);
+		}
+		if (result.kind === "list") {
+			return c.json({ status: "queued", count: result.count }, 202);
+		}
+		return c.json({ jobId: result.jobId, status: result.status }, 201);
+	}
+
+	const validated = validatePastedHtml(body.html as string);
+	if (!validated.ok) {
+		// 空入力は 400、上限超過は 413 と意味的に分けて返す。
+		const status = validated.reason === "too-large" ? 413 : 400;
+		return c.json({ error: "invalid html", reason: validated.reason }, status);
+	}
+	const ingested = await ingestFromHtml(
+		{ ai: c.env.AI, db: c.env.DB, bucket: c.env.RAW_HTML },
+		validated.html,
+	);
+	return c.json({ jobId: ingested.jobId, status: ingested.status }, 201);
 });
 
-// SSR ルートに該当しない GET は静的資産へフォールスルーする
+// 求人詳細。jobs メタ・最新抽出・スコア内訳（フラット）を返す。未存在は 404。
+// AI も再スコアリングも実行しない（保存済み scores/extractions を読むだけ・§5.3）。
+app.get("/api/jobs/:id", async (c) => {
+	const detail = await readJobDetail(c.env.DB, c.req.param("id"));
+	if (detail === null) return c.json({ error: "job not found" }, 404);
+	return c.json(detail, 200);
+});
+
+// 再抽出。保存済みの生 HTML(R2) から AI 抽出を意図的に再実行し、同一 job へ取込し直す。
+// 設定変更の再スコア（PUT /api/config・AI 非再実行）とは別軸の明示操作。未存在/生 HTML 不在は 404。
+app.post("/api/jobs/:id/reextract", async (c) => {
+	const result = await reextractJob(
+		{ ai: c.env.AI, db: c.env.DB, bucket: c.env.RAW_HTML },
+		c.req.param("id"),
+	);
+	if (result === null)
+		return c.json({ error: "job or raw html not found" }, 404);
+	return c.json({ status: result.status }, 202);
+});
+
+// ランキング一覧。永続 scores をスコア順に読み、軽量な一覧行＋除外行を返す（決定的・AI 非依存・§5.3）。
+app.get("/api/ranking", async (c) => {
+	const { ranked, excluded } = await readRanking(c.env.DB);
+	return c.json({
+		jobs: ranked.map(toRankingItem),
+		excluded: excluded.map(toRankingItem),
+	});
+});
+
+// 設定取得。全正規キーぶんの現行設定（重み・希望値・ハードフィルタ・kind）を返す。
+app.get("/api/config", async (c) => {
+	const items = await readConfigItems(c.env.DB);
+	return c.json({ items });
+});
+
+// 設定更新。body は { items: CriteriaConfigInput[] }。保存後に全 job を即再スコア（AI 非再実行・§5.3）。
+// 不正入力は保存・再スコアの前に 400 で弾く（コスト保護・決定性）。
+app.put("/api/config", async (c) => {
+	let body: { items?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ error: "invalid json body", reason: "body" }, 400);
+	}
+	if (!Array.isArray(body.items)) {
+		return c.json({ error: "items must be an array", reason: "body" }, 400);
+	}
+
+	const parsed = inputsToConfigRows(body.items as CriteriaConfigInput[]);
+	if (!parsed.ok) {
+		return c.json({ error: "invalid config", reason: parsed.reason }, 400);
+	}
+
+	const count = await saveConfigAndRescore(c.env.DB, parsed.rows);
+	return c.json({ status: "rescored", count }, 200);
+});
+
+// API ルートに該当しない GET は静的資産（SPA）へフォールスルーする。
 app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
 export default app;

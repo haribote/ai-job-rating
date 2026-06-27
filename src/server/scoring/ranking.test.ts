@@ -188,8 +188,8 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 	});
 });
 
-describe("GET /ranking（スコア順一覧の SSR ルート）", () => {
-	it("scores を読みスコア順一覧ページを 200 で返す", async () => {
+describe("GET /api/ranking（スコア順一覧の JSON ルート）", () => {
+	it("scores を読みスコア順の一覧行を JSON で返す", async () => {
 		await seed(
 			"j1",
 			jobWith({
@@ -204,19 +204,21 @@ describe("GET /ranking（スコア順一覧の SSR ルート）", () => {
 		await setCriterion("annualSalary", 5, { desired: 800, floor: 300 });
 		await rescoreAll(env.DB);
 
-		const res = await app.request("/ranking", {}, env);
+		const res = await app.request("/api/ranking", {}, env);
 		expect(res.status).toBe(200);
-		const body = await res.text();
-		expect(body).toContain("求人ランキング");
-		expect(body).toContain("年収"); // 項目別内訳の日本語ラベル
-		expect(body).toContain("900万"); // raw 値
-		expect(body).toContain('<link rel="stylesheet" href="/styles.css" />');
+		expect(res.headers.get("content-type")).toContain("application/json");
+		const body = (await res.json()) as {
+			jobs: { jobId: string; total: number | null; status: string }[];
+		};
+		expect(body.jobs[0]).toMatchObject({ jobId: "j1", status: "ok" });
+		expect(body.jobs[0]?.total).toBe(1);
 	});
 
-	it("求人が無いときは空状態メッセージを返す", async () => {
-		const res = await app.request("/ranking", {}, env);
+	it("求人が無いときは空配列を返す", async () => {
+		const res = await app.request("/api/ranking", {}, env);
 		expect(res.status).toBe(200);
-		const body = await res.text();
-		expect(body).toContain("求人がありません");
+		const body = (await res.json()) as { jobs: unknown[]; excluded: unknown[] };
+		expect(body.jobs).toEqual([]);
+		expect(body.excluded).toEqual([]);
 	});
 });
