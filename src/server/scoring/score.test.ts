@@ -292,6 +292,16 @@ describe("categorical の tier 採点（フルリモート別格・#104）", () 
 		);
 		expect(result.total).toBe(0.5);
 	});
+
+	it("プロトタイプ継承キーに一致する生表記でも NaN 化せず 0.0（own のみ参照）", () => {
+		const result = scoreJob(
+			jobWith({
+				remoteWork: { kind: "categorical", categories: ["constructor"] },
+			}),
+			config,
+		);
+		expect(result.total).toBe(0);
+	});
 });
 
 describe("aiJudged のサブスコア", () => {

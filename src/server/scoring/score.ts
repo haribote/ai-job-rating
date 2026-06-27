@@ -145,7 +145,12 @@ function scoreCategorical(
 	if (value.categories.length === 0) return null;
 	if (config.tierScores !== undefined) {
 		const tiers = config.tierScores;
-		const sum = value.categories.reduce((acc, c) => acc + (tiers[c] ?? 0), 0);
+		// own プロパティのみ参照する。canonical 外の生表記が "constructor"/"toString" 等の
+		// プロトタイプ継承キーに一致しても関数値を拾って NaN 化させない（決定的・0 として扱う）。
+		const sum = value.categories.reduce(
+			(acc, c) => acc + (Object.hasOwn(tiers, c) ? tiers[c] : 0),
+			0,
+		);
 		return clamp01(sum / value.categories.length);
 	}
 	const preferred = new Set(config.preferred);
