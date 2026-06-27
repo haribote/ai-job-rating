@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * shadcn の意味カラー（:root の CSS 変数）は design-tokens.ts から tailwind.config.ts の
+ * base プラグイン経由で注入される（ここに値を直書きしない＝単一ソース性, #97）。
+ */
+@layer base {
+	* {
+		@apply border-border;
+	}
+
+	body {
+		@apply bg-background text-foreground font-sans antialiased;
+	}
+}

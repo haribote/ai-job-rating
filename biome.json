@@ -10,7 +10,7 @@
 		"includes": [
 			"**",
 			"!worker-configuration.d.ts",
-			"!public/styles.css",
+			"!src/client/styles/globals.css",
 			"!**/dist",
 			"!**/node_modules",
 			"!.claude"
