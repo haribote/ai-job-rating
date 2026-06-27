@@ -81,6 +81,24 @@ describe("inputsToConfigRows", () => {
 		});
 	});
 
+	it("coverage は emphasis（重視 signal）を trim/空除去して JSON 化する（#102）", () => {
+		const r = inputsToConfigRows([
+			{
+				criterion: "benefitsCoverage",
+				weight: 2,
+				hardFilter: "none",
+				desired: {
+					emphasis: [" completeTwoDayWeekoff ", "retirementAllowance", ""],
+				},
+			},
+		]);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(JSON.parse(r.rows[0].desired_value ?? "null")).toEqual({
+			emphasis: ["completeTwoDayWeekoff", "retirementAllowance"],
+		});
+	});
+
 	it("希望値なしは desired_value=null（中立・評価不能）", () => {
 		const r = inputsToConfigRows([
 			{ criterion: "annualSalary", weight: 5, hardFilter: "none" },

@@ -359,15 +359,42 @@ describe("rawFieldsToNormalizedJob", () => {
 		expect(job.skillMatch.raw).toBe("TypeScript / 3年以上の実務経験");
 	});
 
-	// benefitsCoverage の signal 抽出は #102。#101 では unknown 中立に畳む（生表記は保持）。
-	it("benefitsCoverage は #101 では unknown 中立にする（signal 抽出は #102）", () => {
+	// benefitsCoverage は canonical 閉集合の signal を検出し coverage 値へ寄せる（#102）。
+	it("benefitsCoverage は signal を検出し present/total/signals を持つ coverage 値にする", () => {
 		const job = rawFieldsToNormalizedJob({
 			benefitsCoverage: "完全週休2日制 / 退職金制度 / 住宅手当",
 		});
-		expect(isUnknown(job.benefitsCoverage)).toBe(true);
+		expect(job.benefitsCoverage.kind).toBe("coverage");
+		if (job.benefitsCoverage.kind !== "coverage") return;
+		// 完全週休2日制は完全版＋週休2日制の双方が立つ → 退職金・住宅手当 と合わせ 4 signal。
+		expect(job.benefitsCoverage.signals).toEqual([
+			"allowances",
+			"completeTwoDayWeekoff",
+			"retirementAllowance",
+			"twoDayWeekoff",
+		]);
+		expect(job.benefitsCoverage.present).toBe(4);
+		expect(job.benefitsCoverage.total).toBeGreaterThan(0);
+		// 生表記は監査用に保持する
 		expect(job.benefitsCoverage.raw).toBe(
 			"完全週休2日制 / 退職金制度 / 住宅手当",
 		);
+	});
+
+	// 生表記があるのに閉集合の signal が 0 件なら 0%（unknown 中立ではない・閉集合限定の充足率）。
+	it("benefitsCoverage は閉集合外の記載のみなら present=0 の coverage にする", () => {
+		const job = rawFieldsToNormalizedJob({
+			benefitsCoverage: "社内にカフェあり",
+		});
+		expect(job.benefitsCoverage.kind).toBe("coverage");
+		if (job.benefitsCoverage.kind !== "coverage") return;
+		expect(job.benefitsCoverage.present).toBe(0);
+	});
+
+	// 未記載（"-"）は coverage 化せず unknown 中立に畳む（分母から外す・§5.2）。
+	it("benefitsCoverage は未記載なら unknown 中立にする", () => {
+		const job = rawFieldsToNormalizedJob({ benefitsCoverage: "-" });
+		expect(isUnknown(job.benefitsCoverage)).toBe(true);
 	});
 
 	it("canonical 化しても生表記は raw に保持する（監査・UI 用）", () => {

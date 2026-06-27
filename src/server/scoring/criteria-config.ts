@@ -73,6 +73,12 @@ interface SkillsDesiredValue {
 	readonly skills: readonly string[];
 }
 
+// coverage の desired_value: 重視する benefitsCoverage signal 集合（#102）。
+// 例: 福利厚生充足率 → { "emphasis": ["completeTwoDayWeekoff", "retirementAllowance"] }。
+interface CoverageDesiredValue {
+	readonly emphasis: readonly string[];
+}
+
 // 型ガード（決定的・実行時検証）。不正な JSON は評価不能として扱えるよう false を返す。
 function isNumericDesiredValue(v: unknown): v is NumericDesiredValue {
 	if (typeof v !== "object" || v === null) return false;
@@ -94,6 +100,14 @@ function isSkillsDesiredValue(v: unknown): v is SkillsDesiredValue {
 	const o = v as Record<string, unknown>;
 	return (
 		Array.isArray(o.skills) && o.skills.every((s) => typeof s === "string")
+	);
+}
+
+function isCoverageDesiredValue(v: unknown): v is CoverageDesiredValue {
+	if (typeof v !== "object" || v === null) return false;
+	const o = v as Record<string, unknown>;
+	return (
+		Array.isArray(o.emphasis) && o.emphasis.every((e) => typeof e === "string")
 	);
 }
 
@@ -157,9 +171,14 @@ export function criteriaRowToItemConfig(
 		case "aiJudged":
 			// aiJudged は希望値を desired_value に持たない（突合は抽出側の score に集約、#68）。
 			return { weight: row.weight, kind: "aiJudged" };
-		case "coverage":
-			// coverage の充足率は抽出済みの present/total から算出する（signal 別重みは #102）。
+		case "coverage": {
+			// coverage の充足率は抽出済みの signal 集合から算出する。重視 signal があれば重み付けする（#102）。
+			const dv = parseDesiredValue(row.desired_value);
+			if (isCoverageDesiredValue(dv) && dv.emphasis.length > 0) {
+				return { weight: row.weight, kind: "coverage", emphasis: dv.emphasis };
+			}
 			return { weight: row.weight, kind: "coverage" };
+		}
 	}
 }
 

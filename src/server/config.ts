@@ -101,6 +101,19 @@ function aiJudgedDesiredJson(desired: unknown): string | null {
 	return JSON.stringify({ skills: list });
 }
 
+// coverage の重視 signal 集合を desired_value JSON へ詰める（#102）。空集合・非配列は null（中立・重み無し）。
+function coverageDesiredJson(desired: unknown): string | null {
+	if (typeof desired !== "object" || desired === null) return null;
+	const emphasis = (desired as Record<string, unknown>).emphasis;
+	if (!Array.isArray(emphasis)) return null;
+	const list = emphasis
+		.filter((e): e is string => typeof e === "string")
+		.map((e) => e.trim())
+		.filter((e) => e !== "");
+	if (list.length === 0) return null;
+	return JSON.stringify({ emphasis: list });
+}
+
 // 設定入力群を criteria_config 行へ変換する（決定的）。
 // 不正な criterion / weight / hard_filter は全体を拒否し、保存・再スコアへ進ませない（AI/再スコアの前に弾く）。
 export function inputsToConfigRows(
@@ -135,8 +148,8 @@ export function inputsToConfigRows(
 				desiredValue = aiJudgedDesiredJson(item.desired);
 				break;
 			case "coverage":
-				// coverage は #101 時点では希望値を持たない（signal 別重みは #102 で desired に載せる）。
-				desiredValue = null;
+				// coverage は重視 signal 集合（emphasis）を希望値として持つ（#102）。未指定は中立（null）。
+				desiredValue = coverageDesiredJson(item.desired);
 				break;
 		}
 

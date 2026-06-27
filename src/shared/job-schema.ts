@@ -85,10 +85,13 @@ export interface AiJudgedValue {
 
 // 充足率値（benefitsCoverage 用・設計書 §5.2）。canonical 閉集合のうち該当した signal 数（present）と
 // 総数（total）を持ち、スコアは present / total（決定的）。canonical 集合の定義・signal 抽出は #102。
+// signals は該当した signal キーの一覧（決定的順）。重視 signal 重みでの再採点・UI 内訳展開に使う。
+// 設定変更での再スコアは AI を再実行せず保存済み signals から算出できる（§5.3 抽出とスコアリングの分離）。
 export interface CoverageValue {
 	readonly kind: "coverage";
 	readonly present: number;
 	readonly total: number;
+	readonly signals?: readonly string[];
 	readonly raw?: string;
 }
 
