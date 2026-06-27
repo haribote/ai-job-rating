@@ -30,10 +30,11 @@ export default defineConfig({
 			use: { ...devices["Desktop Chrome"] },
 		},
 	],
-	// マイグレーション適用 → wrangler dev を 1 コマンドで前段起動する。
+	// SPA ビルド（public/ へ index.html/assets 生成）→ マイグレーション適用 → wrangler dev を前段起動する。
+	// SPA バンドルは .gitignore 対象（ビルド成果物）のため、wrangler dev が assets を配信できるよう毎回ビルドする。
 	// remote bindings は credentials を要するため --local（miniflare）に閉じてオフライン・決定的に保つ。
 	webServer: {
-		command: `npx wrangler d1 migrations apply ai-job-rating --local --persist-to ${PERSIST_DIR} && npx wrangler dev --port ${PORT} --local --persist-to ${PERSIST_DIR}`,
+		command: `npm run build && npx wrangler d1 migrations apply ai-job-rating --local --persist-to ${PERSIST_DIR} && npx wrangler dev --port ${PORT} --local --persist-to ${PERSIST_DIR}`,
 		url: BASE_URL,
 		reuseExistingServer: !process.env.CI,
 		timeout: 120 * 1000,

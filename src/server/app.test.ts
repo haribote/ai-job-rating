@@ -12,11 +12,30 @@ describe("app", () => {
 		await expect(res.json()).resolves.toEqual({ status: "ok" });
 	});
 
-	// 静的資産配信のフォールスルー（API 外の GET は assets へ委譲＝SPA シェル）を確認する。
-	it("ルート / は静的資産の index.html を返す", async () => {
-		const res = await app.request("/", {}, env);
+	// API 外の GET が ASSETS バインディングへ委譲される配線のみを検証する。
+	// 実際の SPA 配信（public/index.html の中身・未知パスの 200 フォールバック）は Vite ビルド成果物に
+	// 依存するため、ビルド前提が成立する e2e（playwright・webServer で npm run build 前置）で担保する。
+	// ここでビルド物に依存すると CI（build artifact 無し）で非決定になるため ASSETS をスタブする。
+	it("API 外の GET は ASSETS バインディング（SPA シェル）へフォールスルーする", async () => {
+		let requestedPath: string | undefined;
+		const assetsStub = {
+			fetch: (input: RequestInfo | URL) => {
+				requestedPath = new URL(
+					typeof input === "string" ? input : (input as Request).url,
+				).pathname;
+				return Promise.resolve(
+					new Response("spa-shell", {
+						headers: { "content-type": "text/html" },
+					}),
+				);
+			},
+		} as unknown as Fetcher;
+
+		const res = await app.request("/", {}, { ...env, ASSETS: assetsStub });
+
+		// catch-all が ASSETS.fetch をリクエストのまま呼び、その応答をそのまま返すこと。
+		expect(requestedPath).toBe("/");
 		expect(res.status).toBe(200);
-		const body = await res.text();
-		expect(body).toContain("ai-job-rating");
+		await expect(res.text()).resolves.toBe("spa-shell");
 	});
 });
