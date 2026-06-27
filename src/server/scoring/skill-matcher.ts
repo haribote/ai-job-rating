@@ -8,7 +8,7 @@
 // - 純粋関数（同一 desired・同一 jobSkills → 同一値、§8）。DB・AI 呼び出しは持たない。
 // - 突合不能（求人スキルが取れない 等）は null = unknown 中立で分母から除外する（§5.2）。
 
-import { canonicalizeLabel } from "./job-schema";
+import { canonicalizeLabel } from "../../shared/job-schema";
 import type { SkillMatcher } from "./rescore-core";
 
 // スキル名を比較用に正規化して一意集合へ寄せる（大小/全半角/装飾記号の揺れを吸収）。

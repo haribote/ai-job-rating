@@ -1,17 +1,17 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import {
+	NORMALIZED_KEYS,
+	type NormalizedFieldValue,
+	type NormalizedJob,
+} from "../shared/job-schema";
 import app from "./app";
 import {
 	formToConfigRows,
 	parseWeight,
 	preferredToList,
 } from "./criteria-form";
-import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./db-schema";
-import {
-	NORMALIZED_KEYS,
-	type NormalizedFieldValue,
-	type NormalizedJob,
-} from "./job-schema";
+import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./storage/db-schema";
 
 // ---------------------------------------------------------------------------
 // 決定的ヘルパ（フォーム値 → criteria_config 行）の単体テスト

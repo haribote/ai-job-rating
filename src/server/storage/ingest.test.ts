@@ -1,6 +1,6 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { AiRunner } from "./ai";
+import type { AiRunner } from "../extract/ai";
 import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./db-schema";
 import { ingestJob } from "./ingest";
 import { getRawHtml } from "./raw-html-store";

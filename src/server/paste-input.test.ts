@@ -1,7 +1,7 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { AiRunner } from "./ai";
 import app from "./app";
+import type { AiRunner } from "./extract/ai";
 import { ingestPaste, MAX_HTML_BYTES, validatePastedHtml } from "./paste-input";
 
 // 貼り付け入力の検証ロジック。決定的なので分岐を網羅してユニットテストで担保する

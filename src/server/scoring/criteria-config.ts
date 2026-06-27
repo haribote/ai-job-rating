@@ -8,8 +8,8 @@
 //   単一ソースとして参照し、desired_value JSON を kind ごとに解釈する。
 // - 解釈は純粋関数。DB アクセス・AI 呼び出しは持たない（責務分離 §9）。
 
-import type { CriteriaConfigRow, HardFilter } from "./db-schema";
-import type { NormalizedKey } from "./job-schema";
+import type { NormalizedKey } from "../../shared/job-schema";
+import type { CriteriaConfigRow, HardFilter } from "../storage/db-schema";
 import type {
 	NumericDirection,
 	ScoringConfig,

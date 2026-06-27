@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { runAiHealthCheck } from "./ai";
 import { criteriaForm } from "./criteria-form";
-import type { DetailJobMessage } from "./detail-queue";
+import { runAiHealthCheck } from "./extract/ai";
 import { pasteInput } from "./paste-input";
-import { readRanking } from "./ranking";
+import type { DetailJobMessage } from "./queue/detail-queue";
 import { renderRankingPage } from "./ranking-list";
+import { readRanking } from "./scoring/ranking";
 import { urlInput } from "./url-input";
 
 // Worker の env バインディング型。後続フェーズ（D1 / R2 / KV）でここに追記する

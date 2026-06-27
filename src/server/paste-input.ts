@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import type { AiRunner } from "./ai";
 import type { Bindings } from "./app";
-import { ingestJob } from "./ingest";
-import type { RawHtmlBucket } from "./raw-html-store";
+import type { AiRunner } from "./extract/ai";
 import { renderExtractionFailedPage, renderResultPage } from "./result-display";
+import { ingestJob } from "./storage/ingest";
+import type { RawHtmlBucket } from "./storage/raw-html-store";
 
 // 貼り付け HTML の上限（バイト）。後続のトリミング #9 / 抽出 #11 の負荷・コスト保護のための上限。
 // Phase 0 の検証用途には十分な余裕（2MB）を取る。

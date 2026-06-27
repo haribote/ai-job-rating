@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { NormalizedFieldValue, NormalizedJob } from "./job-schema";
-import { NORMALIZED_KEYS } from "./job-schema";
+import type {
+	NormalizedFieldValue,
+	NormalizedJob,
+} from "../../shared/job-schema";
+import { NORMALIZED_KEYS } from "../../shared/job-schema";
 import { DEFAULT_SCORING_CONFIG, type ScoringConfig, scoreJob } from "./score";
 
 // テスト用に全キー unknown の求人を作り、必要なキーだけ実値で上書きする。

@@ -3,13 +3,13 @@ import {
 	NORMALIZED_KEYS,
 	type NormalizedFieldValue,
 	type NormalizedJob,
-} from "./job-schema";
+} from "../shared/job-schema";
 import {
 	type RankedJobView,
 	renderRankingPage,
 	rescoredToView,
 } from "./ranking-list";
-import type { RescoredJob } from "./rescore-core";
+import type { RescoredJob } from "./scoring/rescore-core";
 
 // 全キー unknown の最小求人。必要キーだけ実値で上書きして使う。
 function jobWith(

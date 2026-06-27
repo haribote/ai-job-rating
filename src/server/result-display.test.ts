@@ -1,7 +1,7 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { NormalizedJob } from "../shared/job-schema";
 import app from "./app";
-import type { NormalizedJob } from "./job-schema";
 import {
 	escapeHtml,
 	formatScorePercent,
@@ -9,7 +9,7 @@ import {
 	renderExtractionFailedPage,
 	renderResultPage,
 } from "./result-display";
-import type { ScoreResult } from "./score";
+import type { ScoreResult } from "./scoring/score";
 
 // 全 unknown の最小 job。表示テストは個別キーだけ上書きして使う。
 function allUnknownJob(): NormalizedJob {

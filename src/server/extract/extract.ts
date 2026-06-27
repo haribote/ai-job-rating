@@ -8,7 +8,6 @@
 //   持たせ、重み・希望値の変更で再実行しない契約を型・関数境界で表現する（§5.3）。
 // - live 推論は account/secrets 依存のため、テストでは AiRunner を fake して整形・分岐を検証する。
 
-import type { AiRunner } from "./ai";
 import {
 	canonicalizeLabel,
 	isUnknownRaw,
@@ -17,7 +16,8 @@ import {
 	type NormalizedFieldValue,
 	type NormalizedJob,
 	type NormalizedKey,
-} from "./job-schema";
+} from "../../shared/job-schema";
+import type { AiRunner } from "./ai";
 
 // 抽出に使う既定モデル。要件 §7.1 候補のうち JSON Mode 対応かつ日本語実用域の Llama 3.3 を採用する。
 // 一次ソース（Workers AI JSON Mode の Supported Models）に掲載されるモデルから選ぶ。

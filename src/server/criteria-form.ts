@@ -11,16 +11,16 @@
 //   criteria-config.ts の NORMALIZED_KEY_KINDS を単一ソースとして参照する（ラベル正規化 §5.2）。
 
 import { Hono } from "hono";
+import { NORMALIZED_KEYS, type NormalizedKey } from "../shared/job-schema";
 import type { Bindings } from "./app";
-import { NORMALIZED_KEY_KINDS } from "./criteria-config";
+import { escapeHtml } from "./result-display";
+import { NORMALIZED_KEY_KINDS } from "./scoring/criteria-config";
+import { readCriteriaConfig, rescoreAll } from "./scoring/rescore";
 import {
 	type CriteriaConfigRow,
 	type HardFilter,
 	TABLE_NAMES,
-} from "./db-schema";
-import { NORMALIZED_KEYS, type NormalizedKey } from "./job-schema";
-import { readCriteriaConfig, rescoreAll } from "./rescore";
-import { escapeHtml } from "./result-display";
+} from "./storage/db-schema";
 
 // ---------------------------------------------------------------------------
 // 正規キーの表示ラベル（UI 専用）

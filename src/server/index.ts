@@ -1,12 +1,12 @@
 import type { Bindings } from "./app";
 import app from "./app";
+import { fetchHtml } from "./fetch/fetch-html";
 import {
 	type DetailJobMessage,
 	type ProcessDetailDeps,
 	processDetailBatch,
-} from "./detail-queue";
-import { fetchHtml } from "./fetch-html";
-import { ingestJob } from "./ingest";
+} from "./queue/detail-queue";
+import { ingestJob } from "./storage/ingest";
 
 // consumer(#24) が 1 詳細ジョブを処理するための deps を env から束ねる。
 // 取得（#21 fetch-html）→ 取込→永続化（#26 ingestJob: jobs/extractions/R2/scores）を配線し、

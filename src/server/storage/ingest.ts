@@ -8,22 +8,22 @@
 //   抽出から rescoreOne で決定的に算出する（重み・希望値の変更で AI を再実行しない）。
 // - 表示は呼び出し側（handler）の責務。本モジュールは永続化に専念し HTML を組み立てない（§9）。
 
-import type { AiRunner } from "./ai";
+import type { NormalizedJob } from "../../shared/job-schema";
+import type { AiRunner } from "../extract/ai";
+import { extractJob } from "../extract/extract";
+import { trimHtml } from "../extract/trim-html";
+import { rescoreOne } from "../scoring/rescore";
+import type { ScoreResult } from "../scoring/score";
 import {
 	type ExtractionStatus,
 	type JobSourceType,
 	TABLE_NAMES,
 } from "./db-schema";
-import { extractJob } from "./extract";
-import type { NormalizedJob } from "./job-schema";
 import {
 	linkRawHtmlToJob,
 	putRawHtml,
 	type RawHtmlBucket,
 } from "./raw-html-store";
-import { rescoreOne } from "./rescore";
-import type { ScoreResult } from "./score";
-import { trimHtml } from "./trim-html";
 
 // 構造化機構の識別子（#65）。現状は Workers AI JSON Mode のみ。フォーク先で増やせる。
 export const EXTRACTION_MECHANISM = "json-mode";

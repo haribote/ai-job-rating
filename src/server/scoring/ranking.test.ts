@@ -1,12 +1,12 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import app from "./app";
-import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./db-schema";
 import {
 	NORMALIZED_KEYS,
 	type NormalizedFieldValue,
 	type NormalizedJob,
-} from "./job-schema";
+} from "../../shared/job-schema";
+import app from "../app";
+import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "../storage/db-schema";
 import { readRanking } from "./ranking";
 import { rescoreAll } from "./rescore";
 

@@ -150,7 +150,7 @@ export function renderStylesheet(groups: TokenGroup[]): string {
 	const header = [
 		"/*",
 		" * 自動生成ファイル — 直接編集しない。",
-		" * 生成元: src/design-tokens.ts（トークン）+ src/design-tokens-css.ts（変換）。",
+		" * 生成元: src/shared/design-tokens.ts（トークン）+ src/shared/design-tokens-css.ts（変換）。",
 		" * 再生成: npm run build:css",
 		" */",
 	].join("\n");

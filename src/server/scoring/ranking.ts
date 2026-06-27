@@ -13,19 +13,19 @@
 // - 表示用の raw 値・kind は scores に持たないため、保存済み抽出（raw）と
 //   NORMALIZED_KEY_KINDS（kind）から補う。DB I/O のみを担い描画は ranking-list が行う（責務分離 §9）。
 
-import {
-	buildHardFilterMap,
-	buildScoringConfig,
-	NORMALIZED_KEY_KINDS,
-} from "./criteria-config";
+import type { NormalizedJob, NormalizedKey } from "../../shared/job-schema";
+import { type RankedJobView, rescoredToView } from "../ranking-list";
 import {
 	type CriteriaConfigRow,
 	type ExtractionStatus,
 	TABLE_NAMES,
 	TOTAL_SCORE_CRITERION,
-} from "./db-schema";
-import type { NormalizedJob, NormalizedKey } from "./job-schema";
-import { type RankedJobView, rescoredToView } from "./ranking-list";
+} from "../storage/db-schema";
+import {
+	buildHardFilterMap,
+	buildScoringConfig,
+	NORMALIZED_KEY_KINDS,
+} from "./criteria-config";
 import {
 	applyExtractionStatus,
 	applySkillMatch,

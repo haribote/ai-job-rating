@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type {
+	NormalizedFieldValue,
+	NormalizedJob,
+} from "../../shared/job-schema";
+import { NORMALIZED_KEYS } from "../../shared/job-schema";
 import type { HardFilterMap } from "./criteria-config";
-import type { NormalizedFieldValue, NormalizedJob } from "./job-schema";
-import { NORMALIZED_KEYS } from "./job-schema";
 import {
 	applyExtractionStatus,
 	passesHardFilters,

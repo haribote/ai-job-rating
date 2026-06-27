@@ -1,12 +1,12 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { NORMALIZED_KEYS, type NormalizedJob } from "../../shared/job-schema";
 import {
 	type ExtractionStructuredJson,
 	SCHEMA_VERSION,
 	TABLE_NAMES,
 	TOTAL_SCORE_CRITERION,
 } from "./db-schema";
-import { NORMALIZED_KEYS, type NormalizedJob } from "./job-schema";
 
 // 全正規キーを unknown で埋めた最小の NormalizedJob（structured_json 往復用）。
 function makeUnknownJob(): NormalizedJob {

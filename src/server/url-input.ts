@@ -1,16 +1,16 @@
 import { Hono } from "hono";
-import type { AiRunner } from "./ai";
 import type { Bindings } from "./app";
-import { type DetailQueue, enqueueDetailJobs } from "./detail-queue";
-import { type Fetcher, FetchHtmlError, fetchHtml } from "./fetch-html";
-import { ingestJob } from "./ingest";
-import { classifyPage } from "./list-detail";
-import type { RawHtmlBucket } from "./raw-html-store";
+import type { AiRunner } from "./extract/ai";
+import { type Fetcher, FetchHtmlError, fetchHtml } from "./fetch/fetch-html";
+import { classifyPage } from "./fetch/list-detail";
+import { type DetailQueue, enqueueDetailJobs } from "./queue/detail-queue";
 import {
 	escapeHtml,
 	renderExtractionFailedPage,
 	renderResultPage,
 } from "./result-display";
+import { ingestJob } from "./storage/ingest";
+import type { RawHtmlBucket } from "./storage/raw-html-store";
 
 // 公開詳細 URL 入力の決定的バリデーション。空入力と http(s) 以外のスキームを弾く。
 // roadmap Phase 0 は公開 SSR の単一詳細 URL のみ対象。誤投入・SSRF（file:/javascript: 等）を入口で排除する。

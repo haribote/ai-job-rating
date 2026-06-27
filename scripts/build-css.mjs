@@ -1,7 +1,7 @@
 // デザイントークンから public/styles.css をビルド時に生成する。
 //
 // なぜこのスクリプトが存在するか:
-// - 成果物の本体は「リポジトリにコミットされた CSS」。トークン定義（src/design-tokens.ts）を
+// - 成果物の本体は「リポジトリにコミットされた CSS」。トークン定義（src/shared/design-tokens.ts）を
 //   単一の真実とし、ここから決定的に CSS を再生成して public/ へ書き出す（実行時依存にしない）。
 // - 生成された public/styles.css はリポジトリへコミットし、Worker は静的資産として配信するのみ。
 // - 変換ロジック（renderStylesheet）はユニットテスト済み。本スクリプトは I/O の薄いラッパに留める。
@@ -16,9 +16,11 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 
-const { tokenGroups } = await import(resolve(root, "src/design-tokens.ts"));
+const { tokenGroups } = await import(
+	resolve(root, "src/shared/design-tokens.ts")
+);
 const { renderStylesheet } = await import(
-	resolve(root, "src/design-tokens-css.ts")
+	resolve(root, "src/shared/design-tokens-css.ts")
 );
 
 const css = renderStylesheet(tokenGroups);

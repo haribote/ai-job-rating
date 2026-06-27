@@ -1,9 +1,9 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { AiRunner } from "./ai";
 import app from "./app";
-import type { DetailJobMessage, DetailQueue } from "./detail-queue";
-import type { Fetcher } from "./fetch-html";
+import type { AiRunner } from "./extract/ai";
+import type { Fetcher } from "./fetch/fetch-html";
+import type { DetailJobMessage, DetailQueue } from "./queue/detail-queue";
 import { fetchAndRender, validateJobUrl } from "./url-input";
 
 // 詳細経路のテストはキューを使わない。投入を握り潰す no-op キュー。

@@ -1,11 +1,11 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./db-schema";
 import {
 	NORMALIZED_KEYS,
 	type NormalizedFieldValue,
 	type NormalizedJob,
-} from "./job-schema";
+} from "../../shared/job-schema";
+import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "../storage/db-schema";
 import { rescoreAll, rescoreOne } from "./rescore";
 
 // 全キー unknown の最小求人を作り、必要キーだけ実値で上書きする。

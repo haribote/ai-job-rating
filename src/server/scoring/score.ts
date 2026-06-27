@@ -14,7 +14,7 @@ import {
 	type NormalizedFieldValue,
 	type NormalizedJob,
 	type NormalizedKey,
-} from "./job-schema";
+} from "../../shared/job-schema";
 
 // ---------------------------------------------------------------------------
 // スコアリング設定（固定・型付き）

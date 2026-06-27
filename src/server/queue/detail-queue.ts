@@ -4,8 +4,8 @@
 // メッセージ整形・バッチ分割・リトライ判定はすべて決定的（同一入力→同一出力）にしてユニットテストで担保する（§8）。
 // 実 binding 依存の producer→consumer・リトライ/DLQ 動作はオフライン不能のため要手動検証（Draft PR 参照）。
 
-import { FetchHtmlError } from "./fetch-html";
-import type { PageClassification } from "./list-detail";
+import { FetchHtmlError } from "../fetch/fetch-html";
+import type { PageClassification } from "../fetch/list-detail";
 
 // キューに積む 1 ジョブ = 1 詳細 URL。structured clone 可能なプレーンオブジェクトに限る（Queues 制約）。
 // listUrl は出自（どの一覧から来たか）を持たせ、consumer 側のロギング・将来の集計に使う。

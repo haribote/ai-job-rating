@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import {
+	isUnknown,
+	NORMALIZED_KEYS,
+	type NormalizedKey,
+} from "../../shared/job-schema";
+import { DEFAULT_SCORING_CONFIG, scoreJob } from "../scoring/score";
 import type { AiRunner } from "./ai";
 import {
 	buildExtractionJsonSchema,
@@ -8,8 +14,6 @@ import {
 	MAX_EXTRACTION_ATTEMPTS,
 	rawFieldsToNormalizedJob,
 } from "./extract";
-import { isUnknown, NORMALIZED_KEYS, type NormalizedKey } from "./job-schema";
-import { DEFAULT_SCORING_CONFIG, scoreJob } from "./score";
 
 // プロンプト組立（決定的）: trim 済み本文を含む messages を組み立てる。
 describe("buildExtractionMessages", () => {

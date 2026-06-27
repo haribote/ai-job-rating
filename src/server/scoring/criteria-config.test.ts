@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { NORMALIZED_KEYS } from "../../shared/job-schema";
+import type { CriteriaConfigRow } from "../storage/db-schema";
 import {
 	buildDesiredSkills,
 	buildHardFilterMap,
@@ -6,8 +8,6 @@ import {
 	criteriaRowToItemConfig,
 	NORMALIZED_KEY_KINDS,
 } from "./criteria-config";
-import type { CriteriaConfigRow } from "./db-schema";
-import { NORMALIZED_KEYS } from "./job-schema";
 
 // criteria_config 行を組み立てるヘルパ（既定値を埋める）。
 function row(over: Partial<CriteriaConfigRow>): CriteriaConfigRow {

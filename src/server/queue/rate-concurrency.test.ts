@@ -91,7 +91,7 @@ describe("createSemaphore", () => {
 describe("createTokenBucket", () => {
 	// 初期は capacity 個のトークンを持ち、その回数まで即座に消費できる
 	it("初期 capacity 個まで連続消費できる", () => {
-		let now = 1000;
+		const now = 1000;
 		const bucket = createTokenBucket({
 			capacity: 2,
 			refillTokens: 1,
@@ -138,7 +138,7 @@ describe("createTokenBucket", () => {
 
 	// 次にトークンが利用可能になる時刻を返す（待機時間の決定的算出に使う）
 	it("枯渇時は次に補充される時刻を返す", () => {
-		let now = 500;
+		const now = 500;
 		const bucket = createTokenBucket({
 			capacity: 1,
 			refillTokens: 1,
@@ -152,7 +152,7 @@ describe("createTokenBucket", () => {
 
 	// トークンに余裕がある間は now をそのまま返す（待機不要）
 	it("トークンがあれば nextAvailableAt は現在時刻", () => {
-		let now = 500;
+		const now = 500;
 		const bucket = createTokenBucket({
 			capacity: 2,
 			refillTokens: 1,

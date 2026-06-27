@@ -11,18 +11,18 @@
 // - 各正規キー行に sub_score / included / weight。unknown 中立は included=0 / sub_score NULL。
 // - weight は criteria_config からのスナップショット（再現性のためコピー、#16 設計）。
 
-import {
-	buildDesiredSkills,
-	buildHardFilterMap,
-	buildScoringConfig,
-} from "./criteria-config";
+import type { NormalizedJob } from "../../shared/job-schema";
 import {
 	type CriteriaConfigRow,
 	type ExtractionStatus,
 	TABLE_NAMES,
 	TOTAL_SCORE_CRITERION,
-} from "./db-schema";
-import type { NormalizedJob } from "./job-schema";
+} from "../storage/db-schema";
+import {
+	buildDesiredSkills,
+	buildHardFilterMap,
+	buildScoringConfig,
+} from "./criteria-config";
 import {
 	type RescoredJob,
 	type RescoreExtensions,

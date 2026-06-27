@@ -17,14 +17,14 @@
 //   §5.3 違反を避けるため）。本モジュールは SkillMatcher 契約と適用点を定義し、
 //   #68 が実 matcher を埋めるまでは aiJudged 値を unknown 中立のままにする（分母から除外）。
 
-import type { HardFilterMap } from "./criteria-config";
-import type { ExtractionStatus } from "./db-schema";
 import {
 	NORMALIZED_KEYS,
 	type NormalizedFieldValue,
 	type NormalizedJob,
 	type NormalizedKey,
-} from "./job-schema";
+} from "../../shared/job-schema";
+import type { ExtractionStatus } from "../storage/db-schema";
+import type { HardFilterMap } from "./criteria-config";
 import { type ScoreResult, type ScoringConfig, scoreJob } from "./score";
 
 // ---------------------------------------------------------------------------

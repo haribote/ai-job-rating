@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { FetchHtmlError } from "../fetch/fetch-html";
+import type { PageClassification } from "../fetch/list-detail";
 import {
 	classifyRetryable,
 	type DetailJobMessage,
@@ -8,8 +10,6 @@ import {
 	processDetailBatch,
 	toDetailJobMessages,
 } from "./detail-queue";
-import { FetchHtmlError } from "./fetch-html";
-import type { PageClassification } from "./list-detail";
 
 const BASE = "https://example.com/jobs";
 

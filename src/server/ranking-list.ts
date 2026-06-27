@@ -9,8 +9,7 @@
 // - raw 値・source_url はユーザ由来文字列のため escapeHtml で必ず XSS を防ぐ。
 // - 描画は決定的な純関数。DB I/O は持たない（読み出しは ranking.ts、責務分離 §9）。
 
-import type { NormalizedJob, NormalizedKey } from "./job-schema";
-import type { HardFilterResult, RescoredJob } from "./rescore-core";
+import type { NormalizedJob, NormalizedKey } from "../shared/job-schema";
 import {
 	escapeHtml,
 	formatScorePercent,
@@ -18,7 +17,8 @@ import {
 	JP_LABELS,
 	KIND_LABELS,
 } from "./result-display";
-import type { ScoreResult } from "./score";
+import type { HardFilterResult, RescoredJob } from "./scoring/rescore-core";
+import type { ScoreResult } from "./scoring/score";
 
 // 一覧 1 行の項目別内訳。score/included/weight は scores 由来、raw は抽出値（表示用）。
 export interface RankedBreakdownRow {

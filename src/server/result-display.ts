@@ -7,8 +7,8 @@
 // - 抽出本文・raw 値を埋め込むため、ユーザ由来文字列は必ず escapeHtml で XSS を防ぐ。
 // - 描画は決定的な純関数に切り出し、null/included の分岐・エスケープをユニットテストで担保する。
 
-import type { NormalizedJob, NormalizedKey } from "./job-schema";
-import type { ScoreResult } from "./score";
+import type { NormalizedJob, NormalizedKey } from "../shared/job-schema";
+import type { ScoreResult } from "./scoring/score";
 
 // HTML 特殊文字をエスケープする（XSS 防止）。
 // & を最初に置換しないと後続の実体参照を二重エスケープしてしまうため順序が重要。

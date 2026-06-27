@@ -6,7 +6,7 @@
 // - structured_json は src/job-schema.ts の NormalizedJob と整合させる（抽出結果の保存形）。
 // - 本モジュールは型・定数のみを担い、DB アクセス（クエリ）やスコア計算は行わない（責務分離 §9）。
 
-import type { NormalizedJob } from "./job-schema";
+import type { NormalizedJob } from "../../shared/job-schema";
 
 // マイグレーションが定義するスキーマ版。structured_json の互換管理に用いる（extractions.schema_version 既定値と一致）。
 export const SCHEMA_VERSION = 1;
