@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	isStatedUnquantified,
 	isUnknown,
 	NORMALIZED_KEYS,
 	type NormalizedKey,
@@ -76,6 +77,14 @@ describe("buildExtractionJsonSchema", () => {
 		const schema = buildExtractionJsonSchema();
 		expect(schema.properties.skillMatch.description).toContain("原文");
 	});
+
+	it("overtime の description は定量優先（平均→みなし）を含意する", () => {
+		// 設計 §5.2 の優先順位（①平均残業 → ②みなし残業）を抽出指示に明示していることを固定する。
+		const schema = buildExtractionJsonSchema();
+		const desc = schema.properties.overtime.description ?? "";
+		expect(desc).toContain("平均");
+		expect(desc).toContain("みなし");
+	});
 });
 
 // 正規化マッピング（決定的）: AI の生出力（キーごとの生文字列）を NormalizedJob へ寄せる。
@@ -99,6 +108,45 @@ describe("rawFieldsToNormalizedJob", () => {
 		});
 		expect(isUnknown(job.annualSalary)).toBe(true);
 		expect(isUnknown(job.overtime)).toBe(true);
+	});
+
+	it("overtime「残業あり」（有り明記だが定量なし）は unknown だが stated を立てる（減点特例）", () => {
+		const job = rawFieldsToNormalizedJob({ overtime: "残業あり" });
+		// 値は読めないので unknown のまま。ただし stated=true で減点対象になる（§5.2 例外）。
+		expect(isUnknown(job.overtime)).toBe(true);
+		expect(isStatedUnquantified(job.overtime)).toBe(true);
+	});
+
+	it("overtime「みなし残業」（定量なし）も有り明記とみなし stated を立てる", () => {
+		const job = rawFieldsToNormalizedJob({ overtime: "みなし残業制度を採用" });
+		expect(isStatedUnquantified(job.overtime)).toBe(true);
+	});
+
+	it("overtime「残業なし」（否定）は中立のまま（stated を立てない）", () => {
+		const job = rawFieldsToNormalizedJob({ overtime: "残業なし" });
+		expect(isUnknown(job.overtime)).toBe(true);
+		expect(isStatedUnquantified(job.overtime)).toBe(false);
+	});
+
+	it("overtime「記載なし」は中立のまま（stated を立てない）", () => {
+		const job = rawFieldsToNormalizedJob({ overtime: "記載なし" });
+		expect(isStatedUnquantified(job.overtime)).toBe(false);
+	});
+
+	it("overtime「残業はありません」（否定）を誤って減点しない（中立のまま）", () => {
+		// 裸の「あり」を needle にしないことで「ありません」の誤検出を避ける（precision 優先）。
+		const job = rawFieldsToNormalizedJob({ overtime: "残業はありません" });
+		expect(isStatedUnquantified(job.overtime)).toBe(false);
+	});
+
+	it("overtime「月平均20時間」（定量あり）は numericRange へ寄せ stated を立てない", () => {
+		const job = rawFieldsToNormalizedJob({ overtime: "月平均20時間" });
+		expect(job.overtime.kind).toBe("numericRange");
+		if (job.overtime.kind === "numericRange") {
+			expect(job.overtime.min).toBe(20);
+			expect(job.overtime.max).toBe(20);
+		}
+		expect(isStatedUnquantified(job.overtime)).toBe(false);
 	});
 
 	it("数値レンジ項目は numericRange へ寄せ min/max を持つ", () => {

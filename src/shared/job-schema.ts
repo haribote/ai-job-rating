@@ -100,6 +100,10 @@ export interface UnknownValue {
 	readonly kind: "unknown";
 	// 抽出元が "-" など未記載を返したときの生表記。デバッグ・UI「情報なし」表示用。
 	readonly raw?: string;
+	// 数量は読めないが「該当あり」と肯定的に明記されていたか（§5.2 unknown 中立の意図的例外）。
+	// overtime の「有り明記だが定量なし」減点特例でのみ true を立てる。記載なし・否定（残業なし等）は
+	// 未設定のまま＝従来通り中立。値（数量）自体は読めないため kind は unknown のまま保つ。
+	readonly stated?: boolean;
 }
 
 // 正規キー1つに対する値。unknown を第一級で表現できることが本スキーマの肝。
@@ -123,6 +127,12 @@ export type NormalizedJob = {
 // スコアリングが分母から外すべきかの単一判定点。値が unknown のときだけ true。
 export function isUnknown(value: NormalizedFieldValue): value is UnknownValue {
 	return value.kind === "unknown";
+}
+
+// 「有り明記だが定量なし」か（overtime 減点特例の単一判定点・§5.2 unknown 中立の意図的例外）。
+// unknown かつ stated=true のときだけ true。スコアリングはこれを中立でなく減点として扱う。
+export function isStatedUnquantified(value: NormalizedFieldValue): boolean {
+	return value.kind === "unknown" && value.stated === true;
 }
 
 // 未記載を表す生表記の集合。求人ページは未記載を様々な記号で返す（§5.2）。

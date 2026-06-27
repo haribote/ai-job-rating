@@ -181,13 +181,21 @@ function scoreCoverage(
 	return clamp01(value.present / value.total);
 }
 
+// 「有り明記だが定量なし」の減点値（§5.2 unknown 中立の意図的例外・設計 §5.2）。
+// 「該当あり」と明記されているのに定量値が読めない＝リスクとして、中立（分母除外）にせず
+// 最悪値 0 を分母へ算入して減点する。現状 overtime のみがこの値を生成する（抽出側で stated を立てる）。
+const STATED_UNQUANTIFIED_PENALTY = 0;
+
 // 1 項目のサブスコアを算出する（決定的）。算出不能（kind 不一致・空・unknown）は null。
 function scoreItem(
 	value: NormalizedFieldValue,
 	config: ScoringItemConfig,
 ): number | null {
-	// unknown は無条件で中立（§5.2）。kind に依らず分母から外す。
-	if (isUnknown(value)) return null;
+	// unknown は原則中立（§5.2）。ただし「有り明記だが定量なし」だけは意図的例外として減点する。
+	// 記載なし（stated でない unknown）は従来通り中立（分母から外す）。
+	if (isUnknown(value)) {
+		return value.stated === true ? STATED_UNQUANTIFIED_PENALTY : null;
+	}
 	switch (config.kind) {
 		case "numericRange":
 			return scoreNumericRange(value, config);
