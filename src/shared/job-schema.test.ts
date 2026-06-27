@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	isStatedUnquantified,
 	isUnknown,
 	isUnknownRaw,
 	NORMALIZED_KEYS,
@@ -110,6 +111,21 @@ describe("isUnknown", () => {
 		};
 		expect(isUnknown(unknown)).toBe(true);
 		expect(isUnknown(range)).toBe(false);
+	});
+});
+
+describe("isStatedUnquantified", () => {
+	it("unknown かつ stated=true のときだけ true（overtime 減点特例）", () => {
+		expect(isStatedUnquantified({ kind: "unknown", stated: true })).toBe(true);
+		// 記載なし（stated 未設定）・否定（stated=false）は中立のまま。
+		expect(isStatedUnquantified({ kind: "unknown" })).toBe(false);
+		expect(isStatedUnquantified({ kind: "unknown", stated: false })).toBe(
+			false,
+		);
+		// 値が読める（numericRange）なら特例ではない。
+		expect(
+			isStatedUnquantified({ kind: "numericRange", min: 20, max: 20 }),
+		).toBe(false);
 	});
 });
 

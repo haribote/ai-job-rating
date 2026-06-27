@@ -95,6 +95,10 @@ const KEY_DESCRIPTIONS: Partial<Record<NormalizedKey, string>> = {
 		"福利厚生・休日制度・休暇制度・各種手当・退職金などの待遇を原文のまま列挙する。",
 	annualHolidays:
 		"年間休日の日数のみ（例: 125日）。休日制度の区分名は含めない。",
+	// 残業は定量を優先（①平均残業時間 → ②みなし/固定残業時間の順・設計 §5.2）。
+	// 数値が無く残業の有無のみ書かれている場合はその文言（例: 残業あり）を返させ、コード側で減点特例に寄せる。
+	overtime:
+		"残業時間を数値で抜き出す（例: 月平均20時間）。平均残業時間を優先し、無ければ固定・みなし残業時間。数値が無く有無の記載のみなら原文の文言（例: 残業あり）を返す。",
 	capital: "企業の資本金のみ（例: 1億円）。売上高・従業員数は含めない。",
 };
 
@@ -242,6 +246,32 @@ function hasNegation(haystack: string): boolean {
 	);
 }
 
+// overtime が「残業の存在」を肯定的に明記する語（canonicalizeLabel 後で部分一致）。
+// なぜ: 「有り明記だが定量なし」を中立でなく減点する特例の検出に使う（§5.2 意図的例外）。
+// 裸の「あり」は「残業はありません」を誤検出する（NEGATION_NEEDLES は「ありません」を拾わない）ため避け、
+// 残業を肯定する語に限定する。誤って減点する（中立にすべきを減点）害の方が大きいので precision 優先。
+const OVERTIME_PRESENCE_NEEDLES: readonly string[] = [
+	"残業あり",
+	"残業有",
+	"固定残業",
+	"みなし残業",
+	"見込み残業",
+	"時間外労働あり",
+	"超過勤務あり",
+];
+
+// overtime の生表記が「残業の存在」を肯定的に明記しているか（決定的）。
+// 否定（残業なし等）は false。時間が数値で読める場合は呼び出し側が numericRange を優先するため、
+// 本関数は定量値が取れなかったときのみ評価される。
+function statesOvertimePresence(raw: string): boolean {
+	const haystack = canonicalizeLabel(raw);
+	// 否定を先に評価し「残業なし」等を減点しない（時間ゼロ寄りの良い情報のため）。
+	if (hasNegation(haystack)) return false;
+	return OVERTIME_PRESENCE_NEEDLES.some((n) =>
+		haystack.includes(canonicalizeLabel(n)),
+	);
+}
+
 // categorical の生表記を canonical トークン 1 つへ寄せる（決定的・best-effort）。
 // 否定表現は positive canonical へ化けさせない。マッピングに無い値は null を返し、呼び出し側が
 // 生表記を残せるようにする（情報を捨てない）。
@@ -281,6 +311,12 @@ function rawToFieldValue(
 			: parseNumbers(value);
 		// 数値が取れなければ unknown 中立（値を持たせない）
 		if (numbers.length === 0) {
+			// overtime 特例: 残業の存在を肯定的に明記しているのに時間が読めない場合は、
+			// 中立でなく減点対象として stated を立てる（§5.2 unknown 中立の意図的例外・設計 §5.2）。
+			// 否定（残業なし等）・記載なしは stated を立てず従来通り中立。
+			if (key === "overtime" && statesOvertimePresence(value)) {
+				return { kind: "unknown", raw: value, stated: true };
+			}
 			return { kind: "unknown", raw: value };
 		}
 		return {

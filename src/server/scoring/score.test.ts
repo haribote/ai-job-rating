@@ -186,6 +186,92 @@ describe("numericRange のサブスコア（lowerBetter）", () => {
 	});
 });
 
+describe("overtime 特例（有り明記だが定量なし）", () => {
+	// unknown 中立の意図的例外（§5.2 / 設計 §5.2）。
+	// 境界: 記載なし=中立 / 有り明記・定量なし=減点 / 定量値あり=値ベース採点 を厳密に固定する。
+	const config: ScoringConfig = {
+		items: {
+			overtime: {
+				weight: 3,
+				kind: "numericRange",
+				direction: "lowerBetter",
+				desired: 10,
+				ceil: 45,
+			},
+		},
+	};
+
+	it("有り明記だが定量なし（stated unknown）は中立でなく減点する（sub-score 0・分母に算入）", () => {
+		const result = scoreJob(
+			jobWith({ overtime: { kind: "unknown", stated: true, raw: "残業あり" } }),
+			config,
+		);
+		// 減点 = 最悪値 0 を分母へ算入する（excluded ではない）。
+		expect(result.total).toBe(0);
+		const row = result.breakdown.find((b) => b.key === "overtime");
+		expect(row?.included).toBe(true);
+		expect(row?.score).toBe(0);
+	});
+
+	it("記載なし（stated でない unknown）は従来通り中立（分母から除外）", () => {
+		const result = scoreJob(jobWith({ overtime: { kind: "unknown" } }), config);
+		expect(result.total).toBeNull();
+		const row = result.breakdown.find((b) => b.key === "overtime");
+		expect(row?.included).toBe(false);
+		expect(row?.score).toBeNull();
+	});
+
+	it("定量値あり（numericRange）は値ベースで連続採点する（特例に落ちない）", () => {
+		const atDesired = scoreJob(
+			jobWith({ overtime: { kind: "numericRange", min: 5, max: 5 } }),
+			config,
+		);
+		const middle = scoreJob(
+			jobWith({ overtime: { kind: "numericRange", min: 27.5, max: 27.5 } }),
+			config,
+		);
+		expect(atDesired.total).toBe(1); // desired(10) 以下 → 1.0
+		expect(middle.total).toBe(0.5); // (27.5-10)/(45-10)=0.5 → 1-0.5
+	});
+
+	it("減点(有り明記・定量なし)は中立(記載なし)より総合スコアを下げる", () => {
+		// overtime 以外を 1.0 充足させ、overtime の状態だけで総合スコアの差を固定する。
+		const mixed: ScoringConfig = {
+			items: {
+				annualSalary: {
+					weight: 1,
+					kind: "numericRange",
+					direction: "higherBetter",
+					desired: 700,
+					floor: 300,
+				},
+				overtime: {
+					weight: 1,
+					kind: "numericRange",
+					direction: "lowerBetter",
+					desired: 10,
+					ceil: 45,
+				},
+			},
+		};
+		const salary = {
+			annualSalary: { kind: "numericRange", min: 800, max: 800 },
+		} as const;
+		const penalized = scoreJob(
+			jobWith({ ...salary, overtime: { kind: "unknown", stated: true } }),
+			mixed,
+		);
+		const neutral = scoreJob(
+			jobWith({ ...salary, overtime: { kind: "unknown" } }),
+			mixed,
+		);
+		// 減点: (1*1 + 1*0)/2 = 0.5 / 中立: overtime 除外で 1*1/1 = 1.0。
+		expect(penalized.total).toBe(0.5);
+		expect(neutral.total).toBe(1);
+		expect(penalized.total).toBeLessThan(neutral.total as number);
+	});
+});
+
 describe("categorical のサブスコア", () => {
 	const config: ScoringConfig = {
 		items: {
