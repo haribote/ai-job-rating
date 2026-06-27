@@ -107,6 +107,18 @@ function isSkillsDesiredValue(v: unknown): v is SkillsDesiredValue {
 	);
 }
 
+// desired_value(JSON 文字列|null) を構造化値へ復元する（不正・null は null）。
+// 取得/詳細 API（GET /api/config・GET /api/jobs/:id）の表示用。スコアリング内部の
+// parseDesiredValue（不在を undefined で表す）とは sentinel が異なるため別関数にする。
+export function parseDesired(raw: string | null): unknown {
+	if (raw == null) return null;
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return null;
+	}
+}
+
 // desired_value(JSON 文字列|null) を安全に parse する。不正・null は undefined。
 function parseDesiredValue(raw: string | null): unknown {
 	if (raw === null) return undefined;

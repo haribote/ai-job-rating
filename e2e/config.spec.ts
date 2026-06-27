@@ -1,49 +1,49 @@
 import { expect, test } from "@playwright/test";
 
-// GET /config・POST /config（#19）の設定フォームを実ブラウザで検証する。
-// 描画 → 値編集 → 保存 → 「再ランキングしました」通知までの基本操作を通す。
-// 保存は決定的な rescoreAll 経路で AI を再実行しない（§5.3）。空 D1 でも保存自体は成立する。
-
-test.describe("GET/POST /config 設定フォーム", () => {
-	test("フォームのタイトル・見出し・保存ボタンが描画される", async ({
-		page,
+// GET /api/config・PUT /api/config の JSON 契約を deployed worker（wrangler dev --local）に対し検証する（#95）。
+// 旧 SSR フォーム（/config）は撤去済み。PUT は決定的な rescoreAll 経路で AI を再実行しない（§5.3）。
+// 空 D1 でも再スコア自体は成立する（投入求人ゼロなので count=0）。AI を呼ばない経路に限定する。
+test.describe("/api/config（設定の取得・更新）", () => {
+	test("GET /api/config は全正規キーの items を JSON で返す", async ({
+		request,
 	}) => {
-		const response = await page.goto("/config");
-		expect(response?.status()).toBe(200);
-
-		await expect(page).toHaveTitle(/評価条件の設定 — ai-job-rating/);
-		await expect(
-			page.getByRole("heading", { level: 1, name: "評価条件の設定" }),
-		).toBeVisible();
-		await expect(
-			page.getByRole("button", { name: "保存して再ランキング" }),
-		).toBeVisible();
+		const res = await request.get("/api/config");
+		expect(res.status()).toBe(200);
+		expect(res.headers()["content-type"]).toContain("application/json");
+		const body = await res.json();
+		expect(Array.isArray(body.items)).toBe(true);
+		expect(body.items.length).toBe(21);
 	});
 
-	test("正規キーごとの重み入力が存在する", async ({ page }) => {
-		await page.goto("/config");
-		// 年収（annualSalary）の重み入力は name="weight__annualSalary" で安定的に特定できる。
-		const annualSalaryWeight = page.locator(
-			'input[name="weight__annualSalary"]',
-		);
-		await expect(annualSalaryWeight).toBeVisible();
+	test("PUT /api/config は保存し再スコアする（AI 非再実行・status=rescored）", async ({
+		request,
+	}) => {
+		const res = await request.put("/api/config", {
+			data: {
+				items: [
+					{
+						criterion: "annualSalary",
+						weight: 5,
+						hardFilter: "none",
+						desired: { desired: 700, floor: 300 },
+					},
+				],
+			},
+		});
+		expect(res.status()).toBe(200);
+		const body = await res.json();
+		expect(body.status).toBe("rescored");
+		expect(typeof body.count).toBe("number");
 	});
 
-	test("重みを編集して保存すると再ランキング通知が表示される", async ({
-		page,
+	test("PUT /api/config は不正な重みを 400 で拒否する（AI/再スコアの前に弾く）", async ({
+		request,
 	}) => {
-		await page.goto("/config");
-
-		// 年収の重みを編集 → 保存。決定的に再ランキングされ、保存通知が SSR で返る。
-		const annualSalaryWeight = page.locator(
-			'input[name="weight__annualSalary"]',
-		);
-		await annualSalaryWeight.fill("2");
-		await page.getByRole("button", { name: "保存して再ランキング" }).click();
-
-		await expect(page.locator(".ajr-config-saved")).toBeVisible();
-		await expect(page.locator(".ajr-config-saved")).toContainText(
-			"再ランキングしました",
-		);
+		const res = await request.put("/api/config", {
+			data: {
+				items: [{ criterion: "annualSalary", weight: -1, hardFilter: "none" }],
+			},
+		});
+		expect(res.status()).toBe(400);
 	});
 });
