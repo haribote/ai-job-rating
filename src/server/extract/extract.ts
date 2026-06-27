@@ -55,31 +55,22 @@ export interface ExtractJobOptions {
 // 抽出時に AI へ要求する「正規キーごとの生抽出文字列」。値は素のテキスト（正規化前）。
 export type RawExtractionFields = Partial<Record<NormalizedKey, string>>;
 
-// 各正規キーをどの正規化種別へ寄せるか（§5.2 の 3 類型）。
-// numericRange: 数値レンジ（年収・休日数など）/ categorical: 正規化済みカテゴリ /
-// aiJudged: AI 判定スコア（スキルマッチ等、判定値は後段スパイクで詳細化）。
+// 各正規キーを抽出時にどの値種別（NormalizedFieldValue.kind）へ寄せるか（§5.2）。
+// numericRange: 数値レンジ（年収・休日数・人数・資本金）/ categorical: 正規化済みカテゴリ /
+// coverage: 福利厚生の充足率（signal 抽出は #102。#101 では unknown 中立に畳む）。
+// 注: skillMatch は値としては categorical（求人スキル集合）で持ち、採点側は keyword 突合の config
+//     kind（criteria-config の aiJudged 機構）で評価する。値種別と config kind の役割が異なる。
 const KIND_BY_KEY: Record<NormalizedKey, NormalizationKind> = {
 	annualSalary: "numericRange",
-	monthlySalary: "numericRange",
-	bonus: "categorical",
-	salaryRaise: "categorical",
-	retirementAllowance: "categorical",
+	bonus: "numericRange",
 	overtime: "numericRange",
 	annualHolidays: "numericRange",
-	holidaySystem: "categorical",
-	paidLeaveRate: "numericRange",
+	benefitsCoverage: "coverage",
 	remoteWork: "categorical",
 	flexWork: "categorical",
-	workLocation: "categorical",
-	employmentType: "categorical",
-	employmentTerm: "categorical",
-	techStack: "categorical",
-	requiredSkillsMatch: "aiJudged",
-	preferredSkillsMatch: "aiJudged",
-	businessDomain: "categorical",
-	languageRequirement: "categorical",
+	skillMatch: "categorical",
 	companySize: "numericRange",
-	companyPhase: "categorical",
+	capital: "numericRange",
 };
 
 // JSON Schema の最小形（Workers AI/OpenAI 互換）。json_schema にそのまま渡せる object 型のみ扱う。
@@ -94,15 +85,13 @@ export interface ExtractionJsonSchema {
 // 構造的に誤りやすいキーへ付ける抽出指示（#88）。モデル非依存に揃って誤るのを、
 // プロパティ名の英単語だけに推測を委ねず description で「正解の定義」を明示して防ぐ。
 const KEY_DESCRIPTIONS: Partial<Record<NormalizedKey, string>> = {
-	companyPhase:
-		"企業の上場区分のみ（上場／未上場／上場準備）。設立年は含めない。",
-	holidaySystem:
-		"休日制度の区分（完全週休2日制・週休2日制・シフト制など）。年間休日の日数は含めない。",
-	workLocation: "勤務地の地名を原文のまま簡潔に。複数あれば併記する。",
-	techStack:
-		"使用技術・開発環境を原文の表記のまま列挙する。要約・翻訳・補完をしない。",
-	businessDomain:
-		"事業ドメイン・業界を原文のまま簡潔に（長い事業説明文にしない）。",
+	skillMatch:
+		"使用技術・スキル・必須/歓迎要件を原文の表記のまま列挙する。要約・翻訳・補完をしない。",
+	benefitsCoverage:
+		"福利厚生・休日制度・休暇制度・各種手当・退職金などの待遇を原文のまま列挙する。",
+	annualHolidays:
+		"年間休日の日数のみ（例: 125日）。休日制度の区分名は含めない。",
+	capital: "企業の資本金のみ（例: 1億円）。売上高・従業員数は含めない。",
 };
 
 // 抽出メッセージ（OpenAI 互換）。AiRunner.run の inputs.messages に渡す。
@@ -174,7 +163,9 @@ function parseNumbers(raw: string): number[] {
 // 再利用する（§5.3）。単位を「正規スキーマのキーへ寄せる」のは抽出（ラベル正規化）の関心事（§5.2）。
 const SALARY_KEYS: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 	"annualSalary",
-	"monthlySalary",
+	// 賞与も通貨項目。円額（例: 300,000円）を万円へ正規化し、年収と単位を揃える（§5.2）。
+	// 「年2回」「2ヶ月分」など通貨単位を伴わない表記は salaryToManYen が拾わず unknown 中立になる。
+	"bonus",
 ]);
 
 // 通貨表記の各数値を「万円」へ正規化して取り出す（決定的）。
@@ -229,28 +220,6 @@ const CATEGORY_RULES: Partial<Record<NormalizedKey, readonly CategoryRule[]>> =
 			["裁量", "discretionary"],
 			["みなし労働", "discretionary"],
 			["みなし", "discretionary"],
-		],
-		// 休日制度 → 制度区分。年間休日「数」は annualHolidays の責務なので規則に入れない（#88）。
-		// 「完全週休2日」を「週休2日」より先に置く（部分一致先勝ち）。
-		holidaySystem: [
-			["完全週休2日", "fullTwoDayWeekoff"],
-			["週休2日", "twoDayWeekoff"],
-			["シフト", "shift"],
-			["交代", "shift"],
-			["4週8休", "fourWeekEightOff"],
-		],
-		// 上場区分 → listed / preIpo / private（#88: companyPhase の意味を上場区分に確定）。
-		// 「未上場/非上場」「上場準備」を「上場」より先に置く（「上場」は両者の部分文字列）。
-		companyPhase: [
-			["未上場", "private"],
-			["非上場", "private"],
-			["上場準備", "preIpo"],
-			["IPO準備", "preIpo"],
-			["東証", "listed"],
-			["プライム", "listed"],
-			["スタンダード", "listed"],
-			["グロース", "listed"],
-			["上場", "listed"],
 		],
 	};
 
@@ -318,9 +287,9 @@ function rawToFieldValue(
 		};
 	}
 
-	if (kind === "aiJudged") {
-		// Phase 0 では aiJudged を unknown 中立とし分母から除外する（§5.2）。判定基準が未確定で
-		// （希望スキル集合不在・実 AI 再呼出は §5.3 抵触）、#7 設定UI/#15 スパイクまで保留。生表記は監査用に保持。
+	if (kind === "coverage") {
+		// benefitsCoverage の signal 抽出（canonical 閉集合・present/total）は #102 が実装する。
+		// #101 では unknown 中立として分母から除外する（§5.2）。生表記は監査用に保持。
 		return { kind: "unknown", raw: value };
 	}
 

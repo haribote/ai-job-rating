@@ -35,7 +35,7 @@ export interface CriteriaConfigInput {
 // 設定 1 項目の取得出力。全正規キーぶん返す（未保存キーは既定 weight=1 / hardFilter=none）。
 export interface CriteriaConfigItem {
 	criterion: NormalizedKey;
-	kind: "numericRange" | "categorical" | "aiJudged";
+	kind: "numericRange" | "categorical" | "aiJudged" | "coverage";
 	weight: number;
 	hardFilter: HardFilter;
 	desired: unknown;
@@ -133,6 +133,10 @@ export function inputsToConfigRows(
 				break;
 			case "aiJudged":
 				desiredValue = aiJudgedDesiredJson(item.desired);
+				break;
+			case "coverage":
+				// coverage は #101 時点では希望値を持たない（signal 別重みは #102 で desired に載せる）。
+				desiredValue = null;
 				break;
 		}
 

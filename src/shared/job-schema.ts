@@ -12,68 +12,53 @@
 // 正規キー（normalized criterion keys）
 // ---------------------------------------------------------------------------
 
-// 正規キーの値型。§5.1 のカテゴリ（報酬 / 働き方 / 勤務条件 / 仕事内容 / 企業属性）の
-// 初期セットに対応する。スコアリング（#12）はこのキー集合のみを参照する。
-// フォーク先で増減できるよう union 型で一元管理する。
+// 正規キーの値型。5軸カテゴリ（報酬 / 従業員への誠実さ / 柔軟な働き方 / 仕事・スキル / 企業）の
+// 採点項目に対応する（5軸 ↔ 項目の対応表は shared/categories.ts が単一ソース）。
+// スコアリング（#12）はこのキー集合のみを参照する。フォーク先で増減できるよう union 型で一元管理する。
+// 5軸への削減・再カテゴリ化は #101（実装計画 Task 8）。削除キーは旧抽出に残っても unknown 中立で
+// 自然に分母から外れる（移行は再抽出導線でカバー、設計書 §7）。
 export type NormalizedKey =
 	// 報酬 (compensation)
 	| "annualSalary"
-	| "monthlySalary"
 	| "bonus"
-	| "salaryRaise"
-	| "retirementAllowance"
-	// 働き方・WLB (work-life balance)
+	// 従業員への誠実さ (integrity)
 	| "overtime"
 	| "annualHolidays"
-	| "holidaySystem"
-	| "paidLeaveRate"
+	| "benefitsCoverage"
+	// 柔軟な働き方 (flexibility)
 	| "remoteWork"
 	| "flexWork"
-	// 勤務条件 (working conditions)
-	| "workLocation"
-	| "employmentType"
-	| "employmentTerm"
-	// 仕事内容・スキル (role & skills)
-	| "techStack"
-	| "requiredSkillsMatch"
-	| "preferredSkillsMatch"
-	| "businessDomain"
-	| "languageRequirement"
-	// 企業属性 (company attributes)
+	// 仕事・スキル (role)
+	| "skillMatch"
+	// 企業 (company)
 	| "companySize"
-	| "companyPhase";
+	| "capital";
 
 // 正規キーの一覧（実行時の網羅・反復用）。型の単一ソースとして保つため satisfies で同期する。
 export const NORMALIZED_KEYS = [
 	"annualSalary",
-	"monthlySalary",
 	"bonus",
-	"salaryRaise",
-	"retirementAllowance",
 	"overtime",
 	"annualHolidays",
-	"holidaySystem",
-	"paidLeaveRate",
+	"benefitsCoverage",
 	"remoteWork",
 	"flexWork",
-	"workLocation",
-	"employmentType",
-	"employmentTerm",
-	"techStack",
-	"requiredSkillsMatch",
-	"preferredSkillsMatch",
-	"businessDomain",
-	"languageRequirement",
+	"skillMatch",
 	"companySize",
-	"companyPhase",
+	"capital",
 ] as const satisfies readonly NormalizedKey[];
 
 // ---------------------------------------------------------------------------
 // 値の表現（unknown 中立）
 // ---------------------------------------------------------------------------
 
-// §5.2 の正規化3類型。スコアリングはこの kind で算出方式を分岐する。
-export type NormalizationKind = "numericRange" | "categorical" | "aiJudged";
+// §5.2 の正規化類型。スコアリングはこの kind で算出方式を分岐する。
+// coverage は benefitsCoverage（福利厚生の充足率）用（#101 で追加・設計書 §5.2）。
+export type NormalizationKind =
+	| "numericRange"
+	| "categorical"
+	| "aiJudged"
+	| "coverage";
 
 // 数値レンジ値。レンジ求人は下限/上限で持ち、単一値は min === max で表す。
 export interface NumericRangeValue {
@@ -98,6 +83,15 @@ export interface AiJudgedValue {
 	readonly raw?: string;
 }
 
+// 充足率値（benefitsCoverage 用・設計書 §5.2）。canonical 閉集合のうち該当した signal 数（present）と
+// 総数（total）を持ち、スコアは present / total（決定的）。canonical 集合の定義・signal 抽出は #102。
+export interface CoverageValue {
+	readonly kind: "coverage";
+	readonly present: number;
+	readonly total: number;
+	readonly raw?: string;
+}
+
 // 値が取れない項目（§5.2 unknown 中立）。スコアリングで分母から外す目印になる。
 export interface UnknownValue {
 	readonly kind: "unknown";
@@ -110,6 +104,7 @@ export type NormalizedFieldValue =
 	| NumericRangeValue
 	| CategoricalValue
 	| AiJudgedValue
+	| CoverageValue
 	| UnknownValue;
 
 // 正規化済み求人スキーマ。全正規キーを必須にし、取れない項目は UnknownValue で埋める。
@@ -172,20 +167,14 @@ export function canonicalizeLabel(label: string): string {
 // サイト依存ラベル（揺れ）→ 正規キーの対応表。
 // 値は canonicalizeLabel 適用後のキーで引けるよう、登録時に正規化する。
 const LABEL_ALIASES: ReadonlyArray<readonly [string, NormalizedKey]> = [
-	// 報酬
+	// 報酬 (compensation)
 	["想定年収", "annualSalary"],
 	["年収", "annualSalary"],
 	["予定年収", "annualSalary"],
 	["給与（年収）", "annualSalary"],
-	["月給", "monthlySalary"],
-	["基本給", "monthlySalary"],
-	["月収", "monthlySalary"],
 	["賞与", "bonus"],
 	["ボーナス", "bonus"],
-	["昇給", "salaryRaise"],
-	["退職金", "retirementAllowance"],
-	["退職金制度", "retirementAllowance"],
-	// 働き方・WLB
+	// 従業員への誠実さ (integrity)
 	["残業", "overtime"],
 	["時間外労働", "overtime"],
 	["みなし残業", "overtime"],
@@ -193,12 +182,15 @@ const LABEL_ALIASES: ReadonlyArray<readonly [string, NormalizedKey]> = [
 	["固定残業代", "overtime"],
 	["年間休日", "annualHolidays"],
 	["年間休日数", "annualHolidays"],
-	["休日制度", "holidaySystem"],
-	["休日・休暇", "holidaySystem"],
-	["休日", "holidaySystem"],
-	["有給取得率", "paidLeaveRate"],
-	["有給休暇取得率", "paidLeaveRate"],
-	["有休取得率", "paidLeaveRate"],
+	// 福利厚生・休暇制度は benefitsCoverage の signal として吸収する（設計書 §5.2・#102 が充実化）。
+	["福利厚生", "benefitsCoverage"],
+	["待遇・福利厚生", "benefitsCoverage"],
+	["休日制度", "benefitsCoverage"],
+	["休日・休暇", "benefitsCoverage"],
+	["休暇制度", "benefitsCoverage"],
+	["退職金", "benefitsCoverage"],
+	["退職金制度", "benefitsCoverage"],
+	// 柔軟な働き方 (flexibility)
 	["リモート", "remoteWork"],
 	["リモートワーク", "remoteWork"],
 	["リモート可否", "remoteWork"],
@@ -208,37 +200,20 @@ const LABEL_ALIASES: ReadonlyArray<readonly [string, NormalizedKey]> = [
 	["フレックスタイム", "flexWork"],
 	["裁量労働", "flexWork"],
 	["裁量労働制", "flexWork"],
-	// 勤務条件
-	["勤務地", "workLocation"],
-	["勤務場所", "workLocation"],
-	["就業場所", "workLocation"],
-	["雇用形態", "employmentType"],
-	["雇用期間", "employmentTerm"],
-	["契約期間", "employmentTerm"],
-	// 仕事内容・スキル
-	["技術スタック", "techStack"],
-	["開発環境", "techStack"],
-	["使用技術", "techStack"],
-	["必須要件", "requiredSkillsMatch"],
-	["応募資格", "requiredSkillsMatch"],
-	["必須スキル", "requiredSkillsMatch"],
-	["歓迎要件", "preferredSkillsMatch"],
-	["歓迎スキル", "preferredSkillsMatch"],
-	["尚可", "preferredSkillsMatch"],
-	["業界", "businessDomain"],
-	["事業ドメイン", "businessDomain"],
-	["事業内容", "businessDomain"],
-	["言語要件", "languageRequirement"],
-	["語学", "languageRequirement"],
-	["英語", "languageRequirement"],
-	// 企業属性
+	// 仕事・スキル (role)。techStack/必須要件/歓迎要件を skillMatch へ統合する（設計書 §5.2・#106）。
+	["技術スタック", "skillMatch"],
+	["開発環境", "skillMatch"],
+	["使用技術", "skillMatch"],
+	["必須要件", "skillMatch"],
+	["応募資格", "skillMatch"],
+	["必須スキル", "skillMatch"],
+	["歓迎要件", "skillMatch"],
+	["歓迎スキル", "skillMatch"],
+	// 企業 (company)
 	["企業規模", "companySize"],
 	["従業員数", "companySize"],
 	["社員数", "companySize"],
-	// companyPhase は「上場区分」に意味を確定する（#88）。設立年（数値概念）は
-	// categorical の本キーと型が異なり「正解」を不定にするため、エイリアスに含めない。
-	["企業フェーズ", "companyPhase"],
-	["上場区分", "companyPhase"],
+	["資本金", "capital"],
 ];
 
 // 正規化テーブル（canonicalize 済みキー → 正規キー）。モジュール初期化時に一度だけ構築。

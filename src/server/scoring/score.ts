@@ -50,10 +50,18 @@ export interface AiJudgedItemConfig {
 	readonly kind: "aiJudged";
 }
 
+// 充足率項目の設定（benefitsCoverage 用・設計書 §5.2）。サブスコアは充足率 present/total。
+// canonical 閉集合の定義・signal 別重みは #102 が追加する（#101 は機構のみ）。
+export interface CoverageItemConfig {
+	readonly weight: number;
+	readonly kind: "coverage";
+}
+
 export type ScoringItemConfig =
 	| NumericRangeItemConfig
 	| CategoricalItemConfig
-	| AiJudgedItemConfig;
+	| AiJudgedItemConfig
+	| CoverageItemConfig;
 
 // 評価項目ごとの設定。キーは正規キーのみ（スコアリングは正規キーのみ参照、§5.2）。
 // 設定にない正規キーは評価対象外（breakdown にも total にも入らない）。
@@ -136,6 +144,13 @@ function scoreAiJudged(value: NormalizedFieldValue): number | null {
 	return clamp01(value.score / 100);
 }
 
+// 充足率のサブスコア（benefitsCoverage）。present/total（決定的）。total が 0 なら評価不能（null）。
+function scoreCoverage(value: NormalizedFieldValue): number | null {
+	if (value.kind !== "coverage") return null;
+	if (value.total <= 0) return null;
+	return clamp01(value.present / value.total);
+}
+
 // 1 項目のサブスコアを算出する（決定的）。算出不能（kind 不一致・空・unknown）は null。
 function scoreItem(
 	value: NormalizedFieldValue,
@@ -150,6 +165,8 @@ function scoreItem(
 			return scoreCategorical(value, config);
 		case "aiJudged":
 			return scoreAiJudged(value);
+		case "coverage":
+			return scoreCoverage(value);
 	}
 }
 
@@ -235,8 +252,8 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 			kind: "categorical",
 			preferred: ["yes", "flex", "discretionary"],
 		},
-		// スキル適合は AI 判定（抽出フェーズの 0..100 を流用）。
-		requiredSkillsMatch: { weight: 4, kind: "aiJudged" },
-		preferredSkillsMatch: { weight: 2, kind: "aiJudged" },
+		// スキル適合は希望キーワードとの決定的突合（aiJudged 機構を流用・突合は rescore-core）。
+		// 必須/歓迎の区別は廃止し単一 skillMatch へ統合した（#101、keyword 化と詳細は #106）。
+		skillMatch: { weight: 4, kind: "aiJudged" },
 	},
 };

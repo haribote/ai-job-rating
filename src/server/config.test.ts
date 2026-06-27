@@ -128,7 +128,7 @@ beforeEach(async () => {
 describe("readConfigItems", () => {
 	it("全正規キーぶん返し、未保存キーは既定（weight=1/none/desired=null）", async () => {
 		const items = await readConfigItems(env.DB);
-		expect(items.length).toBe(21);
+		expect(items.length).toBe(10);
 		const salary = items.find((i) => i.criterion === "annualSalary");
 		expect(salary).toMatchObject({
 			kind: "numericRange",

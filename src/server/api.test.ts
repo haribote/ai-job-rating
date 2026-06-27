@@ -184,7 +184,7 @@ describe("GET /api/config", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/json");
 		const body = (await res.json()) as { items: unknown[] };
-		expect(body.items.length).toBe(21);
+		expect(body.items.length).toBe(10);
 	});
 });
 

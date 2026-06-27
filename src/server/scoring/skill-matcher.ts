@@ -1,12 +1,12 @@
 // 求人スキル集合 × 希望スキル集合の決定的突合（#68 → #20 SkillMatcher 契約の実装）。
 //
 // なぜこのモジュールが存在するか:
-// - aiJudged（requiredSkillsMatch / preferredSkillsMatch）の値は「AI に主観点数を出させる」
-//   のではなく、抽出済みの求人側スキル集合（categorical）を希望集合とコードで突合して
-//   0..1 で算定する（#65 確定方針）。突合はスコアリング側で決定的に行い、希望条件の変更で
-//   AI を再実行しない（§5.3 抽出とスコアリングの分離）。
+// - aiJudged（skillMatch）の値は「AI に主観点数を出させる」のではなく、抽出済みの求人側スキル
+//   集合（categorical）を希望集合とコードで突合して 0..1 で算定する（#65 確定方針）。突合は
+//   スコアリング側で決定的に行い、希望条件の変更で AI を再実行しない（§5.3 抽出とスコアリングの分離）。
 // - 純粋関数（同一 desired・同一 jobSkills → 同一値、§8）。DB・AI 呼び出しは持たない。
 // - 突合不能（求人スキルが取れない 等）は null = unknown 中立で分母から除外する（§5.2）。
+// - 必須/歓迎の区別は廃止し単一 skillMatch へ統合した（#101）。keyword ヒット方式への詳細化は #106。
 
 import { canonicalizeLabel } from "../../shared/job-schema";
 import type { SkillMatcher } from "./rescore-core";
@@ -36,16 +36,9 @@ function coverageRatio(
 }
 
 // 既定の決定的スキル突合（#20 RescoreExtensions.skillMatcher へ差す）。
-// required と preferred の意味差:
-// - requiredSkillsMatch（必須充足）: 求人の必須スキルを希望集合がどれだけ満たすか。
-//   分母 = 求人スキル数。全充足で 1.0、希望が空なら必須を満たさないので 0.0。
-// - preferredSkillsMatch（任意加点）: 求人の歓迎スキルのうち希望と一致する割合の加点。
-//   希望が空（歓迎への意見なし）は加点も減点もしないので null = 中立。
-export const defaultSkillMatcher: SkillMatcher = ({
-	criterion,
-	desired,
-	jobSkills,
-}) => {
-	if (criterion === "preferredSkillsMatch" && desired.length === 0) return null;
+// skillMatch（統合）: 求人スキルのうち希望集合と一致する割合（matched / 求人スキル数）。
+// 希望が空（スキルへの意見なし）は加点も減点もしないので null = 中立。求人スキルが空も突合不能 null。
+export const defaultSkillMatcher: SkillMatcher = ({ desired, jobSkills }) => {
+	if (desired.length === 0) return null;
 	return coverageRatio(desired, jobSkills);
 };

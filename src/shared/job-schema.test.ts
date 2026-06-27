@@ -14,12 +14,13 @@ describe("NORMALIZED_KEYS", () => {
 		expect(new Set(NORMALIZED_KEYS).size).toBe(NORMALIZED_KEYS.length);
 	});
 
-	it("§5.1 初期セットの代表キーを含む", () => {
+	it("§5.1 5軸の代表キーを含む", () => {
 		expect(NORMALIZED_KEYS).toContain("annualSalary");
 		expect(NORMALIZED_KEYS).toContain("overtime");
+		expect(NORMALIZED_KEYS).toContain("benefitsCoverage");
 		expect(NORMALIZED_KEYS).toContain("remoteWork");
-		expect(NORMALIZED_KEYS).toContain("techStack");
-		expect(NORMALIZED_KEYS).toContain("companySize");
+		expect(NORMALIZED_KEYS).toContain("skillMatch");
+		expect(NORMALIZED_KEYS).toContain("capital");
 	});
 });
 
@@ -38,9 +39,10 @@ describe("normalizeLabel", () => {
 
 	it("全角・空白・装飾記号の揺れを吸収する", () => {
 		// 全角コロン・前後空白・全角括弧などが付いても同じキーへ寄る
-		expect(normalizeLabel("　勤務地　")).toBe("workLocation");
+		expect(normalizeLabel("　資本金　")).toBe("capital");
 		expect(normalizeLabel("給与（年収）")).toBe("annualSalary");
-		expect(normalizeLabel("休日・休暇")).toBe("holidaySystem");
+		// 休日・休暇は benefitsCoverage の signal として吸収する（#101）。
+		expect(normalizeLabel("休日・休暇")).toBe("benefitsCoverage");
 	});
 
 	it("同一入力は常に同一正規キー（決定的）", () => {
@@ -55,16 +57,22 @@ describe("normalizeLabel", () => {
 		expect(normalizeLabel("")).toBeNull();
 	});
 
-	// companyPhase は「上場区分」に意味を確定する（#88）。設立年（数値概念）は混在させない。
-	it("companyPhase は上場区分系ラベルへ寄る", () => {
-		expect(normalizeLabel("企業フェーズ")).toBe("companyPhase");
-		expect(normalizeLabel("上場区分")).toBe("companyPhase");
+	// 技術スタック・必須/歓迎要件は skillMatch へ統合する（#101）。
+	it("技術スタック・必須/歓迎要件は skillMatch へ寄る", () => {
+		expect(normalizeLabel("技術スタック")).toBe("skillMatch");
+		expect(normalizeLabel("必須要件")).toBe("skillMatch");
+		expect(normalizeLabel("歓迎要件")).toBe("skillMatch");
 	});
 
-	it("「設立」「設立年」は companyPhase へ寄せない（概念汚染の除去・#88）", () => {
-		// 設立年は数値概念で categorical の companyPhase とは型が異なるため正規キーに寄せない
-		expect(normalizeLabel("設立")).toBeNull();
-		expect(normalizeLabel("設立年")).toBeNull();
+	// 福利厚生・退職金は benefitsCoverage の signal として吸収する（#101）。
+	it("福利厚生・退職金は benefitsCoverage へ寄る", () => {
+		expect(normalizeLabel("福利厚生")).toBe("benefitsCoverage");
+		expect(normalizeLabel("退職金制度")).toBe("benefitsCoverage");
+	});
+
+	it("削除した正規キーのラベルは寄せない（companyPhase/勤務地）", () => {
+		expect(normalizeLabel("上場区分")).toBeNull();
+		expect(normalizeLabel("勤務地")).toBeNull();
 	});
 });
 

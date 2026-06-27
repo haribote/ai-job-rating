@@ -11,11 +11,10 @@
 // - partial/ok: NormalizedJob の各値をそのまま採用する。取れなかった項目は値自体が
 //   unknown なので scoreJob が中立に扱う（partial を一律 unknown にはしない）。
 //
-// aiJudged 拡張点（#68 協調設計）:
-// - スキル適合（requiredSkillsMatch / preferredSkillsMatch）は「求人側スキル集合 ×
-//   希望集合 → 0..100」をスコアリング側で決定的に突合する方針（希望条件変更で AI 再実行＝
-//   §5.3 違反を避けるため）。本モジュールは SkillMatcher 契約と適用点を定義し、
-//   #68 が実 matcher を埋めるまでは aiJudged 値を unknown 中立のままにする（分母から除外）。
+// aiJudged 拡張点（#68 協調設計・統合 skillMatch は #101）:
+// - スキル適合（skillMatch）は「求人側スキル集合 × 希望集合 → 0..100」をスコアリング側で
+//   決定的に突合する方針（希望条件変更で AI 再実行＝§5.3 違反を避けるため）。本モジュールは
+//   SkillMatcher 契約と適用点を定義し、matcher 未指定の間は aiJudged 値を unknown 中立のままにする。
 
 import {
 	NORMALIZED_KEYS,
@@ -33,7 +32,7 @@ import { type ScoreResult, type ScoringConfig, scoreJob } from "./score";
 
 // スキル突合の決定的契約（#68 → #20）。
 // - desired: 希望スキル集合の在り処。criteria_config 側の希望値（正規化済みスキル文字列集合）。
-// - jobSkills: 求人側スキル集合の取得元。抽出済み NormalizedJob.techStack（categorical の
+// - jobSkills: 求人側スキル集合の取得元。抽出済み NormalizedJob.skillMatch（categorical の
 //   categories）など、保存済み抽出から決定的に得られる正規化済みスキル集合。
 // - 戻り値: 0..1 に正規化したサブスコア（scoreJob の aiJudged は内部で 0..100→0..1 する
 //   ため、突合関数は 0..1 を返し、本モジュールが AiJudgedValue.score へ ×100 して載せる）。
@@ -116,6 +115,9 @@ function matchesFilter(
 		}
 		case "aiJudged":
 			// aiJudged はハードフィルタ対象外（突合スコアは soft 評価のみ）。判定不能。
+			return null;
+		case "coverage":
+			// coverage（充足率）はハードフィルタ対象外（soft 評価のみ）。判定不能。
 			return null;
 	}
 }
