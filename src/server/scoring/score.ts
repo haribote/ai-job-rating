@@ -19,6 +19,7 @@ import {
 	type BenefitSignalKey,
 	computeBenefitsCoverage,
 } from "./benefits-coverage";
+import { matchSkills } from "./skill-matcher";
 
 // ---------------------------------------------------------------------------
 // スコアリング設定（固定・型付き）
@@ -52,10 +53,13 @@ export interface CategoricalItemConfig {
 	readonly tierScores?: Readonly<Record<string, number>>;
 }
 
-// AI 判定項目の設定。抽出フェーズで得た 0..100 の score を 0..1 へ正規化する（§5.2 AI判定）。
-export interface AiJudgedItemConfig {
+// スキル適合項目の設定（#105）。求人スキル集合（categorical）× ユーザー keyword の決定的ヒット率を
+// サブスコアにする。keyword は希望値（criteria_config の desired_value）由来でここに載る。
+// keyword の変更で AI を再実行しない（§5.3）。必須/歓迎の区別はしない。
+export interface KeywordMatchItemConfig {
 	readonly weight: number;
-	readonly kind: "aiJudged";
+	readonly kind: "keywordMatch";
+	readonly keywords: readonly string[];
 }
 
 // 充足率項目の設定（benefitsCoverage 用・設計書 §5.2）。サブスコアは充足率 present/total。
@@ -69,7 +73,7 @@ export interface CoverageItemConfig {
 export type ScoringItemConfig =
 	| NumericRangeItemConfig
 	| CategoricalItemConfig
-	| AiJudgedItemConfig
+	| KeywordMatchItemConfig
 	| CoverageItemConfig;
 
 // 評価項目ごとの設定。キーは正規キーのみ（スコアリングは正規キーのみ参照、§5.2）。
@@ -158,10 +162,17 @@ function scoreCategorical(
 	return clamp01(matched / value.categories.length);
 }
 
-// AI 判定のサブスコア。0..100 を 0..1 へ正規化しクランプする。
-function scoreAiJudged(value: NormalizedFieldValue): number | null {
-	if (value.kind !== "aiJudged") return null;
-	return clamp01(value.score / 100);
+// スキル適合のサブスコア（#105）。求人スキル集合（categorical）× keyword の決定的ヒット率を
+// 0..1 へ正規化する。keyword 未指定（意見なし）・求人スキル不明はいずれも中立（null・分母から除外）。
+function scoreKeywordMatch(
+	value: NormalizedFieldValue,
+	config: KeywordMatchItemConfig,
+): number | null {
+	if (value.kind !== "categorical") return null;
+	if (value.categories.length === 0) return null; // 求人スキル不明（中立）
+	// keyword 未指定・正規化後に空（意見なし）は matchSkills が null を返す（中立・分母から除外）。
+	const hit = matchSkills(value.categories, config.keywords);
+	return hit === null ? null : clamp01(hit / 100);
 }
 
 // 充足率のサブスコア（benefitsCoverage）。決定的。
@@ -201,8 +212,8 @@ function scoreItem(
 			return scoreNumericRange(value, config);
 		case "categorical":
 			return scoreCategorical(value, config);
-		case "aiJudged":
-			return scoreAiJudged(value);
+		case "keywordMatch":
+			return scoreKeywordMatch(value, config);
 		case "coverage":
 			return scoreCoverage(value, config);
 	}
@@ -302,8 +313,8 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 			kind: "categorical",
 			preferred: ["yes", "flex", "discretionary"],
 		},
-		// スキル適合は希望キーワードとの決定的突合（aiJudged 機構を流用・突合は rescore-core）。
-		// 必須/歓迎の区別は廃止し単一 skillMatch へ統合した（#101、keyword 化と詳細は #106）。
-		skillMatch: { weight: 4, kind: "aiJudged" },
+		// スキル適合は求人スキル集合 × ユーザー keyword の決定的ヒット率（#105）。
+		// 必須/歓迎の区別はしない。既定の keyword は空（意見なし=中立）でフォーク先・設定UIが埋める。
+		skillMatch: { weight: 4, kind: "keywordMatch", keywords: [] },
 	},
 };

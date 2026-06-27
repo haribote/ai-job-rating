@@ -18,17 +18,8 @@ import {
 	TABLE_NAMES,
 	TOTAL_SCORE_CRITERION,
 } from "../storage/db-schema";
-import {
-	buildDesiredSkills,
-	buildHardFilterMap,
-	buildScoringConfig,
-} from "./criteria-config";
-import {
-	type RescoredJob,
-	type RescoreExtensions,
-	rescoreJob,
-} from "./rescore-core";
-import { defaultSkillMatcher } from "./skill-matcher";
+import { buildHardFilterMap, buildScoringConfig } from "./criteria-config";
+import { type RescoredJob, rescoreJob } from "./rescore-core";
 
 // 最新抽出の読み出し結果（job_id ごと 1 件）。
 interface LatestExtraction {
@@ -127,12 +118,11 @@ async function writeScores(db: D1Database, scored: RescoredJob): Promise<void> {
 export async function rescoreOne(
 	db: D1Database,
 	jobId: string,
-	extensions: RescoreExtensions = {},
 ): Promise<RescoredJob | null> {
 	const configRows = await readCriteriaConfig(db);
 	const [extraction] = await readLatestExtractions(db, jobId);
 	if (extraction === undefined) return null;
-	const scored = computeOne(configRows, extraction, extensions);
+	const scored = computeOne(configRows, extraction);
 	await writeScores(db, scored);
 	return scored;
 }
@@ -141,13 +131,12 @@ export async function rescoreOne(
 // criteria_config を 1 回だけ読み、全 job へ適用する（重み・希望値の変更で AI は再実行しない）。
 export async function rescoreAll(
 	db: D1Database,
-	extensions: RescoreExtensions = {},
 ): Promise<readonly RescoredJob[]> {
 	const configRows = await readCriteriaConfig(db);
 	const extractions = await readLatestExtractions(db);
 	const scoredList: RescoredJob[] = [];
 	for (const extraction of extractions) {
-		const scored = computeOne(configRows, extraction, extensions);
+		const scored = computeOne(configRows, extraction);
 		await writeScores(db, scored);
 		scoredList.push(scored);
 	}
@@ -155,29 +144,18 @@ export async function rescoreAll(
 }
 
 // criteria_config 行 + 1 抽出 → 純粋コアで再スコアリング（DB I/O なし）。
+// skillMatch の keyword 突合は config（desired_value 由来）を見て scoreJob が決定的に採点する（#105）。
 function computeOne(
 	configRows: readonly CriteriaConfigRow[],
 	extraction: LatestExtraction,
-	extensions: RescoreExtensions,
 ): RescoredJob {
 	const config = buildScoringConfig(configRows);
 	const hardFilters = buildHardFilterMap(configRows);
-	// 希望スキル集合（aiJudged 拡張点・#68）。criteria_config の aiJudged 行の
-	// desired_value({skills}) を在り処にする。希望値の変更で AI は再実行しない（§5.3）。
-	const desiredSkills = buildDesiredSkills(configRows);
-	// 既定の決定的スキル突合を差す。呼び出し側が skillMatcher を指定すればそちらを優先する。
-	// 明示的な undefined で既定が消えないよう ?? で受ける（spread だと undefined が上書きする）。
-	const withMatcher: RescoreExtensions = {
-		...extensions,
-		skillMatcher: extensions.skillMatcher ?? defaultSkillMatcher,
-	};
 	return rescoreJob(
 		extraction.jobId,
 		extraction.job,
 		extraction.status,
 		config,
 		hardFilters,
-		desiredSkills,
-		withMatcher,
 	);
 }

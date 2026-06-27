@@ -54,11 +54,8 @@ export const NORMALIZED_KEYS = [
 
 // §5.2 の正規化類型。スコアリングはこの kind で算出方式を分岐する。
 // coverage は benefitsCoverage（福利厚生の充足率）用（#101 で追加・設計書 §5.2）。
-export type NormalizationKind =
-	| "numericRange"
-	| "categorical"
-	| "aiJudged"
-	| "coverage";
+// skillMatch は categorical（求人スキル集合）で持ち、採点は config 側の keyword 突合で行う（#105）。
+export type NormalizationKind = "numericRange" | "categorical" | "coverage";
 
 // 数値レンジ値。レンジ求人は下限/上限で持ち、単一値は min === max で表す。
 export interface NumericRangeValue {
@@ -73,13 +70,6 @@ export interface NumericRangeValue {
 export interface CategoricalValue {
 	readonly kind: "categorical";
 	readonly categories: readonly string[];
-	readonly raw?: string;
-}
-
-// AI判定値。抽出フェーズで 0〜100 相当の判定値として得る（§5.2 AI判定）。
-export interface AiJudgedValue {
-	readonly kind: "aiJudged";
-	readonly score: number;
 	readonly raw?: string;
 }
 
@@ -110,7 +100,6 @@ export interface UnknownValue {
 export type NormalizedFieldValue =
 	| NumericRangeValue
 	| CategoricalValue
-	| AiJudgedValue
 	| CoverageValue
 	| UnknownValue;
 

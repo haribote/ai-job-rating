@@ -62,8 +62,8 @@ export type RawExtractionFields = Partial<Record<NormalizedKey, string>>;
 // 各正規キーを抽出時にどの値種別（NormalizedFieldValue.kind）へ寄せるか（§5.2）。
 // numericRange: 数値レンジ（年収・休日数・人数・資本金）/ categorical: 正規化済みカテゴリ /
 // coverage: 福利厚生の充足率（signal 抽出は #102。#101 では unknown 中立に畳む）。
-// 注: skillMatch は値としては categorical（求人スキル集合）で持ち、採点側は keyword 突合の config
-//     kind（criteria-config の aiJudged 機構）で評価する。値種別と config kind の役割が異なる。
+// 注: skillMatch は値としては categorical（求人スキル集合）で持ち、採点側は config kind keywordMatch
+//     （ユーザー keyword とのヒット率・#105）で評価する。値種別と config kind の役割が異なる。
 const KIND_BY_KEY: Record<NormalizedKey, NormalizationKind> = {
 	annualSalary: "numericRange",
 	bonus: "numericRange",

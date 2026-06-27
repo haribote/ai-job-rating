@@ -33,7 +33,7 @@ export type NormalizedKeyKind =
 			// コード側で固定する（フルリモート別格）。desired_value には持たせず DB へ漏らさない。
 			readonly tierScores?: Readonly<Record<string, number>>;
 	  }
-	| { readonly kind: "aiJudged" }
+	| { readonly kind: "keywordMatch" }
 	| { readonly kind: "coverage" };
 
 // 正規キー → kind の対応。NormalizedKey の全キーを網羅する（型で担保）。5軸再カテゴリ化は #101。
@@ -48,8 +48,8 @@ export const NORMALIZED_KEY_KINDS: Record<NormalizedKey, NormalizedKeyKind> = {
 	// 柔軟な働き方。remoteWork はフルリモート別格の tier 採点を持つ（#104）。
 	remoteWork: { kind: "categorical", tierScores: REMOTE_WORK_TIER_SCORES },
 	flexWork: { kind: "categorical" },
-	// 仕事・スキル。希望キーワードとの AI 非依存の決定的突合（aiJudged 機構を流用・#106 で keyword 化）。
-	skillMatch: { kind: "aiJudged" },
+	// 仕事・スキル。求人スキル集合 × ユーザー keyword の AI 非依存の決定的ヒット採点（#105）。
+	skillMatch: { kind: "keywordMatch" },
 	// 企業: 規模・資本金は高いほど良い。
 	companySize: { kind: "numericRange", direction: "higherBetter" },
 	capital: { kind: "numericRange", direction: "higherBetter" },
@@ -73,10 +73,10 @@ interface CategoricalDesiredValue {
 	readonly preferred: readonly string[];
 }
 
-// aiJudged の desired_value: 希望スキル集合（#68）。スコアリング側で求人スキルと突合する。
-// 例: 必須スキル適合 → { "skills": ["go", "typescript"] }。
-interface SkillsDesiredValue {
-	readonly skills: readonly string[];
+// keywordMatch の desired_value: ユーザー設定の keyword 集合（#105）。スコアリング側で求人スキルと突合する。
+// 例: スキル適合 → { "keywords": ["go", "typescript"] }。
+interface KeywordsDesiredValue {
+	readonly keywords: readonly string[];
 }
 
 // coverage の desired_value: 重視する benefitsCoverage signal 集合（#102）。
@@ -101,11 +101,11 @@ function isCategoricalDesiredValue(v: unknown): v is CategoricalDesiredValue {
 	);
 }
 
-function isSkillsDesiredValue(v: unknown): v is SkillsDesiredValue {
+function isKeywordsDesiredValue(v: unknown): v is KeywordsDesiredValue {
 	if (typeof v !== "object" || v === null) return false;
 	const o = v as Record<string, unknown>;
 	return (
-		Array.isArray(o.skills) && o.skills.every((s) => typeof s === "string")
+		Array.isArray(o.keywords) && o.keywords.every((k) => typeof k === "string")
 	);
 }
 
@@ -178,9 +178,12 @@ export function criteriaRowToItemConfig(
 					: {}),
 			};
 		}
-		case "aiJudged":
-			// aiJudged は希望値を desired_value に持たない（突合は抽出側の score に集約、#68）。
-			return { weight: row.weight, kind: "aiJudged" };
+		case "keywordMatch": {
+			// keyword 集合を desired_value({keywords}) から取り込む（#105）。不正・未設定は空集合＝中立。
+			const dv = parseDesiredValue(row.desired_value);
+			const keywords = isKeywordsDesiredValue(dv) ? dv.keywords : [];
+			return { weight: row.weight, kind: "keywordMatch", keywords };
+		}
 		case "coverage": {
 			// coverage の充足率は抽出済みの signal 集合から算出する。重視 signal があれば重み付けする（#102）。
 			const dv = parseDesiredValue(row.desired_value);
@@ -212,34 +215,6 @@ export function buildScoringConfig(
 		items[row.criterion as NormalizedKey] = itemConfig;
 	}
 	return { items };
-}
-
-// ---------------------------------------------------------------------------
-// aiJudged の希望スキル集合（#68 拡張点）
-// ---------------------------------------------------------------------------
-
-// aiJudged 項目ごとの希望スキル集合。求人スキルとの突合（skill-matcher）に渡す。
-// ScoringItemConfig に載せないのは、score.ts が希望集合を参照せず（aiJudged は weight のみ）、
-// 突合は rescore-core の拡張点で行うため。希望集合の在り処をここに一元化する（§5.3）。
-export type DesiredSkillsMap = Partial<
-	Record<NormalizedKey, readonly string[]>
->;
-
-// criteria_config から aiJudged キーの希望スキル集合を抽出する（決定的）。
-// desired_value({skills:[...]}) を持つ aiJudged 行だけを拾う。skills 不在・壊れた JSON・
-// aiJudged でないキーは持たない（= 未設定。matcher 側で中立扱い）。
-export function buildDesiredSkills(
-	rows: readonly CriteriaConfigRow[],
-): DesiredSkillsMap {
-	const map: Record<string, readonly string[]> = {};
-	for (const row of rows) {
-		const keyKind = NORMALIZED_KEY_KINDS[row.criterion as NormalizedKey];
-		if (keyKind?.kind !== "aiJudged") continue;
-		const dv = parseDesiredValue(row.desired_value);
-		if (!isSkillsDesiredValue(dv)) continue;
-		map[row.criterion] = dv.skills;
-	}
-	return map;
 }
 
 // ---------------------------------------------------------------------------
