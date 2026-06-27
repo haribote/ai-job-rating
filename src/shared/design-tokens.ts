@@ -1,18 +1,16 @@
 // デザインシステムの単一の真実 (single source of truth)。
 //
 // なぜこのモジュールが存在するか:
-// - 要件 §11: デザインシステム（カラー・タイポグラフィ・間隔等）を管理し、確定したトークンを
-//   リポジトリ側（CSS）へ反映する。Claude Design は管理・可視化に用いるが実行時依存にはしない。
-// - トークンはプレーンな TypeScript データとして持ち、ビルド時に CSS custom properties へ変換する
-//   （design-tokens-css.ts）。これにより Claude Design 無しでもビルド・デプロイできる状態を保つ。
+// - 要件 §11: デザイン値（カラー・タイポグラフィ・間隔等）を管理し、Tailwind theme と
+//   shadcn の :root CSS 変数の両方をここから決定的に導出する（#97）。Claude Design は管理・可視化に
+//   用いるが実行時依存にはしない。Claude Design 無しでもビルド・デプロイできる状態を保つ。
+// - トークンはプレーンな TypeScript データとして持ち、変換は純粋関数（本ファイル下部）に閉じて
+//   ユニットテスト（design-tokens.test.ts）で単一ソース性を担保する。値の二重定義を作らない。
 // - フォーク容易性: アカウント固有値・秘匿情報を含めない。汎用のデザイン値のみを定義する。
-// - 後続 UI（#18 ランキング一覧 / #19 設定UI）はここで確定した CSS 変数名（--ajr-*）を参照する。
+// - UI（Wave 3 #108–#114）は Tailwind ユーティリティ（bg-primary 等）と shadcn コンポーネント経由で参照する。
 
-// トークン名（フラットキー）→ CSS 値。CSS では `--ajr-<キー>` の custom property になる。
+// トークン名（フラットキー）→ デザイン値。下部の変換関数が Tailwind theme / CSS 変数へ供給する。
 export type TokenMap = Record<string, string>;
-
-// 一貫した接頭辞。フォーク先での衝突を避け、由来を明示する（ai-job-rating）。
-export const TOKEN_PREFIX = "ajr";
 
 // カラートークン。意味的な役割名で持ち、生の HEX は値側に閉じる（UI は役割名のみ参照する）。
 export const colorTokens: TokenMap = {
@@ -67,21 +65,6 @@ export const surfaceTokens: TokenMap = {
 export const layoutTokens: TokenMap = {
 	"layout-max-width": "72rem",
 };
-
-// 全トークンを 1 つの順序付きグループ配列に集約する。
-// グループ順・グループ内のキー順を固定し、CSS 生成を決定的にする（同一入力→同一出力, §8）。
-export interface TokenGroup {
-	name: string;
-	tokens: TokenMap;
-}
-
-export const tokenGroups: TokenGroup[] = [
-	{ name: "color", tokens: colorTokens },
-	{ name: "typography", tokens: typographyTokens },
-	{ name: "spacing", tokens: spacingTokens },
-	{ name: "surface", tokens: surfaceTokens },
-	{ name: "layout", tokens: layoutTokens },
-];
 
 // ───────────────────────────────────────────────────────────────────────────
 // Tailwind / shadcn への供給（#97）

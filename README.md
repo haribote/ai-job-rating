@@ -91,7 +91,7 @@ npm run deploy
 npm test                 # ユニットテスト (Vitest)
 npm run typecheck        # 型チェック
 npm run lint             # Biome
-npm run build:css:check  # design-tokens と public/styles.css の同期確認
+npm run build            # SPA を Tailwind 経由でビルド（public/ へ出力）
 npm run e2e              # Playwright E2E
 ```
 

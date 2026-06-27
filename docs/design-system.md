@@ -1,51 +1,61 @@
-# デザインシステム（#27）
+# デザインシステム（#27 / #97）
 
-要件 §11 の方針に基づく、リポジトリにコミット済みのデザイントークン／CSS。
-Claude Design は管理・可視化に用いるが**実行時依存にはしない**。後続 UI（#18 ランキング一覧 / #19 設定UI）はここで確定したトークンを参照する。
+要件 §11 の方針に基づくデザイントークン管理。`src/shared/design-tokens.ts` を**単一の真実**とし、
+そこから Tailwind theme と shadcn/ui の :root CSS 変数を決定的に導出する（#97 で `public/styles.css` 直生成から移行）。
+Claude Design は管理・可視化に用いるが**実行時依存にはしない**。
 
 ## ファイル配置
 
 | 役割 | パス |
 |---|---|
-| トークン定義（単一の真実） | `src/design-tokens.ts` |
-| トークン → CSS 変換（決定的・テスト済み） | `src/design-tokens-css.ts` |
-| 変換のユニットテスト | `src/design-tokens-css.test.ts` |
-| ビルドスクリプト（CSS 生成 / 同期検査） | `scripts/build-css.mjs` |
-| **生成済み CSS（配信物・コミット対象）** | `public/styles.css` |
+| トークン定義（単一の真実） | `src/shared/design-tokens.ts` |
+| トークン → Tailwind theme / CSS 変数の変換（決定的・テスト済み） | `src/shared/design-tokens.ts`（`toTailwindTheme` / `toRootCssVars` 等） |
+| 変換のユニットテスト（単一ソース性） | `src/shared/design-tokens.test.ts` |
+| Tailwind 設定（トークンを theme/:root へ供給する薄いラッパ） | `tailwind.config.ts` |
+| PostCSS 設定（Tailwind / autoprefixer） | `postcss.config.js` |
+| スタイルエントリ（Tailwind ディレクティブ＋ shadcn base） | `src/client/styles/globals.css` |
+| shadcn 設定 | `components.json` |
+| shadcn UI プリミティブ | `src/client/components/ui/*` |
 
-`public/styles.css` は `src/design-tokens.ts` から決定的に生成される自動生成ファイル。**直接編集しない**。
-トークンを変えたら `npm run build:css` で再生成してコミットする。`npm run build:css:check` で同期を検査できる（CI 向け）。
+スタイルは `src/client/main.tsx` が `globals.css` を import し、Vite が PostCSS/Tailwind 経由でバンドルして
+`public/assets/` へ出力する（Worker の `assets` バインディングで配信）。生成物は `.gitignore` 済みで、
+トークンを変えたら `design-tokens.ts` のみ修正すれば theme・CSS 変数・全 UI に波及する（再生成スクリプトは不要）。
 
 ## UI からの参照方法
 
-### 1. CSS 変数（推奨・SSR / 静的どちらでも）
+### 1. Tailwind ユーティリティ（推奨）
 
-各ページの `<head>` で `<link rel="stylesheet" href="/styles.css" />` を読み込むと、ベース要素スタイル（`body` / `main` / `h1` / `p` / `a` / `form` / `input` / `textarea` / `button` / `table` / `th` / `td` / `:focus-visible`）が自動で適用される。追加スタイルではトークンを CSS 変数で参照する:
+shadcn 意味カラーは Tailwind ユーティリティとして使う。値は `design-tokens.ts` 由来の CSS 変数を
+`rgb(var(--name) / <alpha-value>)` で参照するため、opacity modifier（例: `bg-primary/90`）も機能する。
 
-```css
-.score-badge {
-  color: var(--ajr-color-primary);
-  padding: var(--ajr-space-2) var(--ajr-space-3);
-  border-radius: var(--ajr-radius-sm);
-}
+```tsx
+<div className="bg-card text-card-foreground border-border rounded-lg p-4">
+  <span className="text-primary">…</span>
+</div>
 ```
 
-`/styles.css` は Worker の静的資産（`wrangler.jsonc` の `assets` バインディング, `./public`）として配信される。既存 SSR ページ（`url-input.ts` / `paste-input.ts` / `result-display.ts`）と `public/index.html` は読み込み済み。
+主な色名: `background` / `foreground` / `card` / `popover` / `primary` / `secondary` / `muted` /
+`accent` / `destructive` / `border` / `input` / `ring`（各 `*-foreground` あり）。
+チャート色は `chart-1`..`chart-5`（`fill-chart-1` 等）。
 
-### 2. TypeScript からの変数参照ヘルパ
+### 2. shadcn コンポーネント
 
-`design-tokens-css.ts` の `tokenVar("color-primary")` が `var(--ajr-color-primary)` を返す。インライン style を組む際に変数名のハードコードを避けられる。
+`@/components/ui/*`（`@` = `src/client`）から import する。クラス結合は `@/lib/utils` の `cn()`。
+導入済み: `button` / `card` / `sheet` / `dialog` / `badge` / `skeleton` / `table` / `chart`（Recharts）。
+アイコンは `lucide-react`。
 
-## トークン名一覧（接頭辞 `--ajr-`）
+## トークン定義
 
-CSS 変数名は `--ajr-<キー>`。グループ／キーは `src/design-tokens.ts` の挿入順で決定的に出力される。
+`design-tokens.ts` の `colorTokens` / `typographyTokens` / `spacingTokens` / `surfaceTokens` /
+`layoutTokens` が値を持ち、以下の純粋関数が Tailwind / shadcn へ供給する:
 
-- **color**: `color-bg` `color-surface` `color-border` `color-text` `color-text-muted` `color-primary` `color-primary-text` `color-accent` `color-danger` `color-focus-ring`
-- **typography**: `font-sans` `font-mono` `font-size-sm` `font-size-base` `font-size-lg` `font-size-xl` `line-height-tight` `line-height-base` `font-weight-normal` `font-weight-bold`
-- **spacing**: `space-0` `space-1` `space-2` `space-3` `space-4` `space-6` `space-8`（4px グリッド）
-- **surface**: `radius-sm` `radius-md` `border-width` `shadow-sm`
-- **layout**: `layout-max-width`
+- `hexToRgbChannels(hex)` — hex → `"R G B"`（`<alpha-value>` 合成用）
+- `shadcnColorMap` / `chartColorMap` — 意味カラー名・チャート色名 → トークンキーの対応
+- `toRootCssVars()` — `:root` に注入する CSS 変数（`--primary` 等＋`--radius`）。`tailwind.config.ts` の base プラグインが注入
+- `toThemeColors()` / `toTailwindTheme()` — Tailwind の `theme.extend`（colors / fontFamily / fontSize / spacing / borderRadius 等）
 
 ## Claude Design 連携（要手動検証）
 
-Claude Design 上でのデザインシステム管理・可視化（live 同期）は外部サービス連携のため、本リポジトリのビルド／デプロイの前提にはしない。トークンの整合は `src/design-tokens.ts` を真実とし、Claude Design 側はその反映先として人間が手動で同期・確認する。
+Claude Design 上でのデザインシステム管理・可視化（live 同期）は外部サービス連携のため、本リポジトリの
+ビルド／デプロイの前提にはしない。トークンの整合は `src/shared/design-tokens.ts` を真実とし、Claude Design
+側はその反映先として人間が手動で同期・確認する。

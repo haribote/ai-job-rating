@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -16,7 +17,8 @@ export default defineConfig({
 	resolve: {
 		// shadcn 規約のパスエイリアス（@/components, @/lib 等）。tsconfig.client.json の paths と一致させる。
 		alias: {
-			"@": resolve(import.meta.dirname, "src/client"),
+			// engines.node が ">=20" のため import.meta.dirname（20.11+）に依存せず file URL から導出する。
+			"@": resolve(dirname(fileURLToPath(import.meta.url)), "src/client"),
 		},
 	},
 	build: {
