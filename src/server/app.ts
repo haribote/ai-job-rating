@@ -34,6 +34,9 @@ export interface Bindings {
 	DB: D1Database;
 	// R2 バインディング（wrangler.jsonc の r2_buckets.binding と一致, §6）。生 HTML 等の保存に使う（#17）
 	RAW_HTML: R2Bucket;
+	// 抽出モデル ID の上書き（wrangler.jsonc の vars.EXTRACTION_MODEL / .dev.vars, §7.1 / #106）。
+	// 未設定なら extract.ts の resolveExtractionModel がコード既定へフォールバックする（フォーク容易性 §8）。
+	EXTRACTION_MODEL?: string;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）。
@@ -85,6 +88,7 @@ app.post("/api/jobs", async (c) => {
 				db: c.env.DB,
 				bucket: c.env.RAW_HTML,
 				queue: c.env.JOB_QUEUE,
+				model: c.env.EXTRACTION_MODEL,
 			},
 			validated.url,
 		);
@@ -107,7 +111,12 @@ app.post("/api/jobs", async (c) => {
 		return c.json({ error: "invalid html", reason: validated.reason }, status);
 	}
 	const ingested = await ingestFromHtml(
-		{ ai: c.env.AI, db: c.env.DB, bucket: c.env.RAW_HTML },
+		{
+			ai: c.env.AI,
+			db: c.env.DB,
+			bucket: c.env.RAW_HTML,
+			model: c.env.EXTRACTION_MODEL,
+		},
 		validated.html,
 	);
 	return c.json({ jobId: ingested.jobId, status: ingested.status }, 201);
@@ -125,7 +134,12 @@ app.get("/api/jobs/:id", async (c) => {
 // 設定変更の再スコア（PUT /api/config・AI 非再実行）とは別軸の明示操作。未存在/生 HTML 不在は 404。
 app.post("/api/jobs/:id/reextract", async (c) => {
 	const result = await reextractJob(
-		{ ai: c.env.AI, db: c.env.DB, bucket: c.env.RAW_HTML },
+		{
+			ai: c.env.AI,
+			db: c.env.DB,
+			bucket: c.env.RAW_HTML,
+			model: c.env.EXTRACTION_MODEL,
+		},
 		c.req.param("id"),
 	);
 	if (result === null)

@@ -83,6 +83,8 @@ export interface IngestDeps {
 	db: D1Database;
 	bucket: RawHtmlBucket;
 	queue: DetailQueue;
+	// 抽出に使うモデル ID（アダプタの差し戻し点・#106）。handler が env.EXTRACTION_MODEL を渡す。
+	model?: string;
 	// テスト用に fetch を差し替える。未指定時は fetchHtml が globalThis.fetch を使う。
 	fetcher?: Fetcher;
 	timeoutMs?: number;
@@ -125,7 +127,7 @@ export async function ingestFromUrl(
 		return { kind: "list", count };
 	}
 	const ingested = await ingestJob(
-		{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
+		{ ai: deps.ai, db: deps.db, bucket: deps.bucket, model: deps.model },
 		{ html, sourceType: "detail", sourceUrl: url },
 	);
 	return {
@@ -137,11 +139,11 @@ export async function ingestFromUrl(
 
 // 貼り付け HTML を取込→永続化し、jobId と抽出状態を返す（抽出 1 回・§5.3）。
 export async function ingestFromHtml(
-	deps: Pick<IngestDeps, "ai" | "db" | "bucket">,
+	deps: Pick<IngestDeps, "ai" | "db" | "bucket" | "model">,
 	html: string,
 ): Promise<{ jobId: string; status: ExtractionStatus }> {
 	const ingested = await ingestJob(
-		{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
+		{ ai: deps.ai, db: deps.db, bucket: deps.bucket, model: deps.model },
 		{ html, sourceType: "paste" },
 	);
 	return { jobId: ingested.jobId, status: ingested.extractionStatus };
@@ -319,7 +321,7 @@ export async function readJobDetail(
 // 保存済みの生 HTML(R2) を読み戻し、同一 job へ取込し直す（新規 job を作らない）。
 // 求人・生 HTML が無ければ null（呼び出し側が 404 にする）。
 export async function reextractJob(
-	deps: Pick<IngestDeps, "ai" | "db" | "bucket">,
+	deps: Pick<IngestDeps, "ai" | "db" | "bucket" | "model">,
 	jobId: string,
 ): Promise<{ status: ExtractionStatus } | null> {
 	const jobRow = await deps.db
@@ -338,7 +340,7 @@ export async function reextractJob(
 	// source_url を一次キーに同一 job へ取込し直す（sourceType は paste 含め "detail" 経路で
 	// 既存 job に集約され、新 id を採番しない）。AI 抽出はここで再実行される（意図的）。
 	const ingested = await ingestJob(
-		{ ai: deps.ai, db: deps.db, bucket: deps.bucket },
+		{ ai: deps.ai, db: deps.db, bucket: deps.bucket, model: deps.model },
 		{ html, sourceType: "detail", sourceUrl: jobRow.source_url },
 	);
 	return { status: ingested.extractionStatus };

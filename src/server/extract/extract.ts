@@ -23,10 +23,19 @@ import {
 } from "../scoring/benefits-coverage";
 import type { AiRunner } from "./ai";
 
-// 抽出に使う既定モデル。要件 §7.1 候補のうち JSON Mode 対応かつ日本語実用域の Llama 3.3 を採用する。
+// 抽出に使う既定モデル（コード側の最終フォールバック）。要件 §7.1 候補のうち JSON Mode 対応の Llama 3.3。
 // 一次ソース（Workers AI JSON Mode の Supported Models）に掲載されるモデルから選ぶ。
-// 最終的なデフォルトモデルは日本語抽出精度の比較スパイク（#15）で確定する（要手動検証）。
+// フォーク容易性（§8）: 実運用の既定はここを直接書き換えず wrangler.jsonc の vars.EXTRACTION_MODEL /
+//   .dev.vars で上書きする。本定数は env 未設定時のフォールバックに限る（既定変更は wrangler.jsonc 1 箇所）。
+// 既定の最終確定はモデル再評価スパイク（#106）の live golden 横並びで行う（要手動検証）。
 export const EXTRACTION_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+
+// 設定値（env.EXTRACTION_MODEL）から実効モデル ID を解決する（アダプタの差し戻し点・#106）。
+// 空文字・未設定はコード既定へフォールバックし、フォーク先が vars 未設定でも動くようにする。
+export function resolveExtractionModel(configured?: string): string {
+	const trimmed = configured?.trim();
+	return trimmed ? trimmed : EXTRACTION_MODEL;
+}
 
 // 抽出結果のステータス。呼び出し側が「unknown 中立」と「抽出失敗」を区別できるようにする（§5.2）。
 // - ok: AI 呼出が成功（個々の項目が unknown でも、それは中立として正しく扱える）。
@@ -50,10 +59,13 @@ export const MAX_EXTRACTION_ATTEMPTS = 3;
 // 既定の指数バックオフ基準（ms）。テストでは 0 を注入して即時化する。
 const DEFAULT_BACKOFF_MS = 200;
 
-// extractJob の任意オプション。リトライ挙動を呼び出し側／テストから調整できるようにする。
+// extractJob の任意オプション。リトライ挙動・使用モデルを呼び出し側／テストから調整できるようにする。
 export interface ExtractJobOptions {
 	// 指数バックオフの基準値（ms）。attempt 回目の待機は backoffMs * 2^(attempt-1)。
 	readonly backoffMs?: number;
+	// 抽出に使うモデル ID。未指定はコード既定（EXTRACTION_MODEL）。
+	// モデル横断 golden 評価（#106）が候補ごとに注入し、本番は env 解決値が渡る（アダプタの差し戻し点）。
+	readonly model?: string;
 }
 
 // 抽出時に AI へ要求する「正規キーごとの生抽出文字列」。値は素のテキスト（正規化前）。
@@ -435,11 +447,13 @@ export async function extractJob(
 ): Promise<ExtractionResult> {
 	const extractedAt = new Date().toISOString();
 	const backoffMs = options.backoffMs ?? DEFAULT_BACKOFF_MS;
+	// 使用モデルは options.model（注入）を優先し、未指定はコード既定へ解決する（アダプタの差し戻し点・#106）。
+	const model = resolveExtractionModel(options.model);
 	// 空判定は trimHtml の出力契約（空文字の可能性）に従う。AI 呼出前に弾く。
 	if (body.trim() === "") {
 		return {
 			job: allUnknownJob(),
-			model: EXTRACTION_MODEL,
+			model,
 			extractedAt,
 			status: "ok",
 		};
@@ -447,7 +461,7 @@ export async function extractJob(
 
 	for (let attempt = 1; attempt <= MAX_EXTRACTION_ATTEMPTS; attempt += 1) {
 		try {
-			const output = await ai.run(EXTRACTION_MODEL, {
+			const output = await ai.run(model, {
 				messages: buildExtractionMessages(body),
 				response_format: {
 					type: "json_schema",
@@ -459,7 +473,7 @@ export async function extractJob(
 			const fields = extractRawFields(output);
 			return {
 				job: rawFieldsToNormalizedJob(fields),
-				model: EXTRACTION_MODEL,
+				model,
 				extractedAt,
 				status: "ok",
 			};
@@ -478,7 +492,7 @@ export async function extractJob(
 	// status: extraction_failed で「抽出失敗」を呼び出し側に伝える（中立スコアと誤認させない）。
 	return {
 		job: allUnknownJob(),
-		model: EXTRACTION_MODEL,
+		model,
 		extractedAt,
 		status: "extraction_failed",
 	};

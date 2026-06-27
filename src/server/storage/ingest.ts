@@ -33,6 +33,9 @@ export interface IngestDeps {
 	db: D1Database;
 	bucket: RawHtmlBucket;
 	ai: AiRunner;
+	// 抽出に使うモデル ID（アダプタの差し戻し点・#106）。未指定はコード既定へ解決する。
+	// 本番は env.EXTRACTION_MODEL（wrangler.jsonc vars / .dev.vars）が handler 経由で渡る。
+	model?: string;
 	// 既定は crypto.randomUUID。jobs / extractions の id 採番に使う。
 	newId?: () => string;
 	// 既定は現在 unix 秒。fetched_at / extracted_at に使う。
@@ -82,7 +85,10 @@ export async function ingestJob(
 	const ts = now();
 
 	// 抽出は 1 回だけ実行する（§5.3）。本文が空でも extractJob が全 unknown を返す。
-	const extraction = await extractJob(deps.ai, trimHtml(input.html));
+	// モデルは deps.model（env 解決値）を渡す。未指定は extractJob 側でコード既定へ解決する（#106）。
+	const extraction = await extractJob(deps.ai, trimHtml(input.html), {
+		model: deps.model,
+	});
 	const dbStatus = toDbStatus(extraction.status);
 
 	// jobs 行を確定する。paste は安定した識別子を持たないため job ごとに合成 URL を採番する。
