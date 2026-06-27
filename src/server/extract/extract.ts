@@ -22,6 +22,13 @@ import {
 	detectBenefitSignals,
 } from "../scoring/benefits-coverage";
 import type { AiRunner } from "./ai";
+import {
+	mergeBenefitFields,
+	type PrepareContentOptions,
+	prepareExtractionContent,
+} from "./content-extract";
+import { resolveExtractionMechanism } from "./mechanism";
+import type { ExtractionMechanism } from "./model-eval";
 
 // 抽出に使う既定モデル（コード側の最終フォールバック）。要件 §7.1 候補のうち JSON Mode 対応の Llama 3.3。
 // 一次ソース（Workers AI JSON Mode の Supported Models）に掲載されるモデルから選ぶ。
@@ -47,6 +54,8 @@ export type ExtractionStatus = "ok" | "extraction_failed";
 export interface ExtractionResult {
 	readonly job: NormalizedJob;
 	readonly model: string;
+	// 実際に使った出力機構（json-mode / function-calling）。永続化の mechanism 列・監査に使う（#107）。
+	readonly mechanism: ExtractionMechanism;
 	// ISO8601。再取得・再抽出の要否判断（ページ内容変更時のみ）に使う監査メタ。
 	readonly extractedAt: string;
 	// 抽出が成立したか。extraction_failed の全 unknown を中立スコアと誤認させないための区別。
@@ -66,6 +75,9 @@ export interface ExtractJobOptions {
 	// 抽出に使うモデル ID。未指定はコード既定（EXTRACTION_MODEL）。
 	// モデル横断 golden 評価（#106）が候補ごとに注入し、本番は env 解決値が渡る（アダプタの差し戻し点）。
 	readonly model?: string;
+	// 出力機構の明示指定（json-mode / function-calling）。未指定はモデル ID から解決する（#107）。
+	// eval や検証で機構だけ差し替えたい場合の差し戻し点。
+	readonly mechanism?: ExtractionMechanism;
 }
 
 // 抽出時に AI へ要求する「正規キーごとの生抽出文字列」。値は素のテキスト（正規化前）。
@@ -149,6 +161,67 @@ export function buildExtractionJsonSchema(): ExtractionJsonSchema {
 			: { type: "string" };
 	}
 	return { type: "object", properties };
+}
+
+// FC（Function calling）で要求するツール定義（Workers AI traditional FC 形・一次ソース:
+// https://developers.cloudflare.com/workers-ai/features/function-calling/traditional/ ）。
+// JSON Mode の json_schema と同じ properties を tools.parameters へ写し、両機構で出力スキーマを揃える。
+export interface ExtractionTool {
+	readonly name: string;
+	readonly description: string;
+	readonly parameters: {
+		readonly type: "object";
+		readonly properties: Readonly<
+			Record<string, { readonly type: "string"; readonly description?: string }>
+		>;
+		// 全キーを required にする。なぜ: #15 で llama-4-scout は required 未指定だとキーを取りこぼした。
+		// 未記載キーは system プロンプトに従い "-" を返させ、コード側で unknown 中立へ寄せる。
+		readonly required: readonly string[];
+	};
+}
+
+// FC ツール名。レスポンス（tool_calls[].name）の同定に使う。
+export const EXTRACTION_TOOL_NAME = "extract_job_fields";
+
+// FC 用のツール定義を組み立てる（決定的）。json_schema と同じ properties を共有する。
+export function buildExtractionTool(): ExtractionTool {
+	const schema = buildExtractionJsonSchema();
+	return {
+		name: EXTRACTION_TOOL_NAME,
+		description:
+			"求人本文から正規スキーマの各キーに対応する記載を原文の表記のまま抽出する。",
+		parameters: {
+			type: "object",
+			properties: schema.properties,
+			required: [...NORMALIZED_KEYS],
+		},
+	};
+}
+
+// 機構に応じた ai.run の inputs を組み立てる（決定的）。
+// json-mode は response_format(json_schema)、function-calling は tools + tool_choice を渡す。
+function buildExtractionRequest(
+	body: string,
+	mechanism: ExtractionMechanism,
+): unknown {
+	const messages = buildExtractionMessages(body);
+	if (mechanism === "function-calling") {
+		const tool = buildExtractionTool();
+		return {
+			messages,
+			tools: [tool],
+			// 単一ツールを強制し、平文応答に逃げさせない（OpenAI 互換 tool_choice 形）。
+			// 受理形はモデル依存のため live で要確認（#106 eval）。非対応モデルは throw → extraction_failed。
+			tool_choice: { type: "function", function: { name: tool.name } },
+		};
+	}
+	return {
+		messages,
+		response_format: {
+			type: "json_schema",
+			json_schema: buildExtractionJsonSchema(),
+		},
+	};
 }
 
 // 注記・補足を除去する（決定的）。NFKC 後に括弧（半角/全角どちらも () へ正規化済み）の中身と
@@ -380,13 +453,9 @@ function allUnknownJob(): NormalizedJob {
 	return rawFieldsToNormalizedJob({});
 }
 
-// AiRunner の戻り値（JSON Mode）から生フィールドを安全に取り出す。
-// JSON Mode のレスポンスは { response: <object|string> } 形（一次ソース §7.1）。想定外は {} へ。
-function extractRawFields(output: unknown): RawExtractionFields {
-	if (typeof output !== "object" || output === null) return {};
-	const response = (output as { response?: unknown }).response;
-	const obj =
-		typeof response === "string" ? safeParse(response) : (response ?? {});
+// 任意のオブジェクトから「正規キー = 文字列」のペアだけを拾う（両機構の最終合流点）。
+// 想定外（非オブジェクト・非文字列値）は無視し、取れたキーのみ返す（落とさない）。
+function fieldsFromObject(obj: unknown): RawExtractionFields {
 	if (typeof obj !== "object" || obj === null) return {};
 	const fields: RawExtractionFields = {};
 	for (const key of NORMALIZED_KEYS) {
@@ -396,6 +465,91 @@ function extractRawFields(output: unknown): RawExtractionFields {
 		}
 	}
 	return fields;
+}
+
+// AiRunner の戻り値（JSON Mode）から生フィールドを安全に取り出す。
+// JSON Mode のレスポンスは { response: <object|string> } 形（一次ソース §7.1）。想定外は {} へ。
+function extractRawFields(output: unknown): RawExtractionFields {
+	if (typeof output !== "object" || output === null) return {};
+	const response = (output as { response?: unknown }).response;
+	const obj =
+		typeof response === "string" ? safeParse(response) : (response ?? {});
+	return fieldsFromObject(obj);
+}
+
+// 1 件の tool call（機構間の差を吸収した形）。arguments は object か JSON 文字列。
+interface ToolCall {
+	readonly name?: string;
+	readonly arguments: unknown;
+}
+
+// FC レスポンスから tool_calls を機構差を吸収して集める。
+// Workers AI traditional: { tool_calls: [{ name, arguments }] }
+//   （一次ソース: function-calling/traditional/。arguments は object か JSON 文字列）。
+// OpenAI 互換: { choices: [{ message: { tool_calls: [{ function: { name, arguments } }] } }] }。
+function collectToolCalls(output: unknown): ToolCall[] {
+	if (typeof output !== "object" || output === null) return [];
+	const root = output as { tool_calls?: unknown; choices?: unknown };
+	const calls: ToolCall[] = [];
+	pushToolCalls(root.tool_calls, calls);
+	if (Array.isArray(root.choices)) {
+		for (const choice of root.choices) {
+			const messageCalls = (choice as { message?: { tool_calls?: unknown } })
+				?.message?.tool_calls;
+			pushToolCalls(messageCalls, calls);
+		}
+	}
+	return calls;
+}
+
+function pushToolCalls(raw: unknown, into: ToolCall[]): void {
+	if (!Array.isArray(raw)) return;
+	for (const item of raw) {
+		if (typeof item !== "object" || item === null) continue;
+		const obj = item as {
+			name?: unknown;
+			arguments?: unknown;
+			// OpenAI 形は name/arguments を function 配下に持つ。
+			function?: { name?: unknown; arguments?: unknown };
+		};
+		const fn = obj.function;
+		const name =
+			typeof obj.name === "string"
+				? obj.name
+				: typeof fn?.name === "string"
+					? fn.name
+					: undefined;
+		into.push({ name, arguments: obj.arguments ?? fn?.arguments });
+	}
+}
+
+// FC（tool_calls）レスポンスから生フィールドを取り出す。想定外・該当無しは {}（落とさない）。
+// 目的のツール（EXTRACTION_TOOL_NAME）を優先し、無ければ先頭の有効な call を採る。
+function extractFcRawFields(output: unknown): RawExtractionFields {
+	const calls = collectToolCalls(output);
+	const ordered = [
+		...calls.filter((c) => c.name === EXTRACTION_TOOL_NAME),
+		...calls.filter((c) => c.name !== EXTRACTION_TOOL_NAME),
+	];
+	for (const call of ordered) {
+		const obj =
+			typeof call.arguments === "string"
+				? safeParse(call.arguments)
+				: call.arguments;
+		const fields = fieldsFromObject(obj);
+		if (Object.keys(fields).length > 0) return fields;
+	}
+	return {};
+}
+
+// 機構に応じてレスポンスを生フィールドへパースする（決定的）。両機構とも fieldsFromObject へ合流する。
+function parseExtractionOutput(
+	output: unknown,
+	mechanism: ExtractionMechanism,
+): RawExtractionFields {
+	return mechanism === "function-calling"
+		? extractFcRawFields(output)
+		: extractRawFields(output);
 }
 
 // JSON 文字列を安全に解釈する（壊れていれば null）。
@@ -435,7 +589,9 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// 求人本文を JSON Mode で構造化抽出し、正規スキーマへ寄せた抽出結果を返す（§7.1 / §5.3）。
+// 求人本文を構造化抽出し、正規スキーマへ寄せた抽出結果を返す（§7.1 / §5.3）。
+// - 出力機構（json-mode / function-calling）はモデル ID から解決する（options.mechanism で上書き可・#107）。
+//   両機構とも同じ正規化（rawFieldsToNormalizedJob）へ合流する。
 // - 空本文では AI を呼ばず全 unknown を返す（unknown 中立・コスト最小化）。
 // - AI が想定外形を返しても落とさず全 unknown へ畳む（抽出は堅牢に）。throw でなければ status は ok。
 // - transient な upstream 504 は指数バックオフで限定回数リトライする。枯渇／非 transient エラーは
@@ -449,31 +605,30 @@ export async function extractJob(
 	const backoffMs = options.backoffMs ?? DEFAULT_BACKOFF_MS;
 	// 使用モデルは options.model（注入）を優先し、未指定はコード既定へ解決する（アダプタの差し戻し点・#106）。
 	const model = resolveExtractionModel(options.model);
+	// 機構は options.mechanism を優先し、未指定はモデル ID から解決する（カタログ駆動・#107）。
+	const mechanism = options.mechanism ?? resolveExtractionMechanism(model);
 	// 空判定は trimHtml の出力契約（空文字の可能性）に従う。AI 呼出前に弾く。
 	if (body.trim() === "") {
 		return {
 			job: allUnknownJob(),
 			model,
+			mechanism,
 			extractedAt,
 			status: "ok",
 		};
 	}
 
+	const inputs = buildExtractionRequest(body, mechanism);
 	for (let attempt = 1; attempt <= MAX_EXTRACTION_ATTEMPTS; attempt += 1) {
 		try {
-			const output = await ai.run(model, {
-				messages: buildExtractionMessages(body),
-				response_format: {
-					type: "json_schema",
-					json_schema: buildExtractionJsonSchema(),
-				},
-			});
-			// throw されない想定外レスポンス（JSON Mode 未充足等）は upstream 障害ではない。
+			const output = await ai.run(model, inputs);
+			// throw されない想定外レスポンス（スキーマ未充足等）は upstream 障害ではない。
 			// 全 unknown へ畳むが status は ok（リトライ対象外）。
-			const fields = extractRawFields(output);
+			const fields = parseExtractionOutput(output, mechanism);
 			return {
 				job: rawFieldsToNormalizedJob(fields),
 				model,
+				mechanism,
 				extractedAt,
 				status: "ok",
 			};
@@ -493,7 +648,43 @@ export async function extractJob(
 	return {
 		job: allUnknownJob(),
 		model,
+		mechanism,
 		extractedAt,
 		status: "extraction_failed",
+	};
+}
+
+// extractJobFromHtml の任意オプション。extractJob のオプションにコンテンツ予算を加える（#107 Task 14）。
+export interface ExtractFromHtmlOptions
+	extends ExtractJobOptions,
+		PrepareContentOptions {}
+
+// 生 HTML からコンテンツ準備（セクション保持つきトリミング）→ 抽出までを束ねる（#107 Task 14）。
+// - 予算内: 主パス 1 回（従来の extractJob(trimHtml(html)) と同等。golden 入力を変えない）。
+// - 予算超過: 主パス（切り詰め本文）＋ benefits パス（福利厚生/休暇セクション）の分割パスで抽出し、
+//   benefits 系キーを統合する。長文での 504 / context 超過を避けつつ benefitsCoverage を落とさない。
+export async function extractJobFromHtml(
+	ai: AiRunner,
+	rawHtml: string,
+	options: ExtractFromHtmlOptions = {},
+): Promise<ExtractionResult> {
+	const prepared = prepareExtractionContent(rawHtml, {
+		maxChars: options.maxChars,
+	});
+	const mainResult = await extractJob(ai, prepared.main, options);
+	if (!prepared.split) return mainResult;
+
+	// 分割パス: benefits セクションだけで再抽出し、福利厚生/年間休日を主パスへ統合する。
+	const benefitsResult = await extractJob(ai, prepared.benefits, options);
+	return {
+		job: mergeBenefitFields(mainResult.job, benefitsResult.job),
+		model: mainResult.model,
+		mechanism: mainResult.mechanism,
+		extractedAt: mainResult.extractedAt,
+		// どちらかのパスが成立すれば抽出は成立。両方失敗のときだけ extraction_failed。
+		status:
+			mainResult.status === "ok" || benefitsResult.status === "ok"
+				? "ok"
+				: "extraction_failed",
 	};
 }

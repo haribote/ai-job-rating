@@ -10,8 +10,7 @@
 
 import type { NormalizedJob } from "../../shared/job-schema";
 import type { AiRunner } from "../extract/ai";
-import { extractJob } from "../extract/extract";
-import { trimHtml } from "../extract/trim-html";
+import { extractJobFromHtml } from "../extract/extract";
 import { rescoreOne } from "../scoring/rescore";
 import type { ScoreResult } from "../scoring/score";
 import {
@@ -24,9 +23,6 @@ import {
 	putRawHtml,
 	type RawHtmlBucket,
 } from "./raw-html-store";
-
-// 構造化機構の識別子（#65）。現状は Workers AI JSON Mode のみ。フォーク先で増やせる。
-export const EXTRACTION_MECHANISM = "json-mode";
 
 // 取込に必要な依存。id/時刻は注入可能にしてユニットテストを決定的にする。
 export interface IngestDeps {
@@ -84,9 +80,10 @@ export async function ingestJob(
 	const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
 	const ts = now();
 
-	// 抽出は 1 回だけ実行する（§5.3）。本文が空でも extractJob が全 unknown を返す。
+	// 抽出は 1 回だけ実行する（§5.3）。コンテンツ準備（セクション保持トリミング・分割パス）込みで
+	// 生 HTML から抽出する（#107 Task 14）。本文が空でも全 unknown を返す。
 	// モデルは deps.model（env 解決値）を渡す。未指定は extractJob 側でコード既定へ解決する（#106）。
-	const extraction = await extractJob(deps.ai, trimHtml(input.html), {
+	const extraction = await extractJobFromHtml(deps.ai, input.html, {
 		model: deps.model,
 	});
 	const dbStatus = toDbStatus(extraction.status);
@@ -127,7 +124,8 @@ export async function ingestJob(
 			jobId,
 			JSON.stringify(extraction.job),
 			extraction.model,
-			EXTRACTION_MECHANISM,
+			// 実際に使った機構を保存する（json-mode / function-calling・#107）。
+			extraction.mechanism,
 			dbStatus,
 			ts,
 		)

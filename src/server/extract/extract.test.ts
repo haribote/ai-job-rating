@@ -10,8 +10,11 @@ import type { AiRunner } from "./ai";
 import {
 	buildExtractionJsonSchema,
 	buildExtractionMessages,
+	buildExtractionTool,
 	EXTRACTION_MODEL,
+	EXTRACTION_TOOL_NAME,
 	extractJob,
+	extractJobFromHtml,
 	MAX_EXTRACTION_ATTEMPTS,
 	rawFieldsToNormalizedJob,
 	resolveExtractionModel,
@@ -772,5 +775,191 @@ describe("正規化統合（抽出→スコアリング）", () => {
 		const row = breakdown.find((r) => r.key === "annualSalary");
 		// max=900 が desired:700 を満たす → 1.0。min が 0.0002 に汚染されていないこと。
 		expect(row?.score).toBe(1);
+	});
+});
+
+// FC ツール定義（決定的）: json_schema と同じ properties を tools.parameters へ写し、全キー required にする。
+describe("buildExtractionTool", () => {
+	it("正規キーを properties に持ち、全キーを required にする（#15 取りこぼし対策）", () => {
+		const tool = buildExtractionTool();
+		expect(tool.name).toBe(EXTRACTION_TOOL_NAME);
+		expect(tool.parameters.type).toBe("object");
+		for (const key of NORMALIZED_KEYS) {
+			expect(tool.parameters.properties[key]?.type).toBe("string");
+			expect(tool.parameters.required).toContain(key);
+		}
+	});
+});
+
+// FC 機構: tools/tool_choice で要求し、tool_calls から正規スキーマへ寄せる（JSON Mode と同じ正規化へ合流）。
+describe("extractJob (function-calling 機構)", () => {
+	it("FC 候補モデルは tools + tool_choice で run し response_format を使わない", async () => {
+		const calls: Array<{ model: string; inputs: unknown }> = [];
+		const fakeAi: AiRunner = {
+			run: async (model: string, inputs: unknown) => {
+				calls.push({ model, inputs });
+				return {
+					tool_calls: [
+						{
+							name: EXTRACTION_TOOL_NAME,
+							arguments: { annualSalary: "700万〜900万" },
+						},
+					],
+				};
+			},
+		};
+
+		// カタログの FC モデルを指定すれば機構は自動で function-calling に解決される。
+		const result = await extractJob(fakeAi, "本文", {
+			model: "@cf/google/gemma-4-26b-a4b-it",
+		});
+
+		const inputs = calls[0].inputs as {
+			tools?: unknown[];
+			tool_choice?: unknown;
+			response_format?: unknown;
+		};
+		expect(Array.isArray(inputs.tools)).toBe(true);
+		expect(inputs.tool_choice).toBeDefined();
+		expect(inputs.response_format).toBeUndefined();
+		expect(result.mechanism).toBe("function-calling");
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("options.mechanism で機構を明示上書きできる（モデルと独立）", async () => {
+		const calls: Array<{ inputs: unknown }> = [];
+		const fakeAi: AiRunner = {
+			run: async (_model: string, inputs: unknown) => {
+				calls.push({ inputs });
+				return {
+					tool_calls: [
+						{
+							name: EXTRACTION_TOOL_NAME,
+							arguments: { annualSalary: "700万" },
+						},
+					],
+				};
+			},
+		};
+
+		const result = await extractJob(fakeAi, "本文", {
+			mechanism: "function-calling",
+		});
+		const inputs = calls[0].inputs as { tools?: unknown[] };
+		expect(Array.isArray(inputs.tools)).toBe(true);
+		expect(result.mechanism).toBe("function-calling");
+	});
+
+	it("arguments が JSON 文字列でも解釈できる", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				tool_calls: [
+					{
+						name: EXTRACTION_TOOL_NAME,
+						arguments: JSON.stringify({ annualSalary: "700万〜900万" }),
+					},
+				],
+			}),
+		};
+		const result = await extractJob(fakeAi, "本文", {
+			mechanism: "function-calling",
+		});
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("OpenAI 互換形（choices[].message.tool_calls[].function）も解釈できる", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				choices: [
+					{
+						message: {
+							tool_calls: [
+								{
+									function: {
+										name: EXTRACTION_TOOL_NAME,
+										arguments: JSON.stringify({ annualSalary: "700万" }),
+									},
+								},
+							],
+						},
+					},
+				],
+			}),
+		};
+		const result = await extractJob(fakeAi, "本文", {
+			mechanism: "function-calling",
+		});
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("FC 想定外形（tool_calls 無し）でも落とさず全 unknown へ畳む（status ok）", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({ response: "平文に逃げた" }),
+		};
+		const result = await extractJob(fakeAi, "本文", {
+			mechanism: "function-calling",
+		});
+		expect(result.status).toBe("ok");
+		for (const key of NORMALIZED_KEYS) {
+			expect(isUnknown(result.job[key])).toBe(true);
+		}
+	});
+
+	it("空本文は AI を呼ばず機構を結果に反映する", async () => {
+		let called = false;
+		const fakeAi: AiRunner = {
+			run: async () => {
+				called = true;
+				return {};
+			},
+		};
+		const result = await extractJob(fakeAi, "", {
+			mechanism: "function-calling",
+		});
+		expect(called).toBe(false);
+		expect(result.mechanism).toBe("function-calling");
+	});
+});
+
+// 生 HTML からの抽出（コンテンツ準備＋分割パス・#107 Task 14）。
+describe("extractJobFromHtml", () => {
+	it("予算内は主パス 1 回だけ実行する（従来挙動）", async () => {
+		let runs = 0;
+		const fakeAi: AiRunner = {
+			run: async () => {
+				runs += 1;
+				return { response: { annualSalary: "700万" } };
+			},
+		};
+		const html = "<html><body><p>年収 700万</p></body></html>";
+		const result = await extractJobFromHtml(fakeAi, html);
+		expect(runs).toBe(1);
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("予算超過かつ福利厚生ありは主パス＋benefitsパスの2回で抽出し、福利厚生キーを統合する", async () => {
+		const calls: string[] = [];
+		const fakeAi: AiRunner = {
+			run: async (_model: string, inputs: unknown) => {
+				const body = (
+					inputs as { messages: Array<{ role: string; content: string }> }
+				).messages[1].content;
+				calls.push(body);
+				// benefits パス（福利厚生本文を含む）だけ年間休日を返す。
+				if (body.includes("福利厚生")) {
+					return { response: { annualHolidays: "125日" } };
+				}
+				return { response: { annualSalary: "700万" } };
+			},
+		};
+		const filler = "業務内容の説明。".repeat(80);
+		const html = `<html><body><p>${filler}</p><p>福利厚生</p><p>年間休日125日</p></body></html>`;
+
+		const result = await extractJobFromHtml(fakeAi, html, { maxChars: 50 });
+
+		expect(calls.length).toBe(2);
+		// 主パスの年収と benefits パスの年間休日が統合される。
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+		expect(result.job.annualHolidays.kind).toBe("numericRange");
 	});
 });
