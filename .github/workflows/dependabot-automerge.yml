@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Dependabot メタデータ取得
         id: meta
-        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2.5.0
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       # patch / minor のみ auto-merge。major は手動レビュー（必須チェック gitleaks 通過後にマージ）
       - name: enable auto-merge (patch / minor)
         if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
