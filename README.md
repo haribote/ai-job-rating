@@ -97,6 +97,29 @@ npm run e2e              # Playwright E2E
 
 あわせて [`CLAUDE.md`](CLAUDE.md) も参照してください。
 
+### git hooks（クローンごとに有効化）
+
+pre-commit hook を有効化します（リポジトリ管理の `.githooks/` を使う設定。クローンごとに一度だけ実行）。
+
+```sh
+git config core.hooksPath .githooks
+```
+
+このフックは commit 時に次を行います。
+
+- **lockfile インデント正規化**: `package-lock.json` が staged されていれば、行頭インデントを 2-space へ正規化して re-add します。`npm install` が lockfile を tab で全面書き換えする罠を打ち消し、差分を最小に保ちます（変換ロジック `normalizeLockfileIndent` は `src/lockfile-indent.ts` にあり Vitest で担保。`node` 未導入の環境ではスキップ）。
+- **secret scan**: [gitleaks](https://github.com/gitleaks/gitleaks) で staged 変更をスキャンします（未導入ならローカルはスキップし、CI で担保）。
+
+正規化の動作確認（任意）:
+
+```sh
+# lockfile を tab へ「破壊」した一時コピーを作り、正規化で 2-space へ戻ることを確認する
+cp package-lock.json /tmp/lock.json
+perl -i -pe 's/^( +)/"\t" x (length($1)\/2)/e' /tmp/lock.json   # 行頭の 2n space を n tab へ
+node scripts/normalize-lockfile.mjs /tmp/lock.json
+diff /tmp/lock.json package-lock.json && echo "OK: 正規化で canonical に戻った"
+```
+
 ## Documentation
 
 - [要件定義書](./docs/requirements.md) — 背景・スコープ・機能/非機能要件・スコアリング設計・データモデル・AIモデル方針・アーキテクチャ
