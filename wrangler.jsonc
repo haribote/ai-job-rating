@@ -23,6 +23,13 @@
 	"ai": {
 		"binding": "AI"
 	},
+	// 抽出モデルの差し替え点（§7.1 アダプタ / #106）。既定変更はこの 1 行だけで完結する。
+	// モデル再評価スパイク（#106）の live golden 横並びで「精度が現行以上」を満たす勝者へ更新する。
+	// フォーク先は本値（または .dev.vars の EXTRACTION_MODEL）を書き換えるだけで既定を変えられる。
+	// 未設定でも extract.ts の resolveExtractionModel がコード既定へフォールバックする（フォーク容易性 §8）。
+	"vars": {
+		"EXTRACTION_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+	},
 	// 複数詳細ページの非同期取得・抽出キュー（#24, roadmap Phase 1）。
 	// 単一 Worker が producer（env.JOB_QUEUE.sendBatch で詳細 URL を投入）と
 	// push consumer（queue() ハンドラ）を兼ねる。

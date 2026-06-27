@@ -20,7 +20,12 @@ function buildProcessDeps(env: Bindings): ProcessDetailDeps {
 			// 失敗時は ingestJob 内で extraction_status=failed として保存され、例外は呼び出し元
 			// （processDetailBatch）が retry/ack 分類する。
 			await ingestJob(
-				{ ai: env.AI, db: env.DB, bucket: env.RAW_HTML },
+				{
+					ai: env.AI,
+					db: env.DB,
+					bucket: env.RAW_HTML,
+					model: env.EXTRACTION_MODEL,
+				},
 				{ html, sourceType: "detail", sourceUrl: job.url },
 			);
 		},

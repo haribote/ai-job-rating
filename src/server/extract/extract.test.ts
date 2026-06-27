@@ -14,6 +14,7 @@ import {
 	extractJob,
 	MAX_EXTRACTION_ATTEMPTS,
 	rawFieldsToNormalizedJob,
+	resolveExtractionModel,
 } from "./extract";
 
 // プロンプト組立（決定的）: trim 済み本文を含む messages を組み立てる。
@@ -486,8 +487,54 @@ describe("rawFieldsToNormalizedJob", () => {
 	});
 });
 
+// モデル解決（アダプタの差し戻し点・#106）: env 値を実効モデル ID に解決する。
+describe("resolveExtractionModel", () => {
+	it("未設定・空文字・空白のみはコード既定へフォールバックする（フォーク先で vars 未設定でも動く）", () => {
+		expect(resolveExtractionModel(undefined)).toBe(EXTRACTION_MODEL);
+		expect(resolveExtractionModel("")).toBe(EXTRACTION_MODEL);
+		expect(resolveExtractionModel("   ")).toBe(EXTRACTION_MODEL);
+	});
+
+	it("設定値があればそれを採用し、前後空白は除く", () => {
+		expect(resolveExtractionModel("@cf/meta/llama-4-scout")).toBe(
+			"@cf/meta/llama-4-scout",
+		);
+		expect(resolveExtractionModel("  @cf/foo/bar  ")).toBe("@cf/foo/bar");
+	});
+});
+
 // 抽出本体: AI を注入し JSON Mode で構造化抽出する。空入力は AI を呼ばない。
 describe("extractJob", () => {
+	it("options.model を渡すと当該モデルで run し、結果 model にも反映する（#106 横並び評価で注入）", async () => {
+		const calls: Array<{ model: string }> = [];
+		const fakeAi: AiRunner = {
+			run: async (model: string) => {
+				calls.push({ model });
+				return { response: {} };
+			},
+		};
+
+		const result = await extractJob(fakeAi, "本文", {
+			model: "@cf/candidate/model",
+		});
+
+		expect(calls[0].model).toBe("@cf/candidate/model");
+		expect(result.model).toBe("@cf/candidate/model");
+	});
+
+	it("options.model 未指定はコード既定モデルで run する", async () => {
+		const calls: Array<{ model: string }> = [];
+		const fakeAi: AiRunner = {
+			run: async (model: string) => {
+				calls.push({ model });
+				return { response: {} };
+			},
+		};
+
+		await extractJob(fakeAi, "本文");
+		expect(calls[0].model).toBe(EXTRACTION_MODEL);
+	});
+
 	it("空本文では AI を呼ばず全 unknown を返す（unknown 中立・コスト最小化）", async () => {
 		let called = false;
 		const fakeAi: AiRunner = {
