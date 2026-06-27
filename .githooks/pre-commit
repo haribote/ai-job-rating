@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
-# Pre-commit hook: staged 変更を gitleaks で scan する。
+# Pre-commit hook: lockfile のインデント正規化 → staged 変更を gitleaks で scan する。
 # 有効化（クローンごと）: git config core.hooksPath .githooks
 set -euo pipefail
+
+# package-lock.json が staged されていれば行頭インデントを 2-space へ正規化して re-add する。
+# なぜ: npm install が lockfile を tab で全面書き換えする罠（#74 で再発）をコミット時に打ち消し最小差分に保つ。
+if git diff --cached --name-only --diff-filter=ACM | grep -qx 'package-lock.json'; then
+  if command -v node >/dev/null 2>&1; then
+    node scripts/normalize-lockfile.mjs package-lock.json
+    # 正規化で実際に書き換わった場合のみ re-add（既に canonical なら index を触らない）。
+    if ! git diff --quiet -- package-lock.json; then
+      git add package-lock.json
+    fi
+  else
+    echo "node not found — skipping lockfile indent normalization." >&2
+  fi
+fi
 
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "gitleaks not installed — skipping local secret scan (CI still enforces)." >&2
