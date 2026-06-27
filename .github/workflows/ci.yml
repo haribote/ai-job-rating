@@ -20,7 +20,7 @@ jobs:
       - name: Test
         run: npx vitest run
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
       - name: Lint
         run: npx biome check .
       # prod 依存（hono）を厳格ゲート。dev 依存の脆弱性で CI を落とさないため --omit=dev に限定。

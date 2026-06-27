@@ -1,0 +1,14 @@
+{
+	// クライアント（React SPA）専用の型検査設定。
+	// なぜ分けるか: Worker ランタイム（root tsconfig, DOM 無し）と DOM/JSX が必要なクライアントは
+	// グローバル型（fetch/Response 等）が衝突し得るため、lib と jsx を分離して検査する。
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"jsx": "react-jsx",
+		"types": []
+	},
+	// root の exclude（src/client）を打ち消し、クライアントのみを対象にする。
+	"include": ["src/client"],
+	"exclude": []
+}
