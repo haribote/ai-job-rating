@@ -18,7 +18,7 @@ export default defineConfig({
 	},
 	plugins: [
 		cloudflareTest({
-			main: "./src/index.ts",
+			main: "./src/server/index.ts",
 			wrangler: { configPath: "./wrangler.jsonc" },
 			// AI binding は local simulator を持たず remote proxy に credentials を要するため、
 			// テストでは remote bindings を無効化しオフライン・決定的に保つ。実推論は AiRunner を fake する。

@@ -1,5 +1,6 @@
-# Dependencies
-node_modules/
+# Dependencies（末尾スラッシュ無し: worktree の node_modules は symlink のため
+# ディレクトリ限定の `node_modules/` では無視されない）
+node_modules
 
 # Secrets — never commit (templates like .dev.vars.example are tracked)
 .dev.vars
