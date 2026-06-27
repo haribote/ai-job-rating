@@ -9,6 +9,7 @@ import type {
 } from "./golden";
 import {
 	compareModels,
+	EXTRACTION_MODEL_CANDIDATES,
 	evaluateModels,
 	type ModelGoldenResult,
 	selectModel,
@@ -165,5 +166,38 @@ describe("evaluateModels", () => {
 		expect(sel.baselineModel).toBe("bad");
 		expect(sel.selectedModel).toBe("good");
 		expect(sel.changed).toBe(true);
+	});
+});
+
+// 候補カタログ（#106・id の単一ソース）: 一次ソース確認した候補が整合した形で載っている。
+describe("EXTRACTION_MODEL_CANDIDATES", () => {
+	it("全候補は Workers AI モデル ID（@cf/ 形式）で重複しない", () => {
+		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
+		for (const id of ids) {
+			expect(id.startsWith("@cf/")).toBe(true);
+		}
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+
+	it("ユーザー指示の追加 3 モデルを含む（gpt-oss-120b/20b・gemma-4-26b）", () => {
+		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
+		expect(ids).toContain("@cf/openai/gpt-oss-120b");
+		expect(ids).toContain("@cf/openai/gpt-oss-20b");
+		expect(ids).toContain("@cf/google/gemma-4-26b-a4b-it");
+	});
+
+	it("gpt-oss 系は JSON Mode 非遵守（#15）のため機構は function-calling", () => {
+		const gptOss = EXTRACTION_MODEL_CANDIDATES.filter((c) =>
+			c.id.startsWith("@cf/openai/gpt-oss"),
+		);
+		expect(gptOss).toHaveLength(2);
+		for (const c of gptOss) {
+			expect(c.mechanism).toBe("function-calling");
+		}
+	});
+
+	it("現行既定（baseline）は候補に含めない（baseline は別途与える）", () => {
+		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
+		expect(ids).not.toContain("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
 	});
 });

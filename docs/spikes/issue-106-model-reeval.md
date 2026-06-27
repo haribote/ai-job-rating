@@ -35,7 +35,9 @@
 | llama4-scout | `@cf/meta/llama-4-scout-17b-16e-instruct` | Function calling | 広 context（Llama 4・MoE 17B active） | （モデルページで要確認） | 広 context・高速。#15 で JSON Mode 取りこぼし。機構=FC/検証 |
 | glm-4.7-flash | `@cf/zai/glm-4.7-flash`（slug。`@cf/...` 正式 ID はモデルページで確認） | Function calling | 131,072 | （要確認） | 広 context・高速・多言語 100+。機構=FC |
 | qwen3-30b-a3b | `@cf/qwen/qwen3-30b-a3b-fp8` | Function calling | （要確認） | （要確認） | MoE（3B active=高速）・多言語・reasoning。機構=FC |
-| gpt-oss-120b | `@cf/openai/gpt-oss-120b` | FC / reasoning（Responses API） | （要確認） | （要確認） | #15 で JSON Mode 0 充足。FC/Responses 経路前提なら再評価対象 |
+| gpt-oss-120b | `@cf/openai/gpt-oss-120b` | Function calling / reasoning | 128,000 | $0.35 / $0.75 | #15 で JSON Mode 0 充足（content=null）。FC/Responses 経路前提。出典 [↗](https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/) |
+| gpt-oss-20b | `@cf/openai/gpt-oss-20b` | Function calling / reasoning | 128,000 | $0.20 / $0.30 | 低レイテンシ版。gpt-oss 系は JSON Mode 非遵守（#15）。出典 [↗](https://developers.cloudflare.com/workers-ai/models/gpt-oss-20b/) |
+| gemma-4-26b-a4b-it | `@cf/google/gemma-4-26b-a4b-it` | Function calling / reasoning / vision | 256,000 | $0.10 / $0.30 | **256k context・最安級**。広 context 最有力。JSON Mode 一覧外＝機構 FC。出典 [↗](https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/) |
 
 注:
 - **JSON Mode 公式対応**は incumbent と `llama-3.1-8b-instruct-fast` のみ（一覧記載）。他候補は Function calling 側で、JSON Mode の `response_format: json_schema` は**保証外**。広 context FC モデルを評価するには live で response_format の充足を確認するか、機構を FC へ切り替える必要がある。
@@ -57,6 +59,7 @@
 - `compareModels(baseline, candidate)`: フィールド別／全体の精度差。劣化判定は `correct` 件数（golden 期待値で total はモデル非依存＝同分母）で行い浮動小数誤差を避ける。`acceptable` = 全体が現行以上 ∧ どのフィールドも劣化なし。
 - `selectModel(baseline, candidates)`: 合格候補のうち overall correct を**厳密に上回る**最良を採用。同点・合格者なしは現行維持（差し戻し）。
 - `evaluateModels(cases, baselineModel, candidateModels, makeExtractor)`: 候補ごとに `runGolden`（#100）を回し選定まで返す。
+- `EXTRACTION_MODEL_CANDIDATES`: 候補カタログ（id・機構・context・価格・備考の単一ソース・現在 8 件）。live ドライバは `.map((c) => c.id)` を `candidateModels` に渡す。現行既定（baseline）は含めない。
 
 ## live 実行手順（要手動検証）
 
@@ -65,18 +68,14 @@ AI binding を持つ環境（`wrangler dev` か account 構成済みの workerd 
 ```ts
 import { trimHtml } from "./trim-html";
 import { extractJob, EXTRACTION_MODEL } from "./extract";
-import { evaluateModels } from "./model-eval";
+import { evaluateModels, EXTRACTION_MODEL_CANDIDATES } from "./model-eval";
 import { parseGoldenCase } from "./golden";
 
 // test-fixtures/golden（gitignore・サニタイズ済み）の各 JSON を parseGoldenCase で型安全に読み込む。
 const cases = rawFixtures.map(parseGoldenCase);
 
-const CANDIDATES = [
-  "@cf/meta/llama-3.1-8b-instruct-fast",
-  "@cf/mistralai/mistral-small-3.1-24b-instruct",
-  "@cf/meta/llama-4-scout-17b-16e-instruct",
-  // glm-4.7-flash / qwen3-30b-a3b は正式 @cf ID を確認の上で追加
-];
+// 候補 id の単一ソース（メタ込み）。FC 系は機構アダプタ拡張後に評価する（後述）。
+const CANDIDATES = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
 
 const makeExtractor = (model) => (html) =>
   extractJob(env.AI, trimHtml(html), { model }).then((r) => r.job);

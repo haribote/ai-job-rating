@@ -18,6 +18,100 @@ import type {
 } from "./golden";
 import { runGolden } from "./golden";
 
+// 抽出機構（構造化出力の方式）。"json-mode" は Workers AI JSON Mode 公式対応、
+// "function-calling" は FC（既定にするには extract.ts の出力機構を FC へアダプタ化する必要がある・#15 所見）。
+export type ExtractionMechanism = "json-mode" | "function-calling";
+
+// 評価候補モデル 1 件のメタ。一次ソースは各モデルの Cloudflare Workers AI docs
+// （ID/価格/context/対応機構をそこで確認・記憶で書かない。出典 URL は docs/spikes/issue-106-model-reeval.md）。
+export interface ModelCandidate {
+	// Workers AI モデル ID（@cf/...）。live ドライバはこれを candidateModels として evaluateModels に渡す。
+	readonly id: string;
+	readonly mechanism: ExtractionMechanism;
+	// context window（tokens）。モデルページ未確認は null（要確認）。
+	readonly contextWindow: number | null;
+	// 価格（USD / M tokens）。未掲載・未確認は null（要確認）。
+	readonly inputUsdPerMTok: number | null;
+	readonly outputUsdPerMTok: number | null;
+	// 弱点・留意（日本語）。
+	readonly note: string;
+}
+
+// 抽出モデル再評価の候補カタログ（#106・id の単一ソース）。現行既定（EXTRACTION_MODEL）は baseline
+// として別に与えるため本配列には含めない。live ドライバは EXTRACTION_MODEL_CANDIDATES.map((c) => c.id) を
+// candidateModels に渡す。
+// 機構の注意: JSON Mode 公式対応は現行 Llama 3.x 系のみ。下記 FC 系を既定化するには機構アダプタ拡張が要る。
+export const EXTRACTION_MODEL_CANDIDATES: readonly ModelCandidate[] = [
+	{
+		id: "@cf/meta/llama-3.1-8b-instruct-fast",
+		mechanism: "json-mode",
+		contextWindow: null,
+		inputUsdPerMTok: null,
+		outputUsdPerMTok: null,
+		note: "JSON Mode 公式対応・高速安価。context/価格はモデルページで要確認（fp8-fast 変種は $0.045/$0.384）。",
+	},
+	{
+		id: "@cf/mistralai/mistral-small-3.1-24b-instruct",
+		mechanism: "function-calling",
+		contextWindow: 128000,
+		inputUsdPerMTok: 0.351,
+		outputUsdPerMTok: null,
+		note: "広 context・多言語。出力価格は pricing 表 truncated で要確認。機構=FC。",
+	},
+	{
+		id: "@cf/meta/llama-4-scout-17b-16e-instruct",
+		mechanism: "function-calling",
+		contextWindow: null,
+		inputUsdPerMTok: null,
+		outputUsdPerMTok: null,
+		note: "広 context・高速（MoE 17B active）。#15 で JSON Mode 取りこぼし（required 未指定）。要 FC+検証。",
+	},
+	{
+		id: "@cf/zai/glm-4.7-flash",
+		mechanism: "function-calling",
+		contextWindow: 131072,
+		inputUsdPerMTok: null,
+		outputUsdPerMTok: null,
+		note: "131,072 context・高速・多言語100+。@cf 正式 ID と価格はモデルページで要確認。機構=FC。",
+	},
+	{
+		id: "@cf/qwen/qwen3-30b-a3b-fp8",
+		mechanism: "function-calling",
+		contextWindow: null,
+		inputUsdPerMTok: null,
+		outputUsdPerMTok: null,
+		note: "MoE（3B active=高速）・多言語・reasoning。context/価格は要確認。機構=FC。",
+	},
+	// --- ユーザー指示で追加（#138・各モデルページで一次確認済み 2026-06-27） ---
+	{
+		// https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/
+		id: "@cf/openai/gpt-oss-120b",
+		mechanism: "function-calling",
+		contextWindow: 128000,
+		inputUsdPerMTok: 0.35,
+		outputUsdPerMTok: 0.75,
+		note: "FC+reasoning。#15 実測で JSON Mode 非遵守（content=null/reasoning_content）。FC/Responses 経路前提。health 用既定でもある。",
+	},
+	{
+		// https://developers.cloudflare.com/workers-ai/models/gpt-oss-20b/
+		id: "@cf/openai/gpt-oss-20b",
+		mechanism: "function-calling",
+		contextWindow: 128000,
+		inputUsdPerMTok: 0.2,
+		outputUsdPerMTok: 0.3,
+		note: "FC+reasoning・低レイテンシ版。gpt-oss 系は JSON Mode 非遵守（#15）。FC 経路前提。",
+	},
+	{
+		// https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/
+		id: "@cf/google/gemma-4-26b-a4b-it",
+		mechanism: "function-calling",
+		contextWindow: 256000,
+		inputUsdPerMTok: 0.1,
+		outputUsdPerMTok: 0.3,
+		note: "256k context・FC・reasoning・vision。広 context 最有力。JSON Mode 一覧外のため機構=FC。",
+	},
+];
+
 // 候補モデル 1 件の golden 評価結果。
 export interface ModelGoldenResult {
 	readonly model: string;
