@@ -6,7 +6,12 @@
 	"compilerOptions": {
 		"lib": ["ES2022", "DOM", "DOM.Iterable"],
 		"jsx": "react-jsx",
-		"types": []
+		"types": [],
+		// shadcn 規約のパスエイリアス（vite.config.ts の resolve.alias と一致）。
+		// moduleResolution: Bundler では baseUrl 無しで tsconfig からの相対 paths が解決される。
+		"paths": {
+			"@/*": ["./src/client/*"]
+		}
 	},
 	// root の exclude（src/client）を打ち消し、クライアントのみを対象にする。
 	"include": ["src/client"],

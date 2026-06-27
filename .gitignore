@@ -26,9 +26,9 @@ dist/
 build/
 *.tsbuildinfo
 
-# Vite SPA ビルド成果物（#96）。public/ は Workers の assets ディレクトリでもあるため、
-# Vite が生成する index.html / assets/* / .vite だけを無視し、
-# トークン由来の生成物 public/styles.css は VCS 追跡を維持する（#97 で Tailwind へ移行予定）。
+# Vite SPA ビルド成果物（#96 / #97）。public/ は Workers の assets ディレクトリでもある。
+# スタイルは Tailwind が globals.css をバンドルして assets/ へ出力するため、public/ の中身は
+# すべて生成物（index.html / assets/* / .vite）であり追跡しない。
 /public/index.html
 /public/assets/
 /public/.vite/
