@@ -4,9 +4,11 @@
 > 受け入れ: より広 context・高速・FC 対応候補を golden で横並び評価し既定更新。モデル ID/価格は一次ソース確認。
 > golden 精度が現行以上を合格条件、劣化ならアダプタで差し戻し。
 >
-> **状態（2026-06-27）**: 評価ハーネス・モデル差し替えアダプタ・候補 shortlist を実装／記録。
-> **既定の最終確定（勝者選定）は live golden が必須で subagent は live 実行不可のため要手動検証**。
-> 既定は現行 `@cf/meta/llama-3.3-70b-instruct-fp8-fast` のまま据え置き（劣化防止・差し戻し既定）。
+> **状態（2026-06-27）**: 評価ハーネス・モデル差し替えアダプタ・候補 shortlist に加え、
+> **live golden eval ランナー（dev 限定 route ＋ Node driver）を実装**。ユーザーが自分の secrets/account で
+> 実行できる（手順は「live 実行手順」節）。**既定の最終確定（勝者選定）は live golden が必須で subagent は
+> live 実行不可のため引き続き要手動検証**。既定は現行 `@cf/meta/llama-3.3-70b-instruct-fp8-fast` のまま
+> 据え置き（劣化防止・差し戻し既定）。
 
 ## 前提（#15 の所見を引き継ぐ）
 
@@ -61,34 +63,41 @@
 - `evaluateModels(cases, baselineModel, candidateModels, makeExtractor)`: 候補ごとに `runGolden`（#100）を回し選定まで返す。
 - `EXTRACTION_MODEL_CANDIDATES`: 候補カタログ（id・機構・context・価格・備考の単一ソース・現在 8 件）。live ドライバは `.map((c) => c.id)` を `candidateModels` に渡す。現行既定（baseline）は含めない。
 
-## live 実行手順（要手動検証）
+## live 実行手順（要手動検証・ユーザーが secrets/account で実行）
 
-AI binding を持つ環境（`wrangler dev` か account 構成済みの workerd test）で実施:
+live golden eval は「dev 限定 route（`POST /api/_eval-models`）＋ Node 製 driver（`scripts/eval/eval-models.mjs`）」で回す。
+env.AI は workerd 内でしか叩けず、golden 実体は PII（gitignore）でディスク上にしか無いため、driver が
+ディスクから golden を読み route へ POST する分離構成にしている（[[localhost-fetch-via-mjs-driver]]）。
+route は本番安全のため `EXTRACTION_EVAL==="1"` のときだけ動作し、未設定/それ以外は **404**（多数の AI
+呼び出しを誘発するため gate を最優先で評価）。
 
-```ts
-import { trimHtml } from "./trim-html";
-import { extractJob, EXTRACTION_MODEL } from "./extract";
-import { evaluateModels, EXTRACTION_MODEL_CANDIDATES } from "./model-eval";
-import { parseGoldenCase } from "./golden";
+機構は #107 のアダプタ（`mechanism.ts` の `resolveExtractionMechanism`）でモデル ID から自動解決され、
+route は本番取込と同じ `extractJobFromHtml(env.AI, html, { model })` 経路（content prep＋分割パス＋機構
+自動解決）で抽出する。JSON Mode 公式対応は incumbent / `llama-3.1-8b-instruct-fast` のみで、FC 系は
+`tool_choice` の受理がモデル依存のため **live でのみ充足が判明する**（非対応は extraction_failed → 全
+unknown となり golden で 0 点に出る）。
 
-// test-fixtures/golden（gitignore・サニタイズ済み）の各 JSON を parseGoldenCase で型安全に読み込む。
-const cases = rawFixtures.map(parseGoldenCase);
+### 手順
 
-// 候補 id の単一ソース（メタ込み）。FC 系は機構アダプタ拡張後に評価する（後述）。
-const CANDIDATES = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
+1. **secrets / dev フラグを置く**（`.dev.vars`。Claude は触れない・ユーザーが手動配置）:
+   - `EXTRACTION_EVAL=1`（このフラグが無いと route は 404）。
+   - Workers AI を呼べる account 認証（`wrangler dev` が Cloudflare アカウントにログイン済みであること）。
+2. **golden 実体を置く**: `test-fixtures/golden/*.json`（PII あり・gitignore）。`*.example.json` 雛形でも動く
+   （精度差は薄い）。形式は `parseGoldenCase`（`golden.ts`）／`test-fixtures/golden/README.md` を参照。
+3. **dev を起動**: `npm run dev`（= `vite build && wrangler dev`）。既定 port は 8787。
+4. **driver を実行**: `node scripts/eval/eval-models.mjs`
+   （port を変えた場合は `--port <n>` か `EVAL_PORT`、出力先は `--out <path>`）。
+5. **結果の見方**: driver は候補ごとに `overall <correct>/<total>（delta 符号付き %）` と `acceptable`、
+   `regressed:` フィールド一覧を表示し、末尾に `selected: <model> (changed: yes/no)` を出す。
+   生 `ModelSelection` は `eval-result.json`（gitignore）に保存される。
+   - 各候補は baseline（現行既定）と横並びで、`acceptable` = overall correct ≥ 現行 ∧ フィールド単位の劣化ゼロ。
+   - `selectModel` が合格候補のうち overall correct を**厳密に上回る**最良を勝者にする（同点・合格者なしは現行維持）。
+6. **勝者確定後の既定更新（1 箇所）**: `wrangler.jsonc` の `vars.EXTRACTION_MODEL` を勝者 ID に書き換える
+   （コード変更不要）。`npm run dev` を再起動し driver を再実行して現行以上を再確認する。
 
-const makeExtractor = (model) => (html) =>
-  extractJob(env.AI, trimHtml(html), { model }).then((r) => r.job);
-
-const sel = await evaluateModels(cases, EXTRACTION_MODEL, CANDIDATES, makeExtractor);
-// sel.comparisons[].perField の delta / regressed と sel.selectedModel を確認
-```
-
-**合格条件**: 候補が `acceptable`（overall correct ≥ 現行 ∧ フィールド単位の劣化ゼロ）であること。`selectModel` が厳密最良を勝者にする。
-
-**機構の注意（重要）**: incumbent / `llama-3.1-8b-instruct-fast` 以外は JSON Mode 保証外。live で `response_format: json_schema` が充足しない場合は、`extractJob` を Function calling 機構へ拡張してから（= 機構アダプタの follow-up）当該候補を評価する。#15 実測どおり llama-4-scout は `required` 未指定で取りこぼすため、FC + 出力スキーマ検証/修復が前提。
-
-**勝者確定後の既定更新（1 箇所）**: `wrangler.jsonc` の `vars.EXTRACTION_MODEL` を勝者 ID に書き換える（コード変更不要）。golden を再実行し現行以上を再確認する。
+> 注: 本タスク（#106 の live eval ランナー）は**ツールの提供まで**。実モデルでの勝者確定は account/secrets を
+> 持つユーザーが上記手順で実行する（**要手動検証**）。route の gate・body 検証・evaluateModels 経路は fake
+> binding でユニットテスト済み（`src/server/eval-models-route.test.ts` / `src/server/extract/eval-driver.test.ts`）。
 
 ## 決定
 
