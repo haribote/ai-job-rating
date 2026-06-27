@@ -12,7 +12,8 @@ test.describe("/api/config（設定の取得・更新）", () => {
 		expect(res.headers()["content-type"]).toContain("application/json");
 		const body = await res.json();
 		expect(Array.isArray(body.items)).toBe(true);
-		expect(body.items.length).toBe(21);
+		// 5軸・10正規キー（#101）。GET /api/config は全正規キーぶんを返す。
+		expect(body.items.length).toBe(10);
 	});
 
 	test("PUT /api/config は保存し再スコアする（AI 非再実行・status=rescored）", async ({
