@@ -139,6 +139,46 @@ describe("numericRange のサブスコア（higherBetter）", () => {
 	});
 });
 
+describe("bonus（年間支給回数・higherBetter）の採点", () => {
+	// 回数が多いほど高スコア。desired=4/floor=0 で境界の単調性を固定する（#142）。
+	const config: ScoringConfig = {
+		items: {
+			bonus: {
+				weight: 1,
+				kind: "numericRange",
+				direction: "higherBetter",
+				desired: 4,
+				floor: 0,
+			},
+		},
+	};
+
+	it("支給回数が多いほど高スコア（年4回 > 年2回 > 年1回）", () => {
+		const once = scoreJob(
+			jobWith({ bonus: { kind: "numericRange", min: 1, max: 1 } }),
+			config,
+		);
+		const twice = scoreJob(
+			jobWith({ bonus: { kind: "numericRange", min: 2, max: 2 } }),
+			config,
+		);
+		const four = scoreJob(
+			jobWith({ bonus: { kind: "numericRange", min: 4, max: 4 } }),
+			config,
+		);
+		expect(once.total).toBe(0.25);
+		expect(twice.total).toBe(0.5);
+		expect(four.total).toBe(1);
+		expect(four.total ?? 0).toBeGreaterThan(twice.total ?? 0);
+		expect(twice.total ?? 0).toBeGreaterThan(once.total ?? 0);
+	});
+
+	it("回数 unknown は中立（分母から除外）", () => {
+		const result = scoreJob(jobWith({ bonus: { kind: "unknown" } }), config);
+		expect(result.total).toBeNull();
+	});
+});
+
 describe("numericRange のサブスコア（lowerBetter）", () => {
 	const config: ScoringConfig = {
 		items: {
