@@ -315,11 +315,11 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 			preferred: ["full", "partial"],
 			tierScores: REMOTE_WORK_TIER_SCORES,
 		},
-		// フレックス・裁量労働は有を歓迎。
+		// フレックス（労働者が始業終業を選べる）の有無のみを評価する。裁量労働は別物のため歓迎値に含めない。
 		flexWork: {
 			weight: 1,
 			kind: "categorical",
-			preferred: ["yes", "flex", "discretionary"],
+			preferred: ["flex"],
 		},
 		// スキル適合は求人スキル集合 × ユーザー keyword の決定的ヒット率（#105）。
 		// 必須/歓迎の区別はしない。既定の keyword は空（意見なし=中立）でフォーク先・設定UIが埋める。

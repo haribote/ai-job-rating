@@ -110,14 +110,14 @@ describe("passesHardFilters（required / exclude）", () => {
 
 	it("exclude: 該当すれば除外する", () => {
 		const job = jobWith({
-			flexWork: { kind: "categorical", categories: ["discretionary"] },
+			flexWork: { kind: "categorical", categories: ["flex"] },
 		});
 		const config: ScoringConfig = {
 			items: {
 				flexWork: {
 					weight: 1,
 					kind: "categorical",
-					preferred: ["discretionary"],
+					preferred: ["flex"],
 				},
 			},
 		};
@@ -133,7 +133,7 @@ describe("passesHardFilters（required / exclude）", () => {
 				flexWork: {
 					weight: 1,
 					kind: "categorical",
-					preferred: ["discretionary"],
+					preferred: ["flex"],
 				},
 			},
 		};
