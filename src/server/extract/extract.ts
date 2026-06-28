@@ -492,14 +492,38 @@ function fieldsFromObject(obj: unknown): RawExtractionFields {
 	return fields;
 }
 
+// OpenAI 互換レスポンスの message.content（JSON 文字列 or object）を順に集める。
+// 一部 CF モデル（qwen3 / gemma / mistral 等）は json-mode でも WAI の { response } でなく
+// { choices: [{ message: { content: "<json>" } }] } で返すため、ここで content を回収する（#145）。
+function collectMessageContents(output: unknown): unknown[] {
+	const choices = (output as { choices?: unknown }).choices;
+	if (!Array.isArray(choices)) return [];
+	const contents: unknown[] = [];
+	for (const choice of choices) {
+		const content = (choice as { message?: { content?: unknown } })?.message
+			?.content;
+		if (content !== undefined && content !== null) contents.push(content);
+	}
+	return contents;
+}
+
 // AiRunner の戻り値（JSON Mode）から生フィールドを安全に取り出す。
-// JSON Mode のレスポンスは { response: <object|string> } 形（一次ソース §7.1）。想定外は {} へ。
+// 一次形は WAI native の { response: <object|string> }（§7.1）。フィールドが取れない場合は
+// OpenAI 互換 { choices: [{ message: { content } }] } へフォールバックする（#145・FC の機構差吸収と同様）。
 function extractRawFields(output: unknown): RawExtractionFields {
 	if (typeof output !== "object" || output === null) return {};
 	const response = (output as { response?: unknown }).response;
-	const obj =
-		typeof response === "string" ? safeParse(response) : (response ?? {});
-	return fieldsFromObject(obj);
+	if (response !== undefined && response !== null) {
+		const obj = typeof response === "string" ? safeParse(response) : response;
+		const fields = fieldsFromObject(obj);
+		if (Object.keys(fields).length > 0) return fields;
+	}
+	for (const content of collectMessageContents(output)) {
+		const obj = typeof content === "string" ? safeParse(content) : content;
+		const fields = fieldsFromObject(obj);
+		if (Object.keys(fields).length > 0) return fields;
+	}
+	return {};
 }
 
 // 1 件の tool call（機構間の差を吸収した形）。arguments は object か JSON 文字列。
