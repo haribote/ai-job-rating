@@ -193,6 +193,10 @@ export function compareModels(
 		baseline.report.overall,
 		candidate.report.overall,
 	);
+	// 合格条件は strict gate のまま据え置く（#152 選択肢(c)）: 全体が現行以上 かつ どのフィールドも劣化なし。
+	// #141 では overall 大幅優位でも単一フィールド（flexWork）劣化で候補が veto されたが、recall 改善（#153）で
+	// 候補が baseline を厳密支配し正攻法に解消したため、許容劣化幅(a)/重み付き(b) は採らない。Refs #152 #153。
+	// 留意: 合格は golden セット感度に依存し、別セットでは単一フィールド veto が再発しうる（将来 a/b 再検討の余地）。
 	const acceptable = !overall.regressed && perField.every((f) => !f.regressed);
 	return {
 		baselineModel: baseline.model,

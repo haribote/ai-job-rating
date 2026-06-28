@@ -141,6 +141,65 @@ describe("selectModel", () => {
 		expect(sel.selectedModel).toBe("base");
 		expect(sel.changed).toBe(false);
 	});
+
+	// #153 で flexWork recall を改善した候補（gpt-oss-120b）が baseline を厳密支配した実例の固定。
+	// 全フィールド非劣化かつ overall 改善なら strict gate を素直に通過する（選択肢(c) の正常系）。
+	it("厳密支配する候補（全フィールド非劣化＋overall 改善）を採用する（#153 実例）", () => {
+		const baseline = result("base", {
+			flexWork: [2, 4],
+			annualSalary: [8, 17],
+			remoteWork: [6, 17],
+		});
+		// flexWork を 2→4 に改善し、他フィールドも一切劣化させず overall を大幅改善する。
+		const dominant = result("dominant", {
+			flexWork: [4, 4],
+			annualSalary: [14, 17],
+			remoteWork: [13, 17],
+		});
+
+		const sel = selectModel(baseline, [dominant]);
+
+		expect(sel.selectedModel).toBe("dominant");
+		expect(sel.changed).toBe(true);
+	});
+
+	// (c) で意図的に維持する挙動: overall が大幅改善でも単一フィールドが劣化する候補は veto し baseline 据置。
+	// #141 の glm-4.7-flash（overall +大幅だが flexWork 劣化）がこのゲートで弾かれた実例に対応する。
+	// recall 改善（#153）で正攻法に解消したため、本 issue ではこの strict gate を変更しない（選択肢(c)）。
+	it("overall 大幅改善でも単一フィールド劣化は veto し baseline を据え置く（#141・(c) で意図的に維持）", () => {
+		const baseline = result("base", {
+			flexWork: [4, 4],
+			annualSalary: [8, 17],
+			remoteWork: [9, 17],
+		});
+		// overall は 21→35 と大幅改善するが flexWork が 4→3 へ劣化する → 単一フィールド veto。
+		const regressing = result("regressing", {
+			flexWork: [3, 4],
+			annualSalary: [16, 17],
+			remoteWork: [16, 17],
+		});
+
+		const sel = selectModel(baseline, [regressing]);
+
+		expect(sel.selectedModel).toBe("base");
+		expect(sel.changed).toBe(false);
+		const flex = sel.comparisons[0].perField.find((f) => f.key === "flexWork");
+		expect(flex?.regressed).toBe(true);
+	});
+
+	// 同点・複数 acceptable 候補のタイブレークが決定的であること（同一入力で同一選定）。
+	// 実装は overall correct を厳密に上回る（>）候補のみ採用するため、同点では配列順で先着が勝つ。
+	it("同点で複数の acceptable 候補がある場合は配列順の先着を決定的に採用する", () => {
+		const baseline = result("base", { annualSalary: [5, 10] });
+		const first = result("first", { annualSalary: [8, 10] });
+		const second = result("second", { annualSalary: [8, 10] });
+
+		const sel = selectModel(baseline, [first, second]);
+
+		// first が bestCorrect=8 を確定し、second は > 8 でないため採用されない。
+		expect(sel.selectedModel).toBe("first");
+		expect(sel.changed).toBe(true);
+	});
 });
 
 // 横断 golden 実行 + 選定（extractor 生成を注入して live 推論に依存させない）。
