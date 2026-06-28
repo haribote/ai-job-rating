@@ -27,6 +27,7 @@
    - 残す: `["フレックス","flex"]`
    - コメント（L362 付近）を flex 専用へ更新。
    - **`hasNegation` の「みなし」除去ガード（L378-381, L381 `replace(/みなし/g,"")`）は残す**。`なし`⊂`みなし` による否定誤判定を防ぐ汎用安全策で、flexWork 以外にも効く。stale な「discretionary の語」コメントのみ修正。
+   - **flexWork を closed categorical 化（必須）**: 現状の categorical 構築は未マップ値を捨てず生表記をカテゴリに残す（`rawToFieldValue` の `categories: [canonical ?? value]`・L485-489）。このままだと `flexWork:"裁量労働制"` → `categories:["裁量労働制"]` となり preferred=`["flex"]` 下で unknown 中立にならず 0 点側に落ちる。これを防ぐため flexWork は **canonical（=flex）に寄らない値を unknown へ畳む**。実装: `CLOSED_CATEGORICAL_KEYS: ReadonlySet<NormalizedKey> = new Set(["flexWork"])` を追加し、categorical 分岐で `canonical === null && CLOSED_CATEGORICAL_KEYS.has(key)` のとき `{ kind: "unknown", raw: value }` を返す（remoteWork/skillMatch 等の open categorical は従来通り生表記を保持）。これにより flexWork の値は **`flex` か `unknown` のみ**になり、裁量労働・「フレックス不可」・裸の「有/あり」はすべて中立（§5.2）。
 
 2. **`src/shared/job-schema.ts`** — `SECTION_LABEL_MAP`
    - 削除: `["裁量労働","flexWork"]` `["裁量労働制","flexWork"]`
@@ -60,7 +61,7 @@
 
 - 決定的ロジック＋ユニットテストで担保（live AI 非依存）。
 - `npm run test:server`（vitest server）/ `biome check` / `tsc -p tsconfig.json` green。
-- 受け入れ: extract が フレックス→`flex`・裁量労働/みなし→unknown を返す。scoring 既定 preferred が `["flex"]`。`discretionary` への参照がプロダクションコードから消える（テストの例値も整理）。
+- 受け入れ: extract が フレックス→`flex`・裁量労働/みなし/「フレックス不可」→`unknown`（closed categorical）を返す。flexWork の値は `flex` か `unknown` のみ。scoring 既定 preferred が `["flex"]`。`discretionary` への参照がプロダクションコードから消える（テストの例値も整理）。
 - live golden eval の再実行は **不要**（本変更は決定的。flexWork の意味が締まる効果は別途 eval で観測可だが必須でない）。
 
 ## スコープ外
