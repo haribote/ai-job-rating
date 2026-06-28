@@ -341,24 +341,23 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	it("フレックス・裁量労働を canonical（flex/discretionary）へ寄せる", () => {
+	it("フレックスは flex へ寄せ、裁量労働は flexWork に含めず unknown 中立にする", () => {
 		const flex = rawFieldsToNormalizedJob({ flexWork: "フレックスタイム制" });
-		const discretionary = rawFieldsToNormalizedJob({ flexWork: "裁量労働制" });
+		const deemed = rawFieldsToNormalizedJob({ flexWork: "裁量労働制" });
+		expect(flex.flexWork.kind).toBe("categorical");
 		if (flex.flexWork.kind === "categorical") {
 			expect(flex.flexWork.categories).toEqual(["flex"]);
 		}
-		if (discretionary.flexWork.kind === "categorical") {
-			expect(discretionary.flexWork.categories).toEqual(["discretionary"]);
-		}
+		// 裁量労働＝みなし労働は flex と別物。closed categorical のため生表記を残さず unknown へ畳む。
+		expect(deemed.flexWork.kind).toBe("unknown");
 	});
 
-	// 修正1 回帰: 「みなし（労働）」は否定 needle「なし」を内包するが discretionary の語であり否定でない。
-	it("みなし労働は否定誤判定せず discretionary へ寄せる", () => {
-		const job = rawFieldsToNormalizedJob({ flexWork: "みなし労働制" });
-		expect(job.flexWork.kind).toBe("categorical");
-		if (job.flexWork.kind === "categorical") {
-			expect(job.flexWork.categories).toEqual(["discretionary"]);
-		}
+	// closed categorical 回帰: flex に寄らない値（みなし単体・否定）は unknown 中立。否定誤判定もしない。
+	it("みなし・フレックス不可は flexWork に残さず unknown にする", () => {
+		const deemed = rawFieldsToNormalizedJob({ flexWork: "みなし労働制" });
+		const negated = rawFieldsToNormalizedJob({ flexWork: "フレックス不可" });
+		expect(deemed.flexWork.kind).toBe("unknown");
+		expect(negated.flexWork.kind).toBe("unknown");
 	});
 
 	// 修正1: 否定表現が positive canonical へ化けない（部分一致＋登録順の誤判定回帰）。

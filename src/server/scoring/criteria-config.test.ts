@@ -74,13 +74,13 @@ describe("criteriaRowToItemConfig（1 行 → 項目設定）", () => {
 		const item = criteriaRowToItemConfig(
 			row({
 				criterion: "flexWork",
-				desired_value: JSON.stringify({ preferred: ["flex", "discretionary"] }),
+				desired_value: JSON.stringify({ preferred: ["flex"] }),
 			}),
 		);
 		expect(item).toEqual({
 			weight: 1,
 			kind: "categorical",
-			preferred: ["flex", "discretionary"],
+			preferred: ["flex"],
 		});
 	});
 

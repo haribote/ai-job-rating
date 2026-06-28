@@ -65,6 +65,13 @@ describe("normalizeLabel", () => {
 		expect(normalizeLabel("歓迎要件")).toBe("skillMatch");
 	});
 
+	it("裁量労働は flexWork に寄せない（フレックスのみ flexWork）", () => {
+		expect(normalizeLabel("フレックス")).toBe("flexWork");
+		expect(normalizeLabel("フレックスタイム")).toBe("flexWork");
+		expect(normalizeLabel("裁量労働")).toBeNull();
+		expect(normalizeLabel("裁量労働制")).toBeNull();
+	});
+
 	// 福利厚生・退職金は benefitsCoverage の signal として吸収する（#101）。
 	it("福利厚生・退職金は benefitsCoverage へ寄る", () => {
 		expect(normalizeLabel("福利厚生")).toBe("benefitsCoverage");

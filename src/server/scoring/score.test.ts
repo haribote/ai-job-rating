@@ -36,6 +36,14 @@ describe("scoreJob 総合スコア", () => {
 		expect(a).toEqual(b);
 	});
 
+	it("既定の flexWork preferred は flex のみ（裁量労働を歓迎しない）", () => {
+		const flexWork = DEFAULT_SCORING_CONFIG.items.flexWork;
+		expect(flexWork?.kind).toBe("categorical");
+		if (flexWork?.kind === "categorical") {
+			expect(flexWork.preferred).toEqual(["flex"]);
+		}
+	});
+
 	it("総合スコア = Σ(weight·score)/Σ(weight)（unknown は分母から除外）", () => {
 		// annualSalary(weight 任意) を希望充足=1.0、他は全 unknown にすると total=1。
 		const config: ScoringConfig = {

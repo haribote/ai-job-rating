@@ -200,8 +200,6 @@ const LABEL_ALIASES: ReadonlyArray<readonly [string, NormalizedKey]> = [
 	["テレワーク", "remoteWork"],
 	["フレックス", "flexWork"],
 	["フレックスタイム", "flexWork"],
-	["裁量労働", "flexWork"],
-	["裁量労働制", "flexWork"],
 	// 仕事・スキル (role)。techStack/必須要件/歓迎要件を skillMatch へ統合する（設計書 §5.2・#106）。
 	["技術スタック", "skillMatch"],
 	["開発環境", "skillMatch"],
