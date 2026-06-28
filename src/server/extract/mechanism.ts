@@ -22,3 +22,11 @@ export function resolveExtractionMechanism(model: string): ExtractionMechanism {
 	const found = EXTRACTION_MODEL_CANDIDATES.find((c) => c.id === model);
 	return found ? found.mechanism : DEFAULT_MECHANISM;
 }
+
+// モデル ID から ai.run の max_tokens 上限を解決する（決定的・カタログ駆動・#147）。
+// reasoning モデル（gpt-oss）は既定 max_tokens では reasoning で budget を使い切り content 生成前に切れる。
+// カタログに maxTokens を持つモデルはその値を、無ければ undefined（モデル既定に委ねる）を返す。
+// 一律の高い既定は禁物: mistral 等は高 max_tokens で退化したタブ列を吐き 504 になるため、上限はモデル別に持つ。
+export function resolveExtractionMaxTokens(model: string): number | undefined {
+	return EXTRACTION_MODEL_CANDIDATES.find((c) => c.id === model)?.maxTokens;
+}
