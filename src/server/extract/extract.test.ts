@@ -63,6 +63,16 @@ describe("buildExtractionMessages", () => {
 		expect(flexLine).toBeDefined();
 		expect(flexLine).toContain("フレックス");
 	});
+
+	// #106: companySize の単体優先誘導が prompt 経由でも届くことを、キー行に紐付けて固定する。
+	it("system プロンプトの companySize キー行に単体優先の誘導文言を含める", () => {
+		const system = buildExtractionMessages("本文")[0].content;
+		const sizeLine = system
+			.split("\n")
+			.find((line) => line.startsWith("- companySize:"));
+		expect(sizeLine).toBeDefined();
+		expect(sizeLine).toContain("単体");
+	});
 });
 
 // JSON Schema 定義（決定的）: 全正規キーを property に持つ object schema を返す。
@@ -125,6 +135,14 @@ describe("buildExtractionJsonSchema", () => {
 		const schema = buildExtractionJsonSchema();
 		const desc = schema.properties.flexWork.description ?? "";
 		expect(desc).toContain("裁量");
+	});
+
+	// #106: 単体/連結の従業員数併記で揺れる。単体（自社）優先・グループ/連結除外を description で誘導する。
+	it("companySize の description は単体優先・連結除外を誘導する", () => {
+		const schema = buildExtractionJsonSchema();
+		const desc = schema.properties.companySize.description ?? "";
+		expect(desc).toContain("単体");
+		expect(desc).toContain("連結");
 	});
 });
 
