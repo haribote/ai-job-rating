@@ -624,6 +624,36 @@ describe("extractJob", () => {
 		expect(result.job.annualSalary.kind).toBe("numericRange");
 	});
 
+	it("OpenAI 互換形（choices[].message.content の JSON 文字列）も json-mode で解釈できる", async () => {
+		// 一部 CF モデル（qwen3 / gemma / mistral 等）は json-mode でも WAI の { response } でなく
+		// OpenAI 互換 { choices: [{ message: { content: "<json>" } }] } で返す（#145 で live 実証）。
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				choices: [
+					{
+						message: {
+							content: JSON.stringify({ annualSalary: "700万〜900万" }),
+						},
+					},
+				],
+			}),
+		};
+
+		const result = await extractJob(fakeAi, "本文");
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("OpenAI 互換形で content が object（parse 済）でも解釈できる", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				choices: [{ message: { content: { annualSalary: "700万〜900万" } } }],
+			}),
+		};
+
+		const result = await extractJob(fakeAi, "本文");
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
 	it("AI が想定外形（JSON Mode 未充足等）を返しても落とさず全 unknown へ畳む", async () => {
 		const fakeAi: AiRunner = {
 			run: async () => ({ error: "JSON Mode couldn't be met" }),
