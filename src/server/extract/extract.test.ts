@@ -343,13 +343,13 @@ describe("rawFieldsToNormalizedJob", () => {
 
 	it("フレックスは flex へ寄せ、裁量労働は flexWork に含めず unknown 中立にする", () => {
 		const flex = rawFieldsToNormalizedJob({ flexWork: "フレックスタイム制" });
-		const discretionary = rawFieldsToNormalizedJob({ flexWork: "裁量労働制" });
+		const deemed = rawFieldsToNormalizedJob({ flexWork: "裁量労働制" });
 		expect(flex.flexWork.kind).toBe("categorical");
 		if (flex.flexWork.kind === "categorical") {
 			expect(flex.flexWork.categories).toEqual(["flex"]);
 		}
 		// 裁量労働＝みなし労働は flex と別物。closed categorical のため生表記を残さず unknown へ畳む。
-		expect(discretionary.flexWork.kind).toBe("unknown");
+		expect(deemed.flexWork.kind).toBe("unknown");
 	});
 
 	// closed categorical 回帰: flex に寄らない値（みなし単体・否定）は unknown 中立。否定誤判定もしない。
