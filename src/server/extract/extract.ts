@@ -132,6 +132,10 @@ const KEY_DESCRIPTIONS: Partial<Record<NormalizedKey, string>> = {
 	overtime:
 		"残業時間を数値で抜き出す（例: 月平均20時間）。平均残業時間を優先し、無ければ固定・みなし残業時間。数値が無く有無の記載のみなら原文の文言（例: 残業あり）を返す。",
 	capital: "企業の資本金のみ（例: 1億円）。売上高・従業員数は含めない。",
+	// 候補モデルはフレックス記載の recall が不足し flexWork で regress する（#153）。語の例を挙げて
+	// 明示誘導する。flexWork は flex 専用の closed categorical のため、裁量労働=みなし労働は対象外（#151）。
+	flexWork:
+		"フレックスタイム制の記載（例: フレックスタイム、フレックス）を原文の表記のまま返す。裁量労働制・みなし労働は対象外。記載が無ければ『-』。",
 };
 
 // 抽出メッセージ（OpenAI 互換）。AiRunner.run の inputs.messages に渡す。
