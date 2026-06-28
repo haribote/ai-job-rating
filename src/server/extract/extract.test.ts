@@ -51,6 +51,13 @@ describe("buildExtractionMessages", () => {
 			expect(system).toContain(key);
 		}
 	});
+
+	// #153: schema description は prompt にも展開される。flexWork のフレックス誘導文言が
+	// prompt 経由でも届くこと（response_format を見ないモデルへの recall 底上げ）を固定する。
+	it("system プロンプトに flexWork のフレックス誘導文言を含める", () => {
+		const system = buildExtractionMessages("本文")[0].content;
+		expect(system).toContain("フレックス");
+	});
 });
 
 // JSON Schema 定義（決定的）: 全正規キーを property に持つ object schema を返す。
@@ -97,6 +104,22 @@ describe("buildExtractionJsonSchema", () => {
 		const desc = schema.properties.overtime.description ?? "";
 		expect(desc).toContain("平均");
 		expect(desc).toContain("みなし");
+	});
+
+	// #153: 候補モデルはフレックス記載の recall が不足。description で「フレックスの語を抽出する」と
+	// 明示誘導し、recall を底上げする（schema-in-prompt と同系統）。
+	it("flexWork の description はフレックスの語の抽出を誘導する", () => {
+		const schema = buildExtractionJsonSchema();
+		const desc = schema.properties.flexWork.description ?? "";
+		expect(desc).toContain("フレックス");
+	});
+
+	// #151/#153: flexWork は flex 専用の closed categorical。裁量労働=みなし労働は対象外と明示し、
+	// 誤って flex に寄せる recall 過剰を防ぐ。
+	it("flexWork の description は裁量労働を対象外と明示する", () => {
+		const schema = buildExtractionJsonSchema();
+		const desc = schema.properties.flexWork.description ?? "";
+		expect(desc).toContain("裁量");
 	});
 });
 
