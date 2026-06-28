@@ -859,9 +859,9 @@ describe("extractJob (function-calling 機構)", () => {
 			},
 		};
 
-		// カタログの FC モデルを指定すれば機構は自動で function-calling に解決される。
+		// カタログの FC モデルを指定すれば機構は自動で function-calling に解決される（#146 後は gpt-oss 系）。
 		const result = await extractJob(fakeAi, "本文", {
-			model: "@cf/google/gemma-4-26b-a4b-it",
+			model: "@cf/openai/gpt-oss-120b",
 		});
 
 		const inputs = calls[0].inputs as {

@@ -40,7 +40,10 @@ export interface ModelCandidate {
 // 抽出モデル再評価の候補カタログ（#106・id の単一ソース）。現行既定（EXTRACTION_MODEL）は baseline
 // として別に与えるため本配列には含めない。live ドライバは EXTRACTION_MODEL_CANDIDATES.map((c) => c.id) を
 // candidateModels に渡す。
-// 機構の注意: JSON Mode 公式対応は現行 Llama 3.x 系のみ。下記 FC 系を既定化するには機構アダプタ拡張が要る。
+// 機構の注意（#146 live 実証で更新）: CF の当該モデルでは function-calling が非成立（3043/8006/504/5007）。
+// 一方 json-mode は ai.run 成功し、WAI native { response } と OpenAI { choices[].message.content } の双方を
+// #145 parser で回収できる。よって大半を json-mode に寄せる。gpt-oss 系のみ json-mode で content=null のため
+// FC 据置（→ viability は #147 で調査）。max_tokens は指定しない（高い値は mistral のタブ列暴走で 504 を招く）。
 export const EXTRACTION_MODEL_CANDIDATES: readonly ModelCandidate[] = [
 	{
 		id: "@cf/meta/llama-3.1-8b-instruct-fast",
@@ -52,35 +55,36 @@ export const EXTRACTION_MODEL_CANDIDATES: readonly ModelCandidate[] = [
 	},
 	{
 		id: "@cf/mistralai/mistral-small-3.1-24b-instruct",
-		mechanism: "function-calling",
+		mechanism: "json-mode",
 		contextWindow: 128000,
 		inputUsdPerMTok: 0.351,
 		outputUsdPerMTok: null,
-		note: "広 context・多言語。出力価格は pricing 表 truncated で要確認。機構=FC。",
+		note: "広 context・多言語。#146 live: FC は 504。json-mode は OpenAI choices 形で出力するが JSON 後に退化したタブ列を吐く→既定の truncation で末尾を切り先頭の JSON を温存（#145 parser で回収）。高い max_tokens はタブ生成で 504 を招くため指定しない。機構=json-mode。",
 	},
 	{
 		id: "@cf/meta/llama-4-scout-17b-16e-instruct",
-		mechanism: "function-calling",
+		mechanism: "json-mode",
 		contextWindow: null,
 		inputUsdPerMTok: null,
 		outputUsdPerMTok: null,
-		note: "広 context・高速（MoE 17B active）。#15 で JSON Mode 取りこぼし（required 未指定）。要 FC+検証。",
+		note: "広 context・高速（MoE 17B active）。#146 live: FC は 3043、json-mode は WAI native { response } 形で出力。機構=json-mode。",
 	},
 	{
-		id: "@cf/zai/glm-4.7-flash",
-		mechanism: "function-calling",
+		// 正式 ID は @cf/zai-org/...（#146 live: 旧 @cf/zai/... は 5007 No such model。wrangler ai models で確認）。
+		id: "@cf/zai-org/glm-4.7-flash",
+		mechanism: "json-mode",
 		contextWindow: 131072,
 		inputUsdPerMTok: null,
 		outputUsdPerMTok: null,
-		note: "131,072 context・高速・多言語100+。@cf 正式 ID と価格はモデルページで要確認。機構=FC。",
+		note: "131,072 context・高速・多言語100+。#146 で org prefix を zai-org へ訂正。機構=json-mode。価格は要確認。",
 	},
 	{
 		id: "@cf/qwen/qwen3-30b-a3b-fp8",
-		mechanism: "function-calling",
+		mechanism: "json-mode",
 		contextWindow: null,
 		inputUsdPerMTok: null,
 		outputUsdPerMTok: null,
-		note: "MoE（3B active=高速）・多言語・reasoning。context/価格は要確認。機構=FC。",
+		note: "MoE（3B active=高速）・多言語・reasoning。#146 live: FC は 8006（max_tokens 不足）、json-mode は OpenAI choices 形で出力。機構=json-mode。",
 	},
 	// --- ユーザー指示で追加（#138・各モデルページで一次確認済み 2026-06-27） ---
 	{
@@ -104,11 +108,11 @@ export const EXTRACTION_MODEL_CANDIDATES: readonly ModelCandidate[] = [
 	{
 		// https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/
 		id: "@cf/google/gemma-4-26b-a4b-it",
-		mechanism: "function-calling",
+		mechanism: "json-mode",
 		contextWindow: 256000,
 		inputUsdPerMTok: 0.1,
 		outputUsdPerMTok: 0.3,
-		note: "256k context・FC・reasoning・vision。広 context 最有力。JSON Mode 一覧外のため機構=FC。",
+		note: "256k context・reasoning・vision。広 context 最有力。#146 live: FC は 8006、json-mode は OpenAI choices 形で出力。機構=json-mode。",
 	},
 ];
 

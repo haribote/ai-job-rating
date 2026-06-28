@@ -218,6 +218,8 @@ function buildExtractionRequest(
 			tool_choice: { type: "function", function: { name: tool.name } },
 		};
 	}
+	// max_tokens は指定しない（モデル既定に委ねる）。#146 live: mistral 等は JSON 後に退化したタブ列を吐くため、
+	// 高い max_tokens はタブ生成で 504 を招く。既定の truncation が末尾タブを切り、先頭で完結した JSON を温存する。
 	return {
 		messages,
 		response_format: {
