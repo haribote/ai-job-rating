@@ -54,9 +54,14 @@ describe("buildExtractionMessages", () => {
 
 	// #153: schema description は prompt にも展開される。flexWork のフレックス誘導文言が
 	// prompt 経由でも届くこと（response_format を見ないモデルへの recall 底上げ）を固定する。
-	it("system プロンプトに flexWork のフレックス誘導文言を含める", () => {
+	// 別箇所の偶然一致で緑になるのを避け、flexWork のキー行に紐付けて検証する。
+	it("system プロンプトの flexWork キー行にフレックス誘導文言を含める", () => {
 		const system = buildExtractionMessages("本文")[0].content;
-		expect(system).toContain("フレックス");
+		const flexLine = system
+			.split("\n")
+			.find((line) => line.startsWith("- flexWork:"));
+		expect(flexLine).toBeDefined();
+		expect(flexLine).toContain("フレックス");
 	});
 });
 
