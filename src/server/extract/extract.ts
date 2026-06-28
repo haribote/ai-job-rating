@@ -359,15 +359,15 @@ const CATEGORY_RULES: Partial<Record<NormalizedKey, readonly CategoryRule[]>> =
 			["出社", "onsite"],
 			["常駐", "onsite"],
 		],
-		// フレックス・裁量労働 → flex / discretionary。固有 stem のみ（裸の「あり/可」は撤去）。
-		flexWork: [
-			["フレックス", "flex"],
-			["裁量労働", "discretionary"],
-			["裁量", "discretionary"],
-			["みなし労働", "discretionary"],
-			["みなし", "discretionary"],
-		],
+		// フレックス（労働者が始業終業を選べる）→ flex のみ。裁量労働=みなし労働は別物のため寄せない（§5.2）。
+		flexWork: [["フレックス", "flex"]],
 	};
+
+// flexWork は flex の有無のみを表す closed categorical。canonical(=flex)に寄らない値（裁量労働・
+// 「フレックス不可」・裸の「有/あり」）は生表記を残さず unknown 中立へ畳む（§5.2）。open categorical
+// （remoteWork 等）は情報を捨てず生表記をカテゴリに残す従来挙動を保つ。
+const CLOSED_CATEGORICAL_KEYS: ReadonlySet<NormalizedKey> =
+	new Set<NormalizedKey>(["flexWork"]);
 
 // 否定マーカーを含むときに onsite へ寄せるキー。リモートの「不可/なし」は明確な否定意味を持つ。
 const NEGATION_TO_ONSITE: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
@@ -375,8 +375,8 @@ const NEGATION_TO_ONSITE: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 ]);
 
 // 否定表現を含むか（canonicalizeLabel 後で部分一致）。
-// なぜ「みなし」を除くか: 否定 needle「なし」は「みなし（労働）」の部分文字列に一致してしまい、
-// 裁量労働の positive を否定と誤判定する。みなしは否定でなく discretionary の語なので先に除去する。
+// なぜ「みなし」を除くか: 否定 needle「なし」は「みなし（労働）」の部分文字列に一致し否定と誤判定する。
+// みなしは否定語ではないため先に除去する（flexWork 以外の categorical でも安全側に効く汎用ガード）。
 function hasNegation(haystack: string): boolean {
 	const withoutDeemed = haystack.replace(/みなし/g, "");
 	return NEGATION_NEEDLES.some((n) =>
@@ -482,8 +482,12 @@ function rawToFieldValue(
 	}
 
 	// categorical: 主要キーは canonical トークンへ寄せ scoring の preferred と突合可能にする（§5.2）。
-	// マッピングに無い値は生表記を 1 カテゴリとして残す（情報を捨てない）。
 	const canonical = canonicalizeCategoryValue(key, value);
+	// closed categorical（flexWork）は canonical に寄らない値を unknown 中立にする（生表記を残さない）。
+	if (canonical === null && CLOSED_CATEGORICAL_KEYS.has(key)) {
+		return { kind: "unknown", raw: value };
+	}
+	// open categorical はマッピングに無い値も生表記を 1 カテゴリとして残す（情報を捨てない）。
 	return {
 		kind: "categorical",
 		categories: [canonical ?? value],
