@@ -42,6 +42,15 @@ describe("buildExtractionMessages", () => {
 		expect(system).toContain("要約");
 		expect(system).toContain("原文");
 	});
+
+	// #147: 一部モデル（gpt-oss 等）は response_format.json_schema を見ず「schema が無い」と迷走して
+	// 504/content=null になる。全正規キーを prompt に明示し、response_format を見ないモデルでも抽出できるようにする。
+	it("system プロンプトに全正規キー（schema）を埋め込む", () => {
+		const system = buildExtractionMessages("本文")[0].content;
+		for (const key of NORMALIZED_KEYS) {
+			expect(system).toContain(key);
+		}
+	});
 });
 
 // JSON Schema 定義（決定的）: 全正規キーを property に持つ object schema を返す。
@@ -613,6 +622,42 @@ describe("extractJob", () => {
 		expect(result.job.annualSalary.kind).toBe("numericRange");
 	});
 
+	it("カタログ maxTokens を持つモデル（gpt-oss）は inputs に max_tokens を含める（#147）", async () => {
+		const calls: unknown[] = [];
+		const fakeAi: AiRunner = {
+			run: async (_m, inputs) => {
+				calls.push(inputs);
+				return { response: {} };
+			},
+		};
+		await extractJob(fakeAi, "本文", { model: "@cf/openai/gpt-oss-120b" });
+		expect((calls[0] as { max_tokens?: number }).max_tokens).toBe(16384);
+	});
+
+	it("maxTokens 未設定モデルは inputs に max_tokens を含めない（モデル既定に委ねる・#147）", async () => {
+		const calls: unknown[] = [];
+		const fakeAi: AiRunner = {
+			run: async (_m, inputs) => {
+				calls.push(inputs);
+				return { response: {} };
+			},
+		};
+		await extractJob(fakeAi, "本文", { model: "@cf/qwen/qwen3-30b-a3b-fp8" });
+		expect((calls[0] as { max_tokens?: number }).max_tokens).toBeUndefined();
+	});
+
+	it("options.maxTokens で max_tokens を明示上書きできる（#147）", async () => {
+		const calls: unknown[] = [];
+		const fakeAi: AiRunner = {
+			run: async (_m, inputs) => {
+				calls.push(inputs);
+				return { response: {} };
+			},
+		};
+		await extractJob(fakeAi, "本文", { maxTokens: 2048 });
+		expect((calls[0] as { max_tokens?: number }).max_tokens).toBe(2048);
+	});
+
 	it("AI が response 文字列（JSON）を返しても解釈できる", async () => {
 		const fakeAi: AiRunner = {
 			run: async () => ({
@@ -859,9 +904,9 @@ describe("extractJob (function-calling 機構)", () => {
 			},
 		};
 
-		// カタログの FC モデルを指定すれば機構は自動で function-calling に解決される（#146 後は gpt-oss 系）。
+		// #147 時点でカタログ候補は全て json-mode のため、FC は options.mechanism 上書きで指定する。
 		const result = await extractJob(fakeAi, "本文", {
-			model: "@cf/openai/gpt-oss-120b",
+			mechanism: "function-calling",
 		});
 
 		const inputs = calls[0].inputs as {

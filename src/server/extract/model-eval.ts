@@ -28,6 +28,9 @@ export interface ModelCandidate {
 	// Workers AI モデル ID（@cf/...）。live ドライバはこれを candidateModels として evaluateModels に渡す。
 	readonly id: string;
 	readonly mechanism: ExtractionMechanism;
+	// ai.run の max_tokens 上限（#147）。未指定はモデル既定に委ねる。reasoning モデル（gpt-oss）は
+	// 既定では reasoning で budget を使い切り content を生成できないため、十分な値を明示する。
+	readonly maxTokens?: number;
 	// context window（tokens）。モデルページ未確認は null（要確認）。
 	readonly contextWindow: number | null;
 	// 価格（USD / M tokens）。未掲載・未確認は null（要確認）。
@@ -90,20 +93,22 @@ export const EXTRACTION_MODEL_CANDIDATES: readonly ModelCandidate[] = [
 	{
 		// https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/
 		id: "@cf/openai/gpt-oss-120b",
-		mechanism: "function-calling",
+		mechanism: "json-mode",
+		maxTokens: 16384,
 		contextWindow: 128000,
 		inputUsdPerMTok: 0.35,
 		outputUsdPerMTok: 0.75,
-		note: "FC+reasoning。#15 実測で JSON Mode 非遵守（content=null/reasoning_content）。FC/Responses 経路前提。health 用既定でもある。",
+		note: "reasoning。#147 live: FC は 3043。json-mode は既定 max_tokens だと reasoning で枯渇し finish_reason:length・content=null。maxTokens=16384 で完全 JSON を返す（#145 parser で回収）。機構=json-mode。",
 	},
 	{
 		// https://developers.cloudflare.com/workers-ai/models/gpt-oss-20b/
 		id: "@cf/openai/gpt-oss-20b",
-		mechanism: "function-calling",
+		mechanism: "json-mode",
+		maxTokens: 16384,
 		contextWindow: 128000,
 		inputUsdPerMTok: 0.2,
 		outputUsdPerMTok: 0.3,
-		note: "FC+reasoning・低レイテンシ版。gpt-oss 系は JSON Mode 非遵守（#15）。FC 経路前提。",
+		note: "reasoning・低レイテンシ版。#147 live: FC は 3043、json-mode は出力可（reasoning が短く既定でも収まることが多いが安全側に maxTokens=16384）。機構=json-mode。",
 	},
 	{
 		// https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/

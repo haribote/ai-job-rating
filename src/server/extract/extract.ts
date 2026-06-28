@@ -27,7 +27,10 @@ import {
 	type PrepareContentOptions,
 	prepareExtractionContent,
 } from "./content-extract";
-import { resolveExtractionMechanism } from "./mechanism";
+import {
+	resolveExtractionMaxTokens,
+	resolveExtractionMechanism,
+} from "./mechanism";
 import type { ExtractionMechanism } from "./model-eval";
 
 // 抽出に使う既定モデル（コード側の最終フォールバック）。要件 §7.1 候補のうち JSON Mode 対応の Llama 3.3。
@@ -78,6 +81,8 @@ export interface ExtractJobOptions {
 	// 出力機構の明示指定（json-mode / function-calling）。未指定はモデル ID から解決する（#107）。
 	// eval や検証で機構だけ差し替えたい場合の差し戻し点。
 	readonly mechanism?: ExtractionMechanism;
+	// ai.run の max_tokens 上限の明示指定（#147）。未指定はモデル ID からカタログ解決し、無ければモデル既定。
+	readonly maxTokens?: number;
 }
 
 // 抽出時に AI へ要求する「正規キーごとの生抽出文字列」。値は素のテキスト（正規化前）。
@@ -144,10 +149,28 @@ const SYSTEM_PROMPT = [
 	"記載が見つからない項目は必ず「-」を返してください。推測や創作はしないでください。",
 ].join("");
 
-// trim 済み本文から抽出用 messages を組み立てる（決定的）。
+// 全正規キー（＋ description）を prompt 用テキストへ整形する（決定的・#147）。
+// なぜ prompt にも schema を出すか: 一部モデル（gpt-oss 等）は response_format.json_schema を参照せず
+// 「schema が無い」と迷走して 504/content=null になる。response_format に加え prompt にもキーを明示し、
+// response_format を見ないモデルでも抽出できるようにする（json_schema と同一の properties を単一ソースに保つ）。
+function buildSchemaPromptSection(): string {
+	const { properties } = buildExtractionJsonSchema();
+	const lines = Object.entries(properties).map(([key, prop]) =>
+		prop.description ? `- ${key}: ${prop.description}` : `- ${key}`,
+	);
+	return [
+		"抽出して JSON で返すキー一覧（下記の各キーを持つ JSON オブジェクトを1つだけ出力する）:",
+		...lines,
+	].join("\n");
+}
+
+// trim 済み本文から抽出用 messages を組み立てる（決定的）。schema は prompt にも明示する（#147）。
 export function buildExtractionMessages(body: string): ExtractionMessage[] {
 	return [
-		{ role: "system", content: SYSTEM_PROMPT },
+		{
+			role: "system",
+			content: `${SYSTEM_PROMPT}\n${buildSchemaPromptSection()}`,
+		},
 		{ role: "user", content: `求人本文:\n${body}` },
 	];
 }
@@ -203,25 +226,30 @@ export function buildExtractionTool(): ExtractionTool {
 
 // 機構に応じた ai.run の inputs を組み立てる（決定的）。
 // json-mode は response_format(json_schema)、function-calling は tools + tool_choice を渡す。
+// maxTokens は与えられたときだけ max_tokens として載せる（未指定はモデル既定に委ねる・#147）。
+// 注: 一律の高い max_tokens は禁物。mistral 等は JSON 後に退化したタブ列を吐くため、高い値はタブ生成で 504 を
+//     招く（#146）。一方 gpt-oss は reasoning で budget を食うため十分な値が要る（#147）。上限はモデル別に持つ。
 function buildExtractionRequest(
 	body: string,
 	mechanism: ExtractionMechanism,
+	maxTokens?: number,
 ): unknown {
 	const messages = buildExtractionMessages(body);
+	const maxTokensPart = maxTokens ? { max_tokens: maxTokens } : {};
 	if (mechanism === "function-calling") {
 		const tool = buildExtractionTool();
 		return {
 			messages,
+			...maxTokensPart,
 			tools: [tool],
 			// 単一ツールを強制し、平文応答に逃げさせない（OpenAI 互換 tool_choice 形）。
 			// 受理形はモデル依存のため live で要確認（#106 eval）。非対応モデルは throw → extraction_failed。
 			tool_choice: { type: "function", function: { name: tool.name } },
 		};
 	}
-	// max_tokens は指定しない（モデル既定に委ねる）。#146 live: mistral 等は JSON 後に退化したタブ列を吐くため、
-	// 高い max_tokens はタブ生成で 504 を招く。既定の truncation が末尾タブを切り、先頭で完結した JSON を温存する。
 	return {
 		messages,
+		...maxTokensPart,
 		response_format: {
 			type: "json_schema",
 			json_schema: buildExtractionJsonSchema(),
@@ -658,6 +686,8 @@ export async function extractJob(
 	const model = resolveExtractionModel(options.model);
 	// 機構は options.mechanism を優先し、未指定はモデル ID から解決する（カタログ駆動・#107）。
 	const mechanism = options.mechanism ?? resolveExtractionMechanism(model);
+	// max_tokens は options.maxTokens を優先し、未指定はモデル ID からカタログ解決する（#147）。
+	const maxTokens = options.maxTokens ?? resolveExtractionMaxTokens(model);
 	// 空判定は trimHtml の出力契約（空文字の可能性）に従う。AI 呼出前に弾く。
 	if (body.trim() === "") {
 		return {
@@ -669,7 +699,7 @@ export async function extractJob(
 		};
 	}
 
-	const inputs = buildExtractionRequest(body, mechanism);
+	const inputs = buildExtractionRequest(body, mechanism, maxTokens);
 	for (let attempt = 1; attempt <= MAX_EXTRACTION_ATTEMPTS; attempt += 1) {
 		try {
 			const output = await ai.run(model, inputs);
