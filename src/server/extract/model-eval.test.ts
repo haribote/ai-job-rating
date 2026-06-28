@@ -200,4 +200,11 @@ describe("EXTRACTION_MODEL_CANDIDATES", () => {
 		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
 		expect(ids).not.toContain("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
 	});
+
+	// #146: live で旧 ID は `5007 No such model`、正式 ID は wrangler ai models に存在（org prefix は zai-org）。
+	it("GLM は正式 ID（@cf/zai-org/...）で、不正な @cf/zai/... を含まない", () => {
+		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
+		expect(ids).toContain("@cf/zai-org/glm-4.7-flash");
+		expect(ids).not.toContain("@cf/zai/glm-4.7-flash");
+	});
 });
