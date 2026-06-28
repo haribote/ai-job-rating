@@ -227,10 +227,34 @@ app.post("/api/_eval-models", async (c) => {
 	const baselineModel = resolveExtractionModel(c.env.EXTRACTION_MODEL);
 	const candidateModels = EXTRACTION_MODEL_CANDIDATES.map((m) => m.id);
 	// 本番取込（ingest）と同じ extractJobFromHtml 経路に通す。機構はモデル ID から自動解決される（#107）。
+	// dev サーバログへ per-(model,case) 進捗を出す（#141 live 実測: 全 9 モデルが逐次 1 応答のため、
+	// ログ無しでは低速か hang かを判別できず 30 分上限に達した）。model 順・case 数・所要 ms を出し、
+	// どのモデルで停滞したかを driver の無音中に dev ログ側で追えるようにする。
+	const totalModels = 1 + candidateModels.length;
+	const totalCases = cases.length;
+	const modelOrder = new Map<string, number>();
+	const caseCounts = new Map<string, number>();
 	const makeExtractor =
 		(model: string): GoldenExtractor =>
-		(html) =>
-			extractJobFromHtml(c.env.AI, html, { model }).then((r) => r.job);
+		(html) => {
+			if (!modelOrder.has(model)) modelOrder.set(model, modelOrder.size + 1);
+			const mi = modelOrder.get(model) ?? 0;
+			const ci = (caseCounts.get(model) ?? 0) + 1;
+			caseCounts.set(model, ci);
+			const tag = `[eval] model ${mi}/${totalModels} ${model} case ${ci}/${totalCases}`;
+			const t0 = Date.now();
+			console.log(`${tag} start`);
+			return extractJobFromHtml(c.env.AI, html, { model })
+				.then((r) => {
+					console.log(`${tag} done ${Date.now() - t0}ms`);
+					return r.job;
+				})
+				.catch((err) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.error(`${tag} ERROR ${Date.now() - t0}ms: ${msg}`);
+					throw err;
+				});
+		};
 
 	const selection = await evaluateModels(
 		cases,

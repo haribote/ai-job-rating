@@ -81,6 +81,11 @@ function parseArgs(argv) {
 
 const { port, out } = parseArgs(process.argv.slice(2));
 
+// 応答待ち上限（ms）。既定は eval-driver.ts の EVAL_REQUEST_TIMEOUT_MS。reasoning モデルで延びる場合に
+// コード変更なく延ばせるよう環境変数 EVAL_REQUEST_TIMEOUT_MS で上書きできる。
+const requestTimeoutMs =
+	Number(process.env.EVAL_REQUEST_TIMEOUT_MS) || EVAL_REQUEST_TIMEOUT_MS;
+
 const goldenDir = resolve(root, "test-fixtures/golden");
 if (!existsSync(goldenDir)) {
 	console.error(`golden ディレクトリが見つかりません: ${goldenDir}`);
@@ -99,12 +104,14 @@ const cases = files.map((name) =>
 	JSON.parse(readFileSync(resolve(goldenDir, name), "utf8")),
 );
 
-console.log(`golden ${cases.length} 件を送信: ${files.join(", ")}`);
+console.log(
+	`golden ${cases.length} 件を送信: ${files.join(", ")}（応答待ち上限 ${Math.round(requestTimeoutMs / 60000)}分・進捗は dev サーバログ参照）`,
+);
 
 const url = `http://localhost:${port}/api/_eval-models`;
 let res;
 try {
-	res = await postJson(url, { cases }, EVAL_REQUEST_TIMEOUT_MS);
+	res = await postJson(url, { cases }, requestTimeoutMs);
 } catch (cause) {
 	console.error(
 		`dev サーバへ接続できません（${url}）。npm run dev を起動していますか?`,

@@ -8,9 +8,11 @@
 import type { ModelSelection } from "./model-eval";
 
 // driver が dev route の応答を待つ上限（ms）。route は baseline+候補を逐次 runGolden で実行し、
-// 総時間が global fetch（undici）既定 headersTimeout=300s を超える（実測 6 件×9 モデルで ~910s）。
-// 既定のままでは応答前にクライアントが必ず切れるため、十分長い上限を共有し driver の HTTP 層へ渡す。
-export const EVAL_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+// 総時間が global fetch（undici）既定 headersTimeout=300s を超える。
+// #144 修正後は全候補が json-mode で実走する（旧: FC 7 候補が即時失敗し fast fail で ~910s に収まっていた）ため、
+// 9 モデル×6 件×分割パス＋gpt-oss reasoning で 30 分を超過し得る。実測で driver が 30 分上限に達したため延長。
+// driver(.mjs) は EVAL_REQUEST_TIMEOUT_MS 環境変数で上書きでき、本値はその既定。
+export const EVAL_REQUEST_TIMEOUT_MS = 90 * 60 * 1000;
 
 // golden ディレクトリのファイル名一覧から POST 対象の golden JSON だけを選ぶ（決定的）。
 // 実体（*.json）とサニタイズ雛形（*.example.json）の双方を含め、README.md / .gitignore 等の非 JSON は除く。
