@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatModelSelection, selectGoldenFiles } from "./eval-driver";
+import {
+	EVAL_REQUEST_TIMEOUT_MS,
+	formatModelSelection,
+	selectGoldenFiles,
+} from "./eval-driver";
 import type { ModelComparison, ModelSelection } from "./model-eval";
 
 // driver の純粋部分（ケース収集・整形）を決定的にユニットテストする。
@@ -119,5 +123,14 @@ describe("formatModelSelection", () => {
 		expect(out).toContain("baseline: base");
 		expect(out).toContain("selected: base");
 		expect(out).toContain("changed: no");
+	});
+});
+
+describe("EVAL_REQUEST_TIMEOUT_MS", () => {
+	// route は baseline+候補を逐次 runGolden で実行し、総時間が global fetch 既定 headersTimeout(300s)を
+	// 超える（実測 6 件×9 モデルで ~910s）。driver の応答待ちはこの上限まで許容する必要がある。
+	it("global fetch 既定 headersTimeout(300s) と実測最悪値(~910s) を上回る", () => {
+		expect(EVAL_REQUEST_TIMEOUT_MS).toBeGreaterThan(300_000);
+		expect(EVAL_REQUEST_TIMEOUT_MS).toBeGreaterThan(910_000);
 	});
 });

@@ -15,15 +15,51 @@
 // 実行: node scripts/eval/eval-models.mjs [--port 8787] [--out eval-result.json]
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
 
-const { selectGoldenFiles, formatModelSelection } = await import(
-	resolve(root, "src/server/extract/eval-driver.ts")
-);
+const { selectGoldenFiles, formatModelSelection, EVAL_REQUEST_TIMEOUT_MS } =
+	await import(resolve(root, "src/server/extract/eval-driver.ts"));
+
+// JSON を POST して { status, text } を返す。global fetch は使わない:
+// undici 既定 headersTimeout=300s では、route が baseline+候補を全件実行してから応答する設計（実測 ~910s）に
+// 対し応答前に必ず切れる。node:http は応答に既定タイムアウトが無く、暴走防止の上限だけ与えれば長時間 eval を待てる。
+function postJson(url, payload, timeoutMs) {
+	const u = new URL(url);
+	const data = JSON.stringify(payload);
+	return new Promise((resolvePromise, reject) => {
+		const req = httpRequest(
+			{
+				hostname: u.hostname,
+				port: u.port,
+				path: u.pathname,
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"content-length": Buffer.byteLength(data),
+				},
+			},
+			(res) => {
+				let text = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => {
+					text += chunk;
+				});
+				res.on("end", () => resolvePromise({ status: res.statusCode, text }));
+			},
+		);
+		req.on("error", reject);
+		req.setTimeout(timeoutMs, () => {
+			req.destroy(new Error(`応答が ${timeoutMs}ms を超えました`));
+		});
+		req.write(data);
+		req.end();
+	});
+}
 
 // 引数を最小限にパースする（--port / --out）。
 function parseArgs(argv) {
@@ -68,11 +104,7 @@ console.log(`golden ${cases.length} 件を送信: ${files.join(", ")}`);
 const url = `http://localhost:${port}/api/_eval-models`;
 let res;
 try {
-	res = await fetch(url, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ cases }),
-	});
+	res = await postJson(url, { cases }, EVAL_REQUEST_TIMEOUT_MS);
 } catch (cause) {
 	console.error(
 		`dev サーバへ接続できません（${url}）。npm run dev を起動していますか?`,
@@ -81,11 +113,11 @@ try {
 	process.exit(1);
 }
 
-const text = await res.text();
-if (!res.ok) {
+const { status, text } = res;
+if (status !== 200) {
 	// 404 は EXTRACTION_EVAL 未設定（gate）の可能性が高い。
-	console.error(`eval ルートが ${res.status} を返しました: ${text}`);
-	if (res.status === 404) {
+	console.error(`eval ルートが ${status} を返しました: ${text}`);
+	if (status === 404) {
 		console.error(
 			".dev.vars に EXTRACTION_EVAL=1 を設定して dev を再起動してください。",
 		);
