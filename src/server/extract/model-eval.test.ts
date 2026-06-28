@@ -186,18 +186,28 @@ describe("EXTRACTION_MODEL_CANDIDATES", () => {
 		expect(ids).toContain("@cf/google/gemma-4-26b-a4b-it");
 	});
 
-	it("gpt-oss 系は JSON Mode 非遵守（#15）のため機構は function-calling", () => {
+	// #147 live 実証: gpt-oss は json-mode で動くが reasoning に budget を食うため、既定 max_tokens では
+	// content 生成前に切れる。十分な maxTokens を持たせて救済する（FC は 3043 で非成立）。
+	it("gpt-oss 系は json-mode かつ reasoning 分の maxTokens を持つ（#147）", () => {
 		const gptOss = EXTRACTION_MODEL_CANDIDATES.filter((c) =>
 			c.id.startsWith("@cf/openai/gpt-oss"),
 		);
 		expect(gptOss).toHaveLength(2);
 		for (const c of gptOss) {
-			expect(c.mechanism).toBe("function-calling");
+			expect(c.mechanism).toBe("json-mode");
+			expect(c.maxTokens).toBe(16384);
 		}
 	});
 
 	it("現行既定（baseline）は候補に含めない（baseline は別途与える）", () => {
 		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
 		expect(ids).not.toContain("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+	});
+
+	// #146: live で旧 ID は `5007 No such model`、正式 ID は wrangler ai models に存在（org prefix は zai-org）。
+	it("GLM は正式 ID（@cf/zai-org/...）で、不正な @cf/zai/... を含まない", () => {
+		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
+		expect(ids).toContain("@cf/zai-org/glm-4.7-flash");
+		expect(ids).not.toContain("@cf/zai/glm-4.7-flash");
 	});
 });

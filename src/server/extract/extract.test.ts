@@ -42,6 +42,15 @@ describe("buildExtractionMessages", () => {
 		expect(system).toContain("要約");
 		expect(system).toContain("原文");
 	});
+
+	// #147: 一部モデル（gpt-oss 等）は response_format.json_schema を見ず「schema が無い」と迷走して
+	// 504/content=null になる。全正規キーを prompt に明示し、response_format を見ないモデルでも抽出できるようにする。
+	it("system プロンプトに全正規キー（schema）を埋め込む", () => {
+		const system = buildExtractionMessages("本文")[0].content;
+		for (const key of NORMALIZED_KEYS) {
+			expect(system).toContain(key);
+		}
+	});
 });
 
 // JSON Schema 定義（決定的）: 全正規キーを property に持つ object schema を返す。
@@ -261,20 +270,40 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	// #101: 賞与も通貨項目。年収と同じく円→万円へ正規化し単位を揃える。
-	it("円表記の賞与を万円へ正規化する（600,000円→60）", () => {
-		const job = rawFieldsToNormalizedJob({ bonus: "600,000円" });
+	// #142: 賞与は金額でなく年間支給回数で評価する。「年N回」の N のみを回数化する。
+	it("年N回の賞与は回数を numericRange へ寄せる（年2回→2）", () => {
+		const job = rawFieldsToNormalizedJob({ bonus: "年2回" });
 		expect(job.bonus.kind).toBe("numericRange");
 		if (job.bonus.kind === "numericRange") {
-			expect(job.bonus.min).toBe(60);
-			expect(job.bonus.max).toBe(60);
+			expect(job.bonus.min).toBe(2);
+			expect(job.bonus.max).toBe(2);
 		}
 	});
 
-	it("通貨単位を伴わない賞与表記（年2回）は unknown 中立にする", () => {
-		// なぜ: 「年2回」の 2 は金額ではない。通貨単位の無い裸数値を金額と誤認しない。
-		const job = rawFieldsToNormalizedJob({ bonus: "年2回" });
-		expect(isUnknown(job.bonus)).toBe(true);
+	it("年1回・年4回も回数化する（境界の単調性を固定）", () => {
+		const once = rawFieldsToNormalizedJob({ bonus: "年1回" });
+		const four = rawFieldsToNormalizedJob({ bonus: "年4回" });
+		expect(once.bonus).toMatchObject({ kind: "numericRange", min: 1, max: 1 });
+		expect(four.bonus).toMatchObject({ kind: "numericRange", min: 4, max: 4 });
+	});
+
+	it("回数＋注記が混在しても回数のみ採る（年2回 ※業績連動→2）", () => {
+		// なぜ: ※以降の注記は stripAnnotations で除かれ、回数だけが残る。
+		const job = rawFieldsToNormalizedJob({ bonus: "年2回 ※業績連動" });
+		expect(job.bonus).toMatchObject({ kind: "numericRange", min: 2, max: 2 });
+	});
+
+	it("月数・金額・業績連動のみは回数でないので unknown 中立にする", () => {
+		// なぜ: 「2ヶ月分」「30万円」「業績連動」の数値は支給回数ではない。誤抽出しない。
+		expect(
+			isUnknown(rawFieldsToNormalizedJob({ bonus: "2ヶ月分" }).bonus),
+		).toBe(true);
+		expect(isUnknown(rawFieldsToNormalizedJob({ bonus: "30万円" }).bonus)).toBe(
+			true,
+		);
+		expect(
+			isUnknown(rawFieldsToNormalizedJob({ bonus: "業績連動" }).bonus),
+		).toBe(true);
 	});
 
 	it("非通貨の numericRange は単位換算しない（年間休日 122日→122）", () => {
@@ -593,10 +622,76 @@ describe("extractJob", () => {
 		expect(result.job.annualSalary.kind).toBe("numericRange");
 	});
 
+	it("カタログ maxTokens を持つモデル（gpt-oss）は inputs に max_tokens を含める（#147）", async () => {
+		const calls: unknown[] = [];
+		const fakeAi: AiRunner = {
+			run: async (_m, inputs) => {
+				calls.push(inputs);
+				return { response: {} };
+			},
+		};
+		await extractJob(fakeAi, "本文", { model: "@cf/openai/gpt-oss-120b" });
+		expect((calls[0] as { max_tokens?: number }).max_tokens).toBe(16384);
+	});
+
+	it("maxTokens 未設定モデルは inputs に max_tokens を含めない（モデル既定に委ねる・#147）", async () => {
+		const calls: unknown[] = [];
+		const fakeAi: AiRunner = {
+			run: async (_m, inputs) => {
+				calls.push(inputs);
+				return { response: {} };
+			},
+		};
+		await extractJob(fakeAi, "本文", { model: "@cf/qwen/qwen3-30b-a3b-fp8" });
+		expect((calls[0] as { max_tokens?: number }).max_tokens).toBeUndefined();
+	});
+
+	it("options.maxTokens で max_tokens を明示上書きできる（#147）", async () => {
+		const calls: unknown[] = [];
+		const fakeAi: AiRunner = {
+			run: async (_m, inputs) => {
+				calls.push(inputs);
+				return { response: {} };
+			},
+		};
+		await extractJob(fakeAi, "本文", { maxTokens: 2048 });
+		expect((calls[0] as { max_tokens?: number }).max_tokens).toBe(2048);
+	});
+
 	it("AI が response 文字列（JSON）を返しても解釈できる", async () => {
 		const fakeAi: AiRunner = {
 			run: async () => ({
 				response: JSON.stringify({ annualSalary: "700万〜900万" }),
+			}),
+		};
+
+		const result = await extractJob(fakeAi, "本文");
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("OpenAI 互換形（choices[].message.content の JSON 文字列）も json-mode で解釈できる", async () => {
+		// 一部 CF モデル（qwen3 / gemma / mistral 等）は json-mode でも WAI の { response } でなく
+		// OpenAI 互換 { choices: [{ message: { content: "<json>" } }] } で返す（#145 で live 実証）。
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				choices: [
+					{
+						message: {
+							content: JSON.stringify({ annualSalary: "700万〜900万" }),
+						},
+					},
+				],
+			}),
+		};
+
+		const result = await extractJob(fakeAi, "本文");
+		expect(result.job.annualSalary.kind).toBe("numericRange");
+	});
+
+	it("OpenAI 互換形で content が object（parse 済）でも解釈できる", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				choices: [{ message: { content: { annualSalary: "700万〜900万" } } }],
 			}),
 		};
 
@@ -809,9 +904,9 @@ describe("extractJob (function-calling 機構)", () => {
 			},
 		};
 
-		// カタログの FC モデルを指定すれば機構は自動で function-calling に解決される。
+		// #147 時点でカタログ候補は全て json-mode のため、FC は options.mechanism 上書きで指定する。
 		const result = await extractJob(fakeAi, "本文", {
-			model: "@cf/google/gemma-4-26b-a4b-it",
+			mechanism: "function-calling",
 		});
 
 		const inputs = calls[0].inputs as {

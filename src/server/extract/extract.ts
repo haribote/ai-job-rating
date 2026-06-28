@@ -27,7 +27,10 @@ import {
 	type PrepareContentOptions,
 	prepareExtractionContent,
 } from "./content-extract";
-import { resolveExtractionMechanism } from "./mechanism";
+import {
+	resolveExtractionMaxTokens,
+	resolveExtractionMechanism,
+} from "./mechanism";
 import type { ExtractionMechanism } from "./model-eval";
 
 // 抽出に使う既定モデル（コード側の最終フォールバック）。要件 §7.1 候補のうち JSON Mode 対応の Llama 3.3。
@@ -78,6 +81,8 @@ export interface ExtractJobOptions {
 	// 出力機構の明示指定（json-mode / function-calling）。未指定はモデル ID から解決する（#107）。
 	// eval や検証で機構だけ差し替えたい場合の差し戻し点。
 	readonly mechanism?: ExtractionMechanism;
+	// ai.run の max_tokens 上限の明示指定（#147）。未指定はモデル ID からカタログ解決し、無ければモデル既定。
+	readonly maxTokens?: number;
 }
 
 // 抽出時に AI へ要求する「正規キーごとの生抽出文字列」。値は素のテキスト（正規化前）。
@@ -115,6 +120,9 @@ export interface ExtractionJsonSchema {
 const KEY_DESCRIPTIONS: Partial<Record<NormalizedKey, string>> = {
 	skillMatch:
 		"使用技術・スキル・必須/歓迎要件を原文の表記のまま列挙する。要約・翻訳・補完をしない。",
+	// 賞与は金額でなく年間支給回数で評価する（#142）。金額・月数・「業績連動」は回数でないので返さない。
+	bonus:
+		"賞与の年間支給回数を数値で返す（例: 年2回→2）。賞与額・月数・『業績連動』等の文言は支給回数ではないので返さない。回数の記載が無ければ『-』。",
 	benefitsCoverage:
 		"福利厚生・休日制度・休暇制度・各種手当・退職金などの待遇を原文のまま列挙する。",
 	annualHolidays:
@@ -141,10 +149,28 @@ const SYSTEM_PROMPT = [
 	"記載が見つからない項目は必ず「-」を返してください。推測や創作はしないでください。",
 ].join("");
 
-// trim 済み本文から抽出用 messages を組み立てる（決定的）。
+// 全正規キー（＋ description）を prompt 用テキストへ整形する（決定的・#147）。
+// なぜ prompt にも schema を出すか: 一部モデル（gpt-oss 等）は response_format.json_schema を参照せず
+// 「schema が無い」と迷走して 504/content=null になる。response_format に加え prompt にもキーを明示し、
+// response_format を見ないモデルでも抽出できるようにする（json_schema と同一の properties を単一ソースに保つ）。
+function buildSchemaPromptSection(): string {
+	const { properties } = buildExtractionJsonSchema();
+	const lines = Object.entries(properties).map(([key, prop]) =>
+		prop.description ? `- ${key}: ${prop.description}` : `- ${key}`,
+	);
+	return [
+		"抽出して JSON で返すキー一覧（下記の各キーを持つ JSON オブジェクトを1つだけ出力する）:",
+		...lines,
+	].join("\n");
+}
+
+// trim 済み本文から抽出用 messages を組み立てる（決定的）。schema は prompt にも明示する（#147）。
 export function buildExtractionMessages(body: string): ExtractionMessage[] {
 	return [
-		{ role: "system", content: SYSTEM_PROMPT },
+		{
+			role: "system",
+			content: `${SYSTEM_PROMPT}\n${buildSchemaPromptSection()}`,
+		},
 		{ role: "user", content: `求人本文:\n${body}` },
 	];
 }
@@ -200,15 +226,21 @@ export function buildExtractionTool(): ExtractionTool {
 
 // 機構に応じた ai.run の inputs を組み立てる（決定的）。
 // json-mode は response_format(json_schema)、function-calling は tools + tool_choice を渡す。
+// maxTokens は与えられたときだけ max_tokens として載せる（未指定はモデル既定に委ねる・#147）。
+// 注: 一律の高い max_tokens は禁物。mistral 等は JSON 後に退化したタブ列を吐くため、高い値はタブ生成で 504 を
+//     招く（#146）。一方 gpt-oss は reasoning で budget を食うため十分な値が要る（#147）。上限はモデル別に持つ。
 function buildExtractionRequest(
 	body: string,
 	mechanism: ExtractionMechanism,
+	maxTokens?: number,
 ): unknown {
 	const messages = buildExtractionMessages(body);
+	const maxTokensPart = maxTokens ? { max_tokens: maxTokens } : {};
 	if (mechanism === "function-calling") {
 		const tool = buildExtractionTool();
 		return {
 			messages,
+			...maxTokensPart,
 			tools: [tool],
 			// 単一ツールを強制し、平文応答に逃げさせない（OpenAI 互換 tool_choice 形）。
 			// 受理形はモデル依存のため live で要確認（#106 eval）。非対応モデルは throw → extraction_failed。
@@ -217,6 +249,7 @@ function buildExtractionRequest(
 	}
 	return {
 		messages,
+		...maxTokensPart,
 		response_format: {
 			type: "json_schema",
 			json_schema: buildExtractionJsonSchema(),
@@ -256,8 +289,12 @@ function parseNumbers(raw: string): number[] {
 // 再利用する（§5.3）。単位を「正規スキーマのキーへ寄せる」のは抽出（ラベル正規化）の関心事（§5.2）。
 const SALARY_KEYS: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 	"annualSalary",
-	// 賞与も通貨項目。円額（例: 300,000円）を万円へ正規化し、年収と単位を揃える（§5.2）。
-	// 「年2回」「2ヶ月分」など通貨単位を伴わない表記は salaryToManYen が拾わず unknown 中立になる。
+]);
+
+// 「回」単位を伴う数値を支給回数として numericRange へ寄せるキー（#142）。
+// なぜ: 賞与は金額開示が乏しく「年N回」の頻度のみのことが多い。回数（多いほど良い）で採点するため、
+// 金額・月数ではなく「N回」の N だけを採る（salaryToManYen が通貨単位限定で数値を採るのと同じ発想）。
+const PAYOUT_COUNT_KEYS: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 	"bonus",
 ]);
 
@@ -277,6 +314,22 @@ function salaryToManYen(raw: string): number[] {
 		if (!Number.isFinite(value)) continue;
 		// 「万」「万円」付きは万円単位。「円」は生の円額とみなして万円へ換算する。
 		numbers.push(unit === "円" ? value / 10000 : value);
+	}
+	return numbers;
+}
+
+// 「年N回」の支給回数だけを取り出す（決定的・#142）。
+// なぜ: 賞与欄には「2ヶ月分」「30万円」「業績連動」など回数でない数値が混じる。parseNumbers の裸数値拾い
+// だと「2ヶ月分」の 2 まで回数に化けるため、直後に「回」を伴う数値に限定する（salaryToManYen の通貨単位
+// 限定と同じ発想）。注記（※以降・括弧）は stripAnnotations が先に除く（「年2回 ※業績連動」→ 2）。
+function parsePayoutCount(raw: string): number[] {
+	const normalized = stripAnnotations(raw.normalize("NFKC"));
+	const numbers: number[] = [];
+	// 数値の直後に（空白を挟んでも）「回」が続くものだけを採る。
+	const re = /([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)\s*回/g;
+	for (const match of normalized.matchAll(re)) {
+		const value = Number(match[1].replace(/,/g, ""));
+		if (Number.isFinite(value)) numbers.push(value);
 	}
 	return numbers;
 }
@@ -390,10 +443,12 @@ function rawToFieldValue(
 	const kind = KIND_BY_KEY[key];
 
 	if (kind === "numericRange") {
-		// 通貨項目だけ円 → 万円へ単位正規化する（scoring の希望値が万円前提・§5.2）。
+		// 通貨項目だけ円 → 万円へ単位正規化、回数項目は「N回」だけを採る、他は素の数値（§5.2・#142）。
 		const numbers = SALARY_KEYS.has(key)
 			? salaryToManYen(value)
-			: parseNumbers(value);
+			: PAYOUT_COUNT_KEYS.has(key)
+				? parsePayoutCount(value)
+				: parseNumbers(value);
 		// 数値が取れなければ unknown 中立（値を持たせない）
 		if (numbers.length === 0) {
 			// overtime 特例: 残業の存在を肯定的に明記しているのに時間が読めない場合は、
@@ -467,14 +522,38 @@ function fieldsFromObject(obj: unknown): RawExtractionFields {
 	return fields;
 }
 
+// OpenAI 互換レスポンスの message.content（JSON 文字列 or object）を順に集める。
+// 一部 CF モデル（qwen3 / gemma / mistral 等）は json-mode でも WAI の { response } でなく
+// { choices: [{ message: { content: "<json>" } }] } で返すため、ここで content を回収する（#145）。
+function collectMessageContents(output: unknown): unknown[] {
+	const choices = (output as { choices?: unknown }).choices;
+	if (!Array.isArray(choices)) return [];
+	const contents: unknown[] = [];
+	for (const choice of choices) {
+		const content = (choice as { message?: { content?: unknown } })?.message
+			?.content;
+		if (content !== undefined && content !== null) contents.push(content);
+	}
+	return contents;
+}
+
 // AiRunner の戻り値（JSON Mode）から生フィールドを安全に取り出す。
-// JSON Mode のレスポンスは { response: <object|string> } 形（一次ソース §7.1）。想定外は {} へ。
+// 一次形は WAI native の { response: <object|string> }（§7.1）。フィールドが取れない場合は
+// OpenAI 互換 { choices: [{ message: { content } }] } へフォールバックする（#145・FC の機構差吸収と同様）。
 function extractRawFields(output: unknown): RawExtractionFields {
 	if (typeof output !== "object" || output === null) return {};
 	const response = (output as { response?: unknown }).response;
-	const obj =
-		typeof response === "string" ? safeParse(response) : (response ?? {});
-	return fieldsFromObject(obj);
+	if (response !== undefined && response !== null) {
+		const obj = typeof response === "string" ? safeParse(response) : response;
+		const fields = fieldsFromObject(obj);
+		if (Object.keys(fields).length > 0) return fields;
+	}
+	for (const content of collectMessageContents(output)) {
+		const obj = typeof content === "string" ? safeParse(content) : content;
+		const fields = fieldsFromObject(obj);
+		if (Object.keys(fields).length > 0) return fields;
+	}
+	return {};
 }
 
 // 1 件の tool call（機構間の差を吸収した形）。arguments は object か JSON 文字列。
@@ -607,6 +686,8 @@ export async function extractJob(
 	const model = resolveExtractionModel(options.model);
 	// 機構は options.mechanism を優先し、未指定はモデル ID から解決する（カタログ駆動・#107）。
 	const mechanism = options.mechanism ?? resolveExtractionMechanism(model);
+	// max_tokens は options.maxTokens を優先し、未指定はモデル ID からカタログ解決する（#147）。
+	const maxTokens = options.maxTokens ?? resolveExtractionMaxTokens(model);
 	// 空判定は trimHtml の出力契約（空文字の可能性）に従う。AI 呼出前に弾く。
 	if (body.trim() === "") {
 		return {
@@ -618,7 +699,7 @@ export async function extractJob(
 		};
 	}
 
-	const inputs = buildExtractionRequest(body, mechanism);
+	const inputs = buildExtractionRequest(body, mechanism, maxTokens);
 	for (let attempt = 1; attempt <= MAX_EXTRACTION_ATTEMPTS; attempt += 1) {
 		try {
 			const output = await ai.run(model, inputs);
