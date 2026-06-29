@@ -41,8 +41,9 @@ describe("Settings", () => {
 		await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
 	});
 
-	// 既定 configFetcher（prop 未指定）でも取得が 1 回で収束することを担保する。
+	// 既定 configFetcher（prop 未指定）でも GET /api/config が 1 回で収束することを担保する。
 	// 既定値をレンダごとに生成すると useEffect 依存が毎回変わり無限再取得になる回帰を防ぐ。
+	// 評判節（#31）が別 endpoint を叩くため総 fetch 数でなく /api/config の呼び出し数で判定する。
 	it("既定の取得経路は再レンダで再取得ループしない（1 回で収束）", async () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response(JSON.stringify({ items: [] }), {
@@ -54,7 +55,10 @@ describe("Settings", () => {
 			expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument(),
 		);
 		await new Promise((resolve) => setTimeout(resolve, 30));
-		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		const configCalls = fetchSpy.mock.calls.filter(([url]) =>
+			String(url).includes("/api/config"),
+		);
+		expect(configCalls).toHaveLength(1);
 	});
 });
 
