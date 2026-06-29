@@ -3,6 +3,7 @@ import {
 	createSemaphore,
 	createTokenBucket,
 	mapWithConcurrency,
+	retryWithBackoff,
 } from "./rate-concurrency";
 
 // 同時実行セマフォ（決定的）: in-flight 数が上限を超えないことを担保する。
@@ -280,6 +281,125 @@ describe("mapWithConcurrency", () => {
 	it("concurrency が同時接続上限を超えると例外を投げる", async () => {
 		await expect(
 			mapWithConcurrency(["x"], async (i) => i, { concurrency: 7 }),
+		).rejects.toThrow();
+	});
+});
+
+// 一過性失敗のバックオフ再試行（決定的・sleep 注入）: transient/504 の取得失敗を時間を置いて再試行する。
+// 待機は注入 sleep で実時間に依存せずテストし、再試行可否は isRetryable で判定する（恒久失敗は無駄に叩かない）。
+describe("retryWithBackoff", () => {
+	// 初回成功なら再試行せずそのまま値を返す（成功経路は遅延ゼロ）
+	it("初回成功なら sleep せず結果を返す", async () => {
+		const sleep = vi.fn(async () => {});
+		const task = vi.fn(async () => "ok");
+		const result = await retryWithBackoff(task, {
+			retries: 3,
+			baseDelayMs: 100,
+			isRetryable: () => true,
+			sleep,
+		});
+		expect(result).toBe("ok");
+		expect(task).toHaveBeenCalledTimes(1);
+		expect(sleep).not.toHaveBeenCalled();
+	});
+
+	// 一過性失敗は指数バックオフで待ってから再試行し、回復したら成功を返す
+	it("再試行対象の失敗は指数バックオフで待って回復する", async () => {
+		const sleeps: number[] = [];
+		const sleep = vi.fn(async (ms: number) => {
+			sleeps.push(ms);
+		});
+		let calls = 0;
+		const task = vi.fn(async () => {
+			calls += 1;
+			if (calls < 3) {
+				throw new Error("transient");
+			}
+			return "recovered";
+		});
+		const result = await retryWithBackoff(task, {
+			retries: 3,
+			baseDelayMs: 100,
+			factor: 2,
+			isRetryable: () => true,
+			sleep,
+		});
+		expect(result).toBe("recovered");
+		expect(task).toHaveBeenCalledTimes(3);
+		// 初回失敗後 100ms、2 回目失敗後 200ms（指数）の順で待つ
+		expect(sleeps).toEqual([100, 200]);
+	});
+
+	// 再試行回数を使い切ったら最後の失敗を throw する（無限再試行しない）
+	it("retries を超えたら最後の失敗を投げる", async () => {
+		const sleep = vi.fn(async () => {});
+		const error = new Error("always fails");
+		const task = vi.fn(async () => {
+			throw error;
+		});
+		await expect(
+			retryWithBackoff(task, {
+				retries: 2,
+				baseDelayMs: 100,
+				isRetryable: () => true,
+				sleep,
+			}),
+		).rejects.toBe(error);
+		// 初回 + 再試行 2 回 = 3 回
+		expect(task).toHaveBeenCalledTimes(3);
+		expect(sleep).toHaveBeenCalledTimes(2);
+	});
+
+	// 再試行対象外（恒久失敗）は待たず即座に投げる（4xx を無駄に叩かない）
+	it("再試行対象外の失敗は即座に投げる", async () => {
+		const sleep = vi.fn(async () => {});
+		const error = new Error("permanent");
+		const task = vi.fn(async () => {
+			throw error;
+		});
+		await expect(
+			retryWithBackoff(task, {
+				retries: 3,
+				baseDelayMs: 100,
+				isRetryable: () => false,
+				sleep,
+			}),
+		).rejects.toBe(error);
+		expect(task).toHaveBeenCalledTimes(1);
+		expect(sleep).not.toHaveBeenCalled();
+	});
+
+	// maxDelayMs で指数増加を頭打ちにする（暴走待機の防止）
+	it("maxDelayMs を超える待機は頭打ちにする", async () => {
+		const sleeps: number[] = [];
+		const sleep = vi.fn(async (ms: number) => {
+			sleeps.push(ms);
+		});
+		const task = vi.fn(async () => {
+			throw new Error("transient");
+		});
+		await expect(
+			retryWithBackoff(task, {
+				retries: 3,
+				baseDelayMs: 100,
+				factor: 10,
+				maxDelayMs: 500,
+				isRetryable: () => true,
+				sleep,
+			}),
+		).rejects.toThrow();
+		// 100 → 1000(→500 にクランプ) → 500 にクランプ
+		expect(sleeps).toEqual([100, 500, 500]);
+	});
+
+	// retries が負なら誤設定として弾く
+	it("retries が負なら例外を投げる", async () => {
+		await expect(
+			retryWithBackoff(async () => "x", {
+				retries: -1,
+				baseDelayMs: 100,
+				isRetryable: () => true,
+			}),
 		).rejects.toThrow();
 	});
 });
