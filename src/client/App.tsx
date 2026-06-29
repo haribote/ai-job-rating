@@ -1,4 +1,6 @@
 import { type JSX, useSyncExternalStore } from "react";
+import { TopBar } from "./components/TopBar";
+import { Dashboard } from "./routes/Dashboard";
 
 // 最小 router: History API の pathname を購読し、`/`（ダッシュボード）と `/settings`（設定）を出し分ける。
 // Wave 3（#108–#114）が本格 UI（ランキングカード・詳細ドロワー・設定ビュー）を載せるための足場であり、
@@ -34,34 +36,10 @@ function usePathname(): string {
 	);
 }
 
-function NavLink({ to, label }: { to: string; label: string }): JSX.Element {
-	// 通常リンクの見た目を保ちつつ、ページ全体リロードを避けてクライアント遷移する。
-	return (
-		<a
-			href={to}
-			onClick={(event) => {
-				event.preventDefault();
-				navigate(to);
-			}}
-		>
-			{label}
-		</a>
-	);
-}
-
-function Dashboard(): JSX.Element {
-	return (
-		<section data-testid="dashboard-view">
-			<h2>ダッシュボード</h2>
-			<p>ランキングと求人詳細はここに表示されます（#108–#114 で実装）。</p>
-		</section>
-	);
-}
-
 function Settings(): JSX.Element {
 	return (
-		<section data-testid="settings-view">
-			<h2>設定</h2>
+		<section data-testid="settings-view" className="p-4">
+			<h2 className="text-lg font-semibold">設定</h2>
 			<p>
 				重み・希望値・ハードフィルタの設定はここに表示されます（#114 で実装）。
 			</p>
@@ -74,13 +52,13 @@ export function App(): JSX.Element {
 
 	return (
 		<div data-app-shell>
-			<header>
-				<h1>ai-job-rating</h1>
-				<nav>
-					<NavLink to="/" label="ダッシュボード" />
-					<NavLink to="/settings" label="設定" />
-				</nav>
-			</header>
+			<TopBar
+				onNavigateHome={() => navigate("/")}
+				onSubmitJob={() => {
+					// 投入モーダルは #113 で実装する。
+				}}
+				onOpenSettings={() => navigate("/settings")}
+			/>
 			<main>{route === "settings" ? <Settings /> : <Dashboard />}</main>
 		</div>
 	);

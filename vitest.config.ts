@@ -1,9 +1,17 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	cloudflareTest,
 	readD1Migrations,
 } from "@cloudflare/vitest-pool-workers";
 import react from "@vitejs/plugin-react";
 import { configDefaults, defineConfig } from "vitest/config";
+
+// shadcn 規約のパスエイリアス（vite.config.ts / tsconfig.client.json と一致）。
+// client プロジェクトの jsdom テストが @/components・@/lib を解決できるようにする。
+const clientAlias = {
+	"@": resolve(dirname(fileURLToPath(import.meta.url)), "src/client"),
+};
 
 // 本番マイグレーション（migrations/）を config ロード時に一度だけ読み、テストワーカーへ
 // TEST_MIGRATIONS バインディングとして渡す。各テストは applyD1Migrations(env.DB, env.TEST_MIGRATIONS)
@@ -40,6 +48,7 @@ export default defineConfig({
 			},
 			{
 				plugins: [react()],
+				resolve: { alias: clientAlias },
 				test: {
 					name: "client",
 					environment: "jsdom",
