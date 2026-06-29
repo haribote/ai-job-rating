@@ -19,6 +19,9 @@ export const TABLE_NAMES = {
 	criteriaConfig: "criteria_config",
 	// Phase 2 企業評判の基盤（#32, migration 0002）。
 	companies: "companies",
+	// Phase 2 企業評判の基盤（#33, migration 0003）。評判の企業単位キャッシュと取得元設定。
+	reputationSnapshots: "reputation_snapshots",
+	reputationSources: "reputation_sources",
 } as const;
 
 // scores の総合スコア行を表す予約 criterion 値（正規キーと衝突しない番兵）。
@@ -119,6 +122,43 @@ export interface CompanyRow {
 	readonly name: string;
 	readonly company_key: string;
 	readonly houjin_bangou: string | null;
+	readonly created_at: number;
+	readonly updated_at: number;
+}
+
+// ---------------------------------------------------------------------------
+// reputation_snapshots / reputation_sources（Phase 2 企業評判の基盤・#33 / migration 0003）
+// ---------------------------------------------------------------------------
+
+// reputation_snapshots 行。company_id（#32 companies.id）に紐付く企業単位キャッシュ（append-only 履歴）。
+// overall_score / review_count / sub_scores_json は NULL 許容: 「取得したが該当スコア無し」を表せ、行が
+// 無い「未取得」と区別する。スコア層（#36）は NULL を unknown 中立として加重合計の分母から外す（§5.2）。
+// スコアのスケール・サブ項目スキーマは取得元依存のため正規化・解釈はスコア層に委ねる（責務分離 §9）。
+export interface ReputationSnapshotRow {
+	readonly id: string;
+	readonly company_id: string;
+	readonly source: string;
+	readonly overall_score: number | null;
+	readonly review_count: number | null;
+	readonly sub_scores_json: string | null;
+	readonly fetched_at: number;
+	readonly created_at: number;
+}
+
+// 取得方式（§7.2）。web_search=Claude API 検索（主軸） / url_html=URL/HTML 投入→AI 抽出（補助） /
+// manual=スコア手入力（任意上書き）。
+export type ReputationFetchMethod = "web_search" | "url_html" | "manual";
+
+// reputation_sources 行。対象口コミサイトの設定（設定画面で永続化・#34 が CRUD）。name で一意化する。
+// identifier は base_url または識別子（web_search 主体の取得元は持たないため NULL 可）。priority は小さいほど
+// 優先。enabled は 0/1（SQLite に boolean 型が無いため）。
+export interface ReputationSourceRow {
+	readonly id: string;
+	readonly name: string;
+	readonly identifier: string | null;
+	readonly fetch_method: ReputationFetchMethod;
+	readonly priority: number;
+	readonly enabled: 0 | 1;
 	readonly created_at: number;
 	readonly updated_at: number;
 }
