@@ -128,6 +128,8 @@ describe("App 投入フロー → pending seam 配線（#169）", () => {
 
 		expect(await screen.findByTestId("pending-list")).toBeInTheDocument();
 		expect(await screen.findByTestId("pending-skeleton")).toBeInTheDocument();
+		// seam が実際にポーリングへ配線されている（その jobId で取得関数が呼ばれる）ことを示す。
+		await waitFor(() => expect(jobStatusFetcher).toHaveBeenCalledWith("job-x"));
 	});
 
 	it("投入した求人が scored になると pending から外れ ranking に統合される（二重表示しない）", async () => {
