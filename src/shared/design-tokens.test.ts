@@ -4,6 +4,7 @@ import {
 	colorTokens,
 	hexToRgbChannels,
 	layoutTokens,
+	medalColorMap,
 	shadcnColorMap,
 	spacingTokens,
 	surfaceTokens,
@@ -48,6 +49,19 @@ describe("toRootCssVars", () => {
 		}
 	});
 
+	// ベスト3強調（#109）の金銀銅枠色。順位差は枠色で表すため意味カラーとは別系統で持つ。
+	it("メダル色（金銀銅）もトークン由来で宣言される", () => {
+		const vars = toRootCssVars();
+		expect(Object.keys(medalColorMap)).toEqual([
+			"medal-gold",
+			"medal-silver",
+			"medal-bronze",
+		]);
+		for (const [name, tokenKey] of Object.entries(medalColorMap)) {
+			expect(vars[`--${name}`]).toBe(hexToRgbChannels(colorTokens[tokenKey]));
+		}
+	});
+
 	it("--radius は radius-md トークンを供給する", () => {
 		expect(toRootCssVars()["--radius"]).toBe(surfaceTokens["radius-md"]);
 	});
@@ -63,6 +77,7 @@ describe("toThemeColors", () => {
 		expect(colors.background).toBe("rgb(var(--background) / <alpha-value>)");
 		expect(colors.primary).toBe("rgb(var(--primary) / <alpha-value>)");
 		expect(colors["chart-1"]).toBe("rgb(var(--chart-1) / <alpha-value>)");
+		expect(colors["medal-gold"]).toBe("rgb(var(--medal-gold) / <alpha-value>)");
 	});
 
 	it("参照する全変数が toRootCssVars に宣言済み（名前タイポ検出）", () => {

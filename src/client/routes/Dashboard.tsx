@@ -1,16 +1,18 @@
 import { type JSX, useState } from "react";
 import { JobDetailSheet } from "../components/JobDetailSheet";
+import { RankingCard } from "../components/RankingCard";
+import { type MedalRank, RankingPodium } from "../components/RankingPodium";
 import {
 	type RankingFetcher,
 	type RankingItem,
 	useRanking,
 } from "../lib/useRanking";
 
-// ダッシュボード（設計書 §4.3）。GET /api/ranking を取得し一覧表示、行選択で右ドロワーを開く。
+// ダッシュボード（設計書 §4.3）。GET /api/ranking を取得し一覧表示、カード選択で右ドロワーを開く。
 //
-// なぜシェルか:
-// - #108 では「取得 → 一覧 → 行クリックで詳細ドロワー」の骨格を成立させる。
-//   ベスト3強調カード（#109）・レーダー（#110）・Skeleton（#112）は後続が差し替える。
+// なぜこの構成か:
+// - スコア順に並んだ求人を、ベスト3は RankingPodium（金銀銅枠＋lucide アイコン）、4位以降は
+//   RankingCard（通常）で描く。順位は配列順（index+1）で決まる（スコアリングはサーバ責務）。
 // - fetcher を注入可能にしてテストをネットワーク非依存に保つ（既定は本番 /api/ranking）。
 
 export interface DashboardProps {
@@ -36,26 +38,28 @@ export function Dashboard({ rankingFetcher }: DashboardProps): JSX.Element {
 			)}
 
 			{ranking.status === "success" && (
-				<ul className="flex flex-col gap-2">
-					{ranking.jobs.map((job) => (
-						<li key={job.jobId}>
-							{/* 暫定の行。RankingCard（#109）が差し替える。 */}
-							<button
-								type="button"
-								data-testid="ranking-row"
-								onClick={() => setSelected(job)}
-								className="w-full rounded-lg border p-4 text-left hover:bg-accent"
-							>
-								<span className="block truncate font-medium">
-									{job.title ?? job.company ?? job.sourceUrl}
-								</span>
-								<span className="text-sm text-muted-foreground">
-									総合スコア: {job.total ?? "—"}
-								</span>
-							</button>
-						</li>
-					))}
-				</ul>
+				<ol className="flex flex-col gap-3">
+					{ranking.jobs.map((job, index) => {
+						const rank = index + 1;
+						return (
+							<li key={job.jobId}>
+								{rank <= 3 ? (
+									<RankingPodium
+										item={job}
+										rank={rank as MedalRank}
+										onSelect={() => setSelected(job)}
+									/>
+								) : (
+									<RankingCard
+										item={job}
+										rank={rank}
+										onSelect={() => setSelected(job)}
+									/>
+								)}
+							</li>
+						);
+					})}
+				</ol>
 			)}
 
 			<JobDetailSheet

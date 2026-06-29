@@ -29,23 +29,25 @@ describe("Dashboard", () => {
 		expect(screen.getByTestId("ranking-loading")).toBeInTheDocument();
 	});
 
-	it("取得したランキングを行として表示する", async () => {
-		const jobs = [item({ jobId: "a" }), item({ jobId: "b" })];
+	it("ベスト3はポディウム、4位以降は通常カードで表示する", async () => {
+		// 4 件 → 上位 3 件が podium、残り 1 件が通常カード。
+		const jobs = ["a", "b", "c", "d"].map((id) => item({ jobId: id }));
 		render(<Dashboard rankingFetcher={async () => ({ jobs, excluded: [] })} />);
 
-		const rows = await screen.findAllByTestId("ranking-row");
-		expect(rows).toHaveLength(2);
+		const podiums = await screen.findAllByTestId("ranking-podium");
+		expect(podiums).toHaveLength(3);
+		expect(screen.getAllByTestId("ranking-card")).toHaveLength(1);
 	});
 
-	it("行クリックで右ドロワー（詳細）が開く", async () => {
+	it("カードクリックで右ドロワー（詳細）が開く", async () => {
 		const jobs = [item({ jobId: "a", sourceUrl: "https://example.com/a" })];
 		render(<Dashboard rankingFetcher={async () => ({ jobs, excluded: [] })} />);
 
-		const row = await screen.findByTestId("ranking-row");
+		const card = await screen.findByTestId("ranking-podium");
 		// 初期はドロワー未表示
 		expect(screen.queryByTestId("job-detail-sheet")).not.toBeInTheDocument();
 
-		fireEvent.click(row);
+		fireEvent.click(card);
 
 		expect(await screen.findByTestId("job-detail-sheet")).toBeInTheDocument();
 	});
