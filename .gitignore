@@ -51,7 +51,9 @@ npm-debug.log*
 !/test-fixtures/golden/*.example.json
 
 # live golden eval ランナー（#106）の出力。golden 由来の値を含み得るためコミットしない。
+# --out で任意名を指定できる（例: eval-106.json）ため eval-*.json も含めて漏れを防ぐ。
 /eval-result.json
+/eval-*.json
 
 # superpowers ブレインストーミングのモックアップ（ローカル作業用）
 .superpowers/

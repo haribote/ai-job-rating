@@ -25,10 +25,18 @@
 	},
 	// 抽出モデルの差し替え点（§7.1 アダプタ / #106）。既定変更はこの 1 行だけで完結する。
 	// モデル再評価スパイク（#106）の live golden 横並びで「精度が現行以上」を満たす勝者へ更新する。
+	// #106 の拡充 golden（capital/companySize 含む 9/10 キー・48 フィールド）で gpt-oss 系が baseline
+	//   llama-3.3-70b を厳密支配（120b 40/48・20b 39/48・いずれも regressed 0 件）。コスパで 20b を採用:
+	//   20b は 39/48（+12.5%・120b と差は benefitsCoverage 1 フィールドのみ）かつ公式価格が約半額
+	//   （$0.20/$0.30 vs 120b $0.35/$0.75 per M tok）。セルフホスト OSS の運用コストを抑える選択。
+	//   注: gpt-oss は CF 公式 JSON Mode 非対応（Supported Models は llama 系等のみ）。"json-mode" 機構
+	//   ラベルは response_format 送出形を指すだけで、実際の構造化出力は schema-in-prompt + per-model
+	//   max_tokens=16384 + コード側 検証/修復（#150/#147）で成立する。採否は公式対応でなく live eval で判断（§7.1）。
+	//   機構・max_tokens はモデル ID から自動解決する（mechanism.ts カタログ駆動）。
 	// フォーク先は本値（または .dev.vars の EXTRACTION_MODEL）を書き換えるだけで既定を変えられる。
 	// 未設定でも extract.ts の resolveExtractionModel がコード既定へフォールバックする（フォーク容易性 §8）。
 	"vars": {
-		"EXTRACTION_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+		"EXTRACTION_MODEL": "@cf/openai/gpt-oss-20b"
 	},
 	// 複数詳細ページの非同期取得・抽出キュー（#24, roadmap Phase 1）。
 	// 単一 Worker が producer（env.JOB_QUEUE.sendBatch で詳細 URL を投入）と
