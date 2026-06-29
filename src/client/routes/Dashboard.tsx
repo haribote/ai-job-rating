@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { JobDetailSheet } from "../components/JobDetailSheet";
 import { RankingCard } from "../components/RankingCard";
 import { type MedalRank, RankingPodium } from "../components/RankingPodium";
@@ -69,10 +69,13 @@ function PendingJob({
 	onSettled,
 }: PendingJobProps): JSX.Element {
 	const { phase, detail } = useJobStatus(jobId, { fetcher, intervalMs });
+	// 通知は jobId ごとに 1 回だけ。onSettled の参照が毎回変わっても重複発火させない。
+	const settledRef = useRef(false);
 
 	useEffect(() => {
 		// 終端に達したら親へ通知（pending から外す／再ランキングの契機）。
-		if (phase !== "extracting") {
+		if (phase !== "extracting" && !settledRef.current) {
+			settledRef.current = true;
 			onSettled?.(jobId);
 		}
 	}, [phase, jobId, onSettled]);

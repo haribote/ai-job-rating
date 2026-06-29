@@ -109,6 +109,24 @@ describe("Dashboard", () => {
 		expect(await screen.findByTestId("pending-card")).toBeInTheDocument();
 	});
 
+	it("投入中の求人が終端に達したら onJobSettled を一度だけ通知する", async () => {
+		const jobStatusFetcher = vi.fn().mockResolvedValue(detail("scored"));
+		const onJobSettled = vi.fn();
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+				onJobSettled={onJobSettled}
+			/>,
+		);
+
+		await screen.findByTestId("pending-card");
+		expect(onJobSettled).toHaveBeenCalledTimes(1);
+		expect(onJobSettled).toHaveBeenCalledWith("job-x");
+	});
+
 	it("投入中カードのクリックで詳細ドロワーが開く", async () => {
 		const jobStatusFetcher = vi.fn().mockResolvedValue(detail("scored"));
 		render(
