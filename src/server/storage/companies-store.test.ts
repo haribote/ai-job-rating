@@ -99,6 +99,47 @@ describe("upsertCompany（名寄せキーで一意化）", () => {
 		expect(b.id).toBe(a.id);
 	});
 
+	// なぜ: 同名でも法人番号が違えば別法人。最強シグナル（法人番号）で別企業として分離する。
+	it("同名（同一名寄せキー）でも法人番号が違えば別企業になる", async () => {
+		const seq = { n: 0 };
+		const a = await upsertCompany(
+			env.DB,
+			{ name: "株式会社あさひ", houjinBangou: "1111111111111" },
+			fixedOpts(seq),
+		);
+		const b = await upsertCompany(
+			env.DB,
+			{ name: "株式会社あさひ", houjinBangou: "2222222222222" },
+			fixedOpts(seq),
+		);
+		expect(b.id).not.toBe(a.id);
+		const { results } = await env.DB.prepare("SELECT id FROM companies").all<{
+			id: string;
+		}>();
+		expect(results).toHaveLength(2);
+	});
+
+	it("法人番号未判明の同名は判明済み行へ併合せず未判明バケットで一意化する", async () => {
+		const seq = { n: 0 };
+		const identified = await upsertCompany(
+			env.DB,
+			{ name: "株式会社あさひ", houjinBangou: "1111111111111" },
+			fixedOpts(seq),
+		);
+		const unknown1 = await upsertCompany(
+			env.DB,
+			{ name: "株式会社あさひ" },
+			fixedOpts(seq),
+		);
+		const unknown2 = await upsertCompany(
+			env.DB,
+			{ name: "あさひ" },
+			fixedOpts(seq),
+		);
+		expect(unknown1.id).not.toBe(identified.id);
+		expect(unknown2.id).toBe(unknown1.id);
+	});
+
 	it("getCompanyById / getCompanyByKey で引ける", async () => {
 		const seq = { n: 0 };
 		const created = await upsertCompany(

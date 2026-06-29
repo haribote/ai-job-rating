@@ -60,14 +60,35 @@ export async function getCompanyById(
 	);
 }
 
-// 名寄せキーで企業を引く（upsert の衝突解決点）。
+// 名寄せキーで企業を引く（非ユニーク。法人番号判明済み行も含むため決定的に 1 行へ畳む）。
+// 主に検査・テスト用。upsert の未判明バケット照合は getCompanyByKeyUnidentified を使う。
 export async function getCompanyByKey(
 	db: D1Database,
 	key: string,
 ): Promise<CompanyRow | null> {
 	return (
 		(await db
-			.prepare(`SELECT * FROM ${TABLE_NAMES.companies} WHERE company_key = ?`)
+			.prepare(
+				`SELECT * FROM ${TABLE_NAMES.companies}
+				 WHERE company_key = ? ORDER BY created_at, id LIMIT 1`,
+			)
+			.bind(key)
+			.first<CompanyRow>()) ?? null
+	);
+}
+
+// 法人番号未判明（houjin_bangou IS NULL）の名寄せバケットを引く。同名別法人は法人番号判明時に
+// 別行へ分かれるため、未判明同士のみここで一意化する（partial unique index と対応）。
+async function getCompanyByKeyUnidentified(
+	db: D1Database,
+	key: string,
+): Promise<CompanyRow | null> {
+	return (
+		(await db
+			.prepare(
+				`SELECT * FROM ${TABLE_NAMES.companies}
+				 WHERE company_key = ? AND houjin_bangou IS NULL`,
+			)
 			.bind(key)
 			.first<CompanyRow>()) ?? null
 	);
@@ -86,8 +107,10 @@ async function getCompanyByHoujin(
 	);
 }
 
-// 企業を upsert する。一意化は「法人番号一致（最強）→ 名寄せキー一致」の順で解決する。
-// 既存企業に法人番号が後から判明したら NULL のときだけバックフィルする（最初の観測名は保持）。
+// 企業を upsert する。一意化は法人番号を最強シグナルとする:
+// - 法人番号判明時: 同番号があれば再利用。無ければ「未判明同名バケット」へバックフィル（=その企業の
+//   法人番号を今知った）。それも無ければ新規。→ 同名でも法人番号が違えば別企業として別行になる。
+// - 法人番号未判明時: 未判明同名バケットがあれば再利用、無ければ新規（判明済み同名行へは併合しない）。
 export async function upsertCompany(
 	db: D1Database,
 	input: UpsertCompanyInput,
@@ -98,28 +121,30 @@ export async function upsertCompany(
 	const key = companyKey(input.name);
 	const houjinBangou = input.houjinBangou ?? null;
 
-	// 1. 法人番号一致を優先（表記が違っても同一企業）。
 	if (houjinBangou !== null) {
+		// 1. 同一法人番号は表記が違っても同一企業。
 		const byHoujin = await getCompanyByHoujin(db, houjinBangou);
 		if (byHoujin !== null) {
 			return byHoujin;
 		}
-	}
-
-	// 2. 名寄せキー一致。法人番号を後から得たら NULL のときだけバックフィルする。
-	const byKey = await getCompanyByKey(db, key);
-	if (byKey !== null) {
-		if (houjinBangou !== null && byKey.houjin_bangou === null) {
+		// 2. 未判明同名バケットがあれば、その企業の法人番号を今知ったとみなしバックフィルする。
+		const unidentified = await getCompanyByKeyUnidentified(db, key);
+		if (unidentified !== null) {
 			const ts = now();
 			await db
 				.prepare(
 					`UPDATE ${TABLE_NAMES.companies} SET houjin_bangou = ?, updated_at = ? WHERE id = ?`,
 				)
-				.bind(houjinBangou, ts, byKey.id)
+				.bind(houjinBangou, ts, unidentified.id)
 				.run();
-			return { ...byKey, houjin_bangou: houjinBangou, updated_at: ts };
+			return { ...unidentified, houjin_bangou: houjinBangou, updated_at: ts };
 		}
-		return byKey;
+	} else {
+		// 1'. 法人番号未判明同士は名寄せキーで一意化する（判明済み同名行へは併合しない）。
+		const unidentified = await getCompanyByKeyUnidentified(db, key);
+		if (unidentified !== null) {
+			return unidentified;
+		}
 	}
 
 	// 3. 新規作成。

@@ -23,13 +23,19 @@ CREATE TABLE companies (
   -- 国税庁 法人番号（13桁・任意）。取得できた場合のみ。名寄せの最強シグナル。
   houjin_bangou TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  -- 名寄せキーで一意化（upsert の衝突解決点）。
-  UNIQUE (company_key)
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
--- 法人番号からの逆引き（取得済み法人番号での名寄せ照合）。
-CREATE INDEX idx_companies_houjin ON companies (houjin_bangou);
+-- 一意化は法人番号を最強シグナルとする（同名別法人＝同一 company_key でも法人番号が違えば別企業）。
+-- - 法人番号が判明していればそれで一意化（同名別法人を確実に分離する）。NULL 行は対象外。
+CREATE UNIQUE INDEX idx_companies_houjin
+  ON companies (houjin_bangou) WHERE houjin_bangou IS NOT NULL;
+-- - 法人番号が未判明の企業は名寄せキーで一意化する（partial: 判明済み行は houjin 側で分かれるため除外）。
+CREATE UNIQUE INDEX idx_companies_key_unidentified
+  ON companies (company_key) WHERE houjin_bangou IS NULL;
+
+-- 名寄せキーからの一般検索用（非ユニーク。法人番号判明済み行も含めて引く）。
+CREATE INDEX idx_companies_key ON companies (company_key);
 
 -- 企業単位で所属求人を引くためのインデックス（評判の企業単位キャッシュ再利用・§7.2 / #33）。
 CREATE INDEX idx_jobs_company ON jobs (company_id);
