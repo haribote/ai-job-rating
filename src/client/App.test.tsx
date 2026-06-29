@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
 
@@ -19,5 +19,17 @@ describe("App", () => {
 			screen.getByRole("heading", { level: 1, name: "ai-job-rating" }),
 		).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "設定" })).toBeInTheDocument();
+	});
+
+	it("投入ボタンで求人投入モーダルを開く", () => {
+		render(<App />);
+
+		// 既定ではモーダル（ダイアログ）は閉じている。
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "求人を投入" }));
+
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+		expect(screen.getByTestId("add-job-url-input")).toBeInTheDocument();
 	});
 });
