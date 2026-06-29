@@ -129,6 +129,8 @@ export function AddJobModal({
 
 	async function handleSubmit(event: React.FormEvent): Promise<void> {
 		event.preventDefault();
+		// 送信中の二重投入を防ぐ（ボタン無効化だけでは Enter 連打を弾けない）。
+		if (submitting) return;
 		const validated = validateSubmission(tab, url, html);
 		if (!validated.ok) {
 			setError(messageForReason(validated.reason));
