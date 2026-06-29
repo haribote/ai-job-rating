@@ -24,7 +24,14 @@ import {
 } from "./jobs";
 import type { DetailJobMessage } from "./queue/detail-queue";
 import { toRankingItem } from "./ranking-list";
+import { parseReputationSourceInput } from "./reputation-config";
 import { readRanking } from "./scoring/ranking";
+import {
+	deleteReputationSource,
+	listReputationSources,
+	ReputationStoreError,
+	upsertReputationSource,
+} from "./storage/reputation-store";
 
 // Worker の env バインディング型。後続フェーズ（D1 / R2 / KV）でここに追記する
 export interface Bindings {
@@ -192,6 +199,51 @@ app.put("/api/config", async (c) => {
 
 	const count = await saveConfigAndRescore(c.env.DB, parsed.rows);
 	return c.json({ status: "rescored", count }, 200);
+});
+
+// 評判: 取得元設定 CRUD (#34)
+// 対象口コミサイトと優先順位を設定画面で永続化する（§7.2）。設定変更は決定的・AI 非再実行（§5.3）。
+// 取得層（#30）は enabledOnly で有効な取得元のみを priority 昇順で参照する。
+
+// 取得元一覧。priority 昇順（同値は name 昇順）で全件返す（設定画面が編集対象を読む）。
+app.get("/api/reputation/sources", async (c) => {
+	const sources = await listReputationSources(c.env.DB);
+	return c.json({ sources });
+});
+
+// 取得元の upsert（name で一意）。決定的バリデーション後に store を呼ぶ。不正は保存前に 400 で弾く。
+app.put("/api/reputation/sources", async (c) => {
+	let body: unknown;
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ error: "invalid json body", reason: "body" }, 400);
+	}
+	// 単一の取得元オブジェクトのみ受理する（配列・非オブジェクトは body エラー）。
+	if (typeof body !== "object" || body === null || Array.isArray(body)) {
+		return c.json({ error: "body must be an object", reason: "body" }, 400);
+	}
+
+	const parsed = parseReputationSourceInput(body);
+	if (!parsed.ok) {
+		return c.json({ error: "invalid source", reason: parsed.reason }, 400);
+	}
+
+	const source = await upsertReputationSource(c.env.DB, parsed.value);
+	return c.json({ source }, 200);
+});
+
+// 取得元の削除。対象が無ければ 404（store の not_found を変換し、0 行削除を黙認しない）。
+app.delete("/api/reputation/sources/:id", async (c) => {
+	try {
+		await deleteReputationSource(c.env.DB, c.req.param("id"));
+	} catch (cause) {
+		if (cause instanceof ReputationStoreError && cause.kind === "not_found") {
+			return c.json({ error: "source not found" }, 404);
+		}
+		throw cause;
+	}
+	return c.json({ status: "deleted" }, 200);
 });
 
 // 抽出モデルの live golden 横並び評価（#106・dev 限定）。本番安全のため EXTRACTION_EVAL==="1" のときだけ

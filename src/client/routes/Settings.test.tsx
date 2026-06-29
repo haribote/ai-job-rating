@@ -43,18 +43,31 @@ describe("Settings", () => {
 
 	// 既定 configFetcher（prop 未指定）でも取得が 1 回で収束することを担保する。
 	// 既定値をレンダごとに生成すると useEffect 依存が毎回変わり無限再取得になる回帰を防ぐ。
-	it("既定の取得経路は再レンダで再取得ループしない（1 回で収束）", async () => {
-		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			new Response(JSON.stringify({ items: [] }), {
-				headers: { "content-type": "application/json" },
-			}),
-		);
+	it("既定の取得経路は再レンダで再取得ループしない（config は 1 回で収束）", async () => {
+		// Settings は config と評判取得元（#34）の 2 経路を持つ。URL で出し分け、config が
+		// 1 回で収束する（無限再取得しない）ことを担保する。
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation((input: RequestInfo | URL) => {
+				const url = typeof input === "string" ? input : String(input);
+				const body = url.includes("/reputation/sources")
+					? { sources: [] }
+					: { items: [] };
+				return Promise.resolve(
+					new Response(JSON.stringify(body), {
+						headers: { "content-type": "application/json" },
+					}),
+				);
+			});
 		render(<Settings />);
 		await waitFor(() =>
 			expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument(),
 		);
 		await new Promise((resolve) => setTimeout(resolve, 30));
-		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		const configCalls = fetchSpy.mock.calls.filter(([input]) =>
+			(typeof input === "string" ? input : String(input)).includes("/config"),
+		);
+		expect(configCalls).toHaveLength(1);
 	});
 });
 

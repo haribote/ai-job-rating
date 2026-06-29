@@ -76,6 +76,7 @@ export interface ApiClient {
 	get<T>(path: string): Promise<T>;
 	post<T>(path: string, body?: unknown): Promise<T>;
 	put<T>(path: string, body?: unknown): Promise<T>;
+	delete<T>(path: string): Promise<T>;
 }
 
 // fetch を注入してクライアントを生成する。テストはフェイク、本番は global fetch を渡す。
@@ -88,6 +89,7 @@ export function createApiClient(
 			request<T>(fetchImpl, "POST", path, body),
 		put: <T>(path: string, body?: unknown) =>
 			request<T>(fetchImpl, "PUT", path, body),
+		delete: <T>(path: string) => request<T>(fetchImpl, "DELETE", path),
 	};
 }
 
@@ -96,3 +98,4 @@ const defaultClient = createApiClient();
 export const apiGet = defaultClient.get;
 export const apiPost = defaultClient.post;
 export const apiPut = defaultClient.put;
+export const apiDelete = defaultClient.delete;

@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
 import { CriteriaForm } from "../components/CriteriaForm";
+import { ReputationSourcesForm } from "../components/ReputationSourcesForm";
 import { type ApiClient, createApiClient } from "../lib/api";
 import { type CriteriaConfigItem, fetchConfig } from "../lib/criteria";
 
@@ -69,7 +70,10 @@ export function Settings({
 			)}
 
 			{state.status === "success" && (
-				<CriteriaForm items={state.items} api={api} />
+				<div className="flex flex-col gap-6">
+					<CriteriaForm items={state.items} api={api} />
+					<ReputationSourcesForm api={api} />
+				</div>
 			)}
 		</section>
 	);

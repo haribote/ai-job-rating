@@ -14,14 +14,12 @@ import {
 	formRowToInput,
 	type HardFilter,
 	itemToFormRow,
-	loadReputationSites,
-	parseSitesInput,
 	saveConfig,
-	saveReputationSites,
 } from "../lib/criteria";
 
-// 設定フォーム（設計書 §4.5）。重み・希望値・ハードフィルタ ＋ benefitsCoverage 重視 signal ＋
-// 企業評判 対象サイトを 1 画面で編集し、保存で PUT /api/config（＝決定的再スコア・AI 非再実行）を呼ぶ。
+// 設定フォーム（設計書 §4.5）。重み・希望値・ハードフィルタ ＋ benefitsCoverage 重視 signal を
+// 1 画面で編集し、保存で PUT /api/config（＝決定的再スコア・AI 非再実行）を呼ぶ。
+// 企業評判 取得元の設定は別コンポーネント（ReputationSourcesForm・#34）が D1 永続化で担う。
 //
 // なぜ api を注入するか:
 // - 保存経路が「/config への PUT のみ」であることをテストで固定し、抽出（AI）を叩かないことを担保する
@@ -59,9 +57,6 @@ export function CriteriaForm({
 	const [rows, setRows] = useState<CriteriaFormRow[]>(() =>
 		items.map(itemToFormRow),
 	);
-	const [reputationSites, setReputationSites] = useState(() =>
-		loadReputationSites().join("\n"),
-	);
 	const [save, setSave] = useState<SaveState>({ kind: "idle" });
 
 	const rowByKey = new Map(rows.map((r) => [r.criterion, r]));
@@ -76,8 +71,6 @@ export function CriteriaForm({
 		try {
 			const inputs = rows.map(formRowToInput);
 			const result = await saveConfig(inputs, api.put);
-			// 評判 対象サイトは評判機能（#30–#37）未実装のため保存のみ（localStorage）。
-			saveReputationSites(parseSitesInput(reputationSites));
 			setSave({ kind: "saved", count: result.count });
 			onRescored?.(result.count);
 		} catch (cause) {
@@ -112,21 +105,6 @@ export function CriteriaForm({
 					</div>
 				</fieldset>
 			))}
-
-			<fieldset className="rounded-lg border p-4">
-				<legend className="px-1 font-semibold">企業評判 対象サイト</legend>
-				<p className="mb-2 text-sm text-muted-foreground">
-					企業評判の収集対象サイト（評判機能は今後実装。現状は設定値の保存のみ）。
-				</p>
-				<textarea
-					aria-label="企業評判 対象サイト"
-					className="w-full rounded-md border bg-background p-2 font-mono text-sm"
-					rows={3}
-					placeholder="1 行 1 サイト（例: openwork.jp）"
-					value={reputationSites}
-					onChange={(e) => setReputationSites(e.target.value)}
-				/>
-			</fieldset>
 
 			<div className="flex items-center gap-4">
 				<Button type="submit" disabled={save.kind === "saving"}>
