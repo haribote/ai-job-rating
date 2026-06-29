@@ -12,12 +12,12 @@ describe("App", () => {
 		expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument();
 	});
 
-	it("ヘッダのアプリ名とナビゲーションを描画する", () => {
+	it("トップバーのアプリ名と設定アクションを描画する", () => {
 		render(<App />);
 
 		expect(
 			screen.getByRole("heading", { level: 1, name: "ai-job-rating" }),
 		).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "設定" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "設定" })).toBeInTheDocument();
 	});
 });
