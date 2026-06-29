@@ -257,3 +257,57 @@ export async function mapWithConcurrency<T, R>(
 
 	return results;
 }
+
+// 一過性失敗のバックオフ再試行設定。
+export interface RetryBackoffOptions {
+	// 初回失敗後の最大再試行回数（0 なら再試行しない）。総試行回数は retries + 1。
+	retries: number;
+	// 初回バックオフ待機（ms）。試行ごとに factor 倍に増やす。
+	baseDelayMs: number;
+	// バックオフ倍率。未指定は 2（指数バックオフ）。
+	factor?: number;
+	// 待機時間の上限（ms）。指数増加を頭打ちにする。未指定は無制限。
+	maxDelayMs?: number;
+	// 再試行対象か判定する。false なら待たず即 throw（4xx 等の恒久失敗を無駄に叩かない）。
+	isRetryable: (error: unknown) => boolean;
+	// 待機関数。未指定は setTimeout ベース。テストでは注入して決定的にする。
+	sleep?: SleepFn;
+}
+
+// task を一過性失敗時のみ指数バックオフで再試行する。
+// なぜ取得層の外（ここ）に置くか: transient/504 の再試行は取得・BR の両経路で共通の関心事であり、
+// 既に sleep 注入を持つレート制御ユニットに同居させると決定的にテストできる（責務: 再実行制御のみ）。
+// 成功・再試行対象外の失敗は即座に返す/throw し、回数を使い切ったら最後の失敗を rethrow する。
+export async function retryWithBackoff<R>(
+	task: () => Promise<R>,
+	options: RetryBackoffOptions,
+): Promise<R> {
+	const { retries, baseDelayMs, isRetryable } = options;
+	if (!Number.isInteger(retries) || retries < 0) {
+		throw new RangeError(`retries must be a non-negative integer: ${retries}`);
+	}
+	if (!Number.isInteger(baseDelayMs) || baseDelayMs < 1) {
+		throw new RangeError(
+			`baseDelayMs must be a positive integer: ${baseDelayMs}`,
+		);
+	}
+	const factor = options.factor ?? 2;
+	const maxDelayMs = options.maxDelayMs ?? Number.POSITIVE_INFINITY;
+	const sleep = options.sleep ?? defaultSleep;
+
+	let attempt = 0;
+	let delay = baseDelayMs;
+	for (;;) {
+		try {
+			return await task();
+		} catch (error) {
+			// 回数超過・対象外の失敗はこれ以上待たず確定失敗として投げ返す。
+			if (attempt >= retries || !isRetryable(error)) {
+				throw error;
+			}
+			await sleep(Math.min(maxDelayMs, delay));
+			attempt += 1;
+			delay = Math.min(maxDelayMs, delay * factor);
+		}
+	}
+}
