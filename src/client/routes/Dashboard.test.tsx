@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { JobDetailResponse } from "../lib/jobDetail";
 import type { RankingItem, RankingResponse } from "../lib/useRanking";
 import { Dashboard } from "./Dashboard";
 
@@ -17,8 +18,30 @@ function item(over: Partial<RankingItem> = {}): RankingItem {
 	};
 }
 
+// 詳細応答の最小ダミー。job.status だけがポーリングのフェーズ判定に効く。
+function detail(status: string): JobDetailResponse {
+	return {
+		job: {
+			jobId: "job-x",
+			sourceUrl: "https://example.com/job-x",
+			sourceType: "detail",
+			status,
+			fetchedAt: 0,
+		},
+		extraction: {
+			status: "ok",
+			model: "m",
+			mechanism: "json-mode",
+			extractedAt: 0,
+			structured: {} as never,
+		},
+		total: 0.8,
+		breakdown: [],
+	};
+}
+
 describe("Dashboard", () => {
-	it("取得中はローディングを表示する", () => {
+	it("取得中はカード形 Skeleton を表示する", () => {
 		// 解決しない fetcher で読み込み状態に留める
 		render(
 			<Dashboard
@@ -27,6 +50,9 @@ describe("Dashboard", () => {
 		);
 
 		expect(screen.getByTestId("ranking-loading")).toBeInTheDocument();
+		expect(
+			screen.getAllByTestId("score-skeleton").length,
+		).toBeGreaterThanOrEqual(1);
 	});
 
 	it("ベスト3はポディウム、4位以降は通常カードで表示する", async () => {
@@ -62,5 +88,41 @@ describe("Dashboard", () => {
 		);
 
 		expect(await screen.findByRole("alert")).toBeInTheDocument();
+	});
+
+	it("投入中の求人は Skeleton を出し、scored で楽観的にカードへ差し替える", async () => {
+		// 1 回目は抽出中（extracted）→ Skeleton、2 回目で scored → カードへ。
+		const jobStatusFetcher = vi
+			.fn()
+			.mockResolvedValueOnce(detail("extracted"))
+			.mockResolvedValue(detail("scored"));
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+			/>,
+		);
+
+		expect(await screen.findByTestId("pending-skeleton")).toBeInTheDocument();
+		expect(await screen.findByTestId("pending-card")).toBeInTheDocument();
+	});
+
+	it("投入中カードのクリックで詳細ドロワーが開く", async () => {
+		const jobStatusFetcher = vi.fn().mockResolvedValue(detail("scored"));
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+			/>,
+		);
+
+		const card = await screen.findByTestId("pending-card");
+		fireEvent.click(card);
+
+		expect(await screen.findByTestId("job-detail-sheet")).toBeInTheDocument();
 	});
 });
