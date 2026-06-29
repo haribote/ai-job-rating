@@ -48,9 +48,12 @@ const HARD_FILTER_LABELS: Record<HardFilter, string> = {
 	exclude: "除外",
 };
 
+// 既定クライアントは安定参照（module スコープ）。レンダごとの再生成を避ける。
+const defaultApi = createApiClient();
+
 export function CriteriaForm({
 	items,
-	api = createApiClient(),
+	api = defaultApi,
 	onRescored,
 }: CriteriaFormProps): JSX.Element {
 	const [rows, setRows] = useState<CriteriaFormRow[]>(() =>

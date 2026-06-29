@@ -23,9 +23,16 @@ type LoadState =
 	| { readonly status: "error"; readonly error: Error }
 	| { readonly status: "success"; readonly items: CriteriaConfigItem[] };
 
+// 既定の取得関数・クライアントは安定参照（module スコープ）にする。
+// useEffect の依存に configFetcher を含むため、レンダごとに新しい関数を既定値にすると
+// 依存が毎回変わり再取得が無限ループする（useRanking.defaultFetcher と同方針）。
+const defaultConfigFetcher: () => Promise<CriteriaConfigItem[]> = () =>
+	fetchConfig();
+const defaultApi = createApiClient();
+
 export function Settings({
-	configFetcher = () => fetchConfig(),
-	api = createApiClient(),
+	configFetcher = defaultConfigFetcher,
+	api = defaultApi,
 }: SettingsProps): JSX.Element {
 	const [state, setState] = useState<LoadState>({ status: "loading" });
 
