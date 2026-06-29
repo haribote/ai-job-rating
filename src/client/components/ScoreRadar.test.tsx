@@ -63,7 +63,8 @@ describe("SCORE_RADAR_CONFIG（単一アクセント）", () => {
 	it("系列は 1 つだけで単一アクセント色（chart-1）を参照する", () => {
 		const keys = Object.keys(SCORE_RADAR_CONFIG);
 		expect(keys).toHaveLength(1);
-		expect(SCORE_RADAR_CONFIG[keys[0]].color).toContain("--chart-1");
+		// design-tokens は --chart-1 を RGB チャンネルで持つため rgb() で包まないと無効な paint になる。
+		expect(SCORE_RADAR_CONFIG[keys[0]].color).toBe("rgb(var(--chart-1))");
 	});
 });
 

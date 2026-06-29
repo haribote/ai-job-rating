@@ -29,8 +29,9 @@ const SCORE_MAX = 1;
 const SERIES_KEY = "score";
 
 // レーダー系列の config（単一アクセント）。ChartContainer が --color-score を chart-1 に束ねる。
+// design-tokens は --chart-1 を RGB チャンネル（"R G B"）で持つため rgb() で包んで有効な paint にする。
 export const SCORE_RADAR_CONFIG: ChartConfig = {
-	[SERIES_KEY]: { label: "スコア", color: "var(--chart-1)" },
+	[SERIES_KEY]: { label: "スコア", color: "rgb(var(--chart-1))" },
 };
 
 // レーダー 1 軸ぶんの整形済みデータ。
