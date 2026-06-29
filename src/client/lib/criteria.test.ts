@@ -5,7 +5,6 @@ import {
 	type CriteriaConfigItem,
 	formRowToInput,
 	itemToFormRow,
-	parseSitesInput,
 } from "./criteria";
 
 // criteria.ts は「GET 契約 item ↔ フォーム状態 ↔ PUT 入力」の決定的変換を担う純関数群。
@@ -183,17 +182,5 @@ describe("formRowToInput", () => {
 				emphasis: "retirementAllowance, childcareLeave",
 			}).desired,
 		).toEqual({ emphasis: ["retirementAllowance", "childcareLeave"] });
-	});
-});
-
-describe("parseSitesInput", () => {
-	it("改行・カンマ区切りを正規化し重複と空白を除く", () => {
-		expect(
-			parseSitesInput("openwork.jp\nen-hyouban.com, openwork.jp\n\n  "),
-		).toEqual(["openwork.jp", "en-hyouban.com"]);
-	});
-
-	it("空入力は空配列", () => {
-		expect(parseSitesInput("   ")).toEqual([]);
 	});
 });

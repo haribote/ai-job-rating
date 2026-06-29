@@ -82,6 +82,18 @@ describe("createApiClient", () => {
 		);
 	});
 
+	it("delete は body 無しで DELETE する（取得元削除など）", async () => {
+		const { impl, calls } = fakeFetch(jsonResponse({ status: "deleted" }));
+		const client = createApiClient(impl);
+
+		await client.delete("/reputation/sources/abc");
+
+		expect(calls[0].url).toBe("/api/reputation/sources/abc");
+		expect(calls[0].init?.method).toBe("DELETE");
+		expect(calls[0].init?.body).toBeUndefined();
+		expect(calls[0].init?.headers).toBeUndefined();
+	});
+
 	it("body 無しの POST には content-type を付けない（再抽出など）", async () => {
 		const { impl, calls } = fakeFetch(jsonResponse({ status: "queued" }, 202));
 		const client = createApiClient(impl);

@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useState } from "react";
 import { CriteriaForm } from "../components/CriteriaForm";
 import { ReputationApiKeySection } from "../components/ReputationApiKeySection";
+import { ReputationSourcesForm } from "../components/ReputationSourcesForm";
 import { type ApiClient, createApiClient } from "../lib/api";
 import { type CriteriaConfigItem, fetchConfig } from "../lib/criteria";
 
@@ -70,11 +71,12 @@ export function Settings({
 			)}
 
 			{state.status === "success" && (
-				<>
+				<div className="flex flex-col gap-6">
 					<CriteriaForm items={state.items} api={api} />
+					<ReputationSourcesForm api={api} />
 					{/* 評判: APIキー設定状態 (#31)。取得は独立（GET /api/reputation/config）。 */}
 					<ReputationApiKeySection />
-				</>
+				</div>
 			)}
 		</section>
 	);

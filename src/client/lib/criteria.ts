@@ -313,35 +313,3 @@ export async function saveConfig(
 ): Promise<RescoreResult> {
 	return put<RescoreResult>("/config", { items: inputs });
 }
-
-// ---------------------------------------------------------------------------
-// 企業評判 対象サイト（評判機能 #30–#37 は未実装のため、設定値の保存のみ）
-// ---------------------------------------------------------------------------
-
-const REPUTATION_SITES_KEY = "ai-job-rating:reputation-sites";
-
-// 改行・カンマ区切りの自由入力 → サイト集合（trim・空除去・重複除去）。
-export function parseSitesInput(raw: string): string[] {
-	return splitList(raw.replace(/\n/g, " "));
-}
-
-// 評判 対象サイトを永続化（フォーク容易性: 既定は空。アカウント固有値を直書きしない）。
-export function loadReputationSites(storage: Storage = localStorage): string[] {
-	try {
-		const raw = storage.getItem(REPUTATION_SITES_KEY);
-		return raw ? stringArray(JSON.parse(raw)) : [];
-	} catch {
-		return [];
-	}
-}
-
-export function saveReputationSites(
-	sites: readonly string[],
-	storage: Storage = localStorage,
-): void {
-	try {
-		storage.setItem(REPUTATION_SITES_KEY, JSON.stringify(sites));
-	} catch {
-		// localStorage 不可（プライベートモード等）でも設定保存の主経路は阻害しない。
-	}
-}

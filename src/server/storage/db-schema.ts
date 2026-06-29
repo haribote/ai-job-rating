@@ -149,6 +149,13 @@ export interface ReputationSnapshotRow {
 // manual=スコア手入力（任意上書き）。
 export type ReputationFetchMethod = "web_search" | "url_html" | "manual";
 
+// 取得方式の閉集合。設定 UI（#34）と取得層（#30）が文字列直書きせず、入力検証の単一ソースとして参照する。
+export const REPUTATION_FETCH_METHODS: readonly ReputationFetchMethod[] = [
+	"web_search",
+	"url_html",
+	"manual",
+];
+
 // reputation_sources 行。対象口コミサイトの設定（設定画面で永続化・#34 が CRUD）。name で一意化する。
 // identifier は base_url または識別子（web_search 主体の取得元は持たないため NULL 可）。priority は小さいほど
 // 優先。enabled は 0/1（SQLite に boolean 型が無いため）。

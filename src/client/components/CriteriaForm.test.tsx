@@ -43,6 +43,9 @@ function fakeApi(count = 3) {
 			calls.put.push({ path, body });
 			return { status: "rescored", count } as T;
 		},
+		delete: async <T,>(_path: string) => {
+			return {} as T;
+		},
 	};
 	return { client, calls };
 }
