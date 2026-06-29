@@ -1,4 +1,5 @@
-import { type JSX, useSyncExternalStore } from "react";
+import { type JSX, useState, useSyncExternalStore } from "react";
+import { AddJobModal } from "./components/AddJobModal";
 import { TopBar } from "./components/TopBar";
 import { Dashboard } from "./routes/Dashboard";
 import { Settings } from "./routes/Settings";
@@ -39,17 +40,32 @@ function usePathname(): string {
 
 export function App(): JSX.Element {
 	const route = pathToRoute(usePathname());
+	// 投入モーダルの開閉（#113）。状態は親が持ち、TopBar は純粋な表示部品に保つ。
+	const [addJobOpen, setAddJobOpen] = useState(false);
+	// 投入成功ごとに増やす nonce。Dashboard の key に渡して再マウントさせ、
+	// GET /api/ranking を再取得する（再ランキング）。useRanking 側を変えず最小差分で
+	// 「投入→一覧反映」を成立させる（抽出↔スコア分離は不変・投入はトリガのみ）。
+	const [reloadKey, setReloadKey] = useState(0);
 
 	return (
 		<div data-app-shell>
 			<TopBar
 				onNavigateHome={() => navigate("/")}
-				onSubmitJob={() => {
-					// 投入モーダルは #113 で実装する。
-				}}
+				onSubmitJob={() => setAddJobOpen(true)}
 				onOpenSettings={() => navigate("/settings")}
 			/>
-			<main>{route === "settings" ? <Settings /> : <Dashboard />}</main>
+			<main>
+				{route === "settings" ? <Settings /> : <Dashboard key={reloadKey} />}
+			</main>
+			<AddJobModal
+				open={addJobOpen}
+				onOpenChange={setAddJobOpen}
+				onSubmitted={() => {
+					// 投入後は一覧（ダッシュボード）へ戻し、再取得して新規ジョブを反映する。
+					setReloadKey((key) => key + 1);
+					navigate("/");
+				}}
+			/>
 		</div>
 	);
 }
