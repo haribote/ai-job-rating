@@ -1,6 +1,7 @@
 import { type JSX, useSyncExternalStore } from "react";
 import { TopBar } from "./components/TopBar";
 import { Dashboard } from "./routes/Dashboard";
+import { Settings } from "./routes/Settings";
 
 // 最小 router: History API の pathname を購読し、`/`（ダッシュボード）と `/settings`（設定）を出し分ける。
 // Wave 3（#108–#114）が本格 UI（ランキングカード・詳細ドロワー・設定ビュー）を載せるための足場であり、
@@ -33,17 +34,6 @@ function usePathname(): string {
 		subscribe,
 		() => window.location.pathname,
 		() => "/",
-	);
-}
-
-function Settings(): JSX.Element {
-	return (
-		<section data-testid="settings-view" className="p-4">
-			<h2 className="text-lg font-semibold">設定</h2>
-			<p>
-				重み・希望値・ハードフィルタの設定はここに表示されます（#114 で実装）。
-			</p>
-		</section>
 	);
 }
 
