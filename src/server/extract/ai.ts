@@ -2,9 +2,9 @@
 // 抽出本体（§7.1 JSON Mode）とは分離し、ここでは binding が呼べることだけを担保する。
 // live 推論は account/secrets 依存のため、テストでは AiRunner を fake して整形・分岐を検証する。
 
-// 疎通確認に使う既定モデル。要件 §7.1 の候補のうち reasoning 対応の gpt-oss-120b を採用する。
+// 疎通確認に使う既定モデル。抽出本採用（#106）と揃え gpt-oss-20b を使う。
 // 抽出のデフォルトモデル選定（#11 以降）とは独立した、health 用途の固定値。
-export const DEFAULT_AI_HEALTH_MODEL = "@cf/openai/gpt-oss-120b";
+export const DEFAULT_AI_HEALTH_MODEL = "@cf/openai/gpt-oss-20b";
 
 // env.AI の最小契約。テストで差し替えられるよう run のみに依存する（c.env.AI は構造的に適合する）。
 export interface AiRunner {

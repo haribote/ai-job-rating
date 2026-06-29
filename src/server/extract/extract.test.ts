@@ -573,8 +573,8 @@ describe("resolveExtractionModel", () => {
 	});
 
 	it("設定値があればそれを採用し、前後空白は除く", () => {
-		expect(resolveExtractionModel("@cf/meta/llama-4-scout")).toBe(
-			"@cf/meta/llama-4-scout",
+		expect(resolveExtractionModel("@cf/forked/custom-model")).toBe(
+			"@cf/forked/custom-model",
 		);
 		expect(resolveExtractionModel("  @cf/foo/bar  ")).toBe("@cf/foo/bar");
 	});
@@ -675,7 +675,7 @@ describe("extractJob", () => {
 				return { response: {} };
 			},
 		};
-		await extractJob(fakeAi, "本文", { model: "@cf/openai/gpt-oss-120b" });
+		await extractJob(fakeAi, "本文", { model: "@cf/openai/gpt-oss-20b" });
 		expect((calls[0] as { max_tokens?: number }).max_tokens).toBe(16384);
 	});
 
@@ -687,7 +687,7 @@ describe("extractJob", () => {
 				return { response: {} };
 			},
 		};
-		await extractJob(fakeAi, "本文", { model: "@cf/qwen/qwen3-30b-a3b-fp8" });
+		await extractJob(fakeAi, "本文", { model: "@cf/forked/unknown-model" });
 		expect((calls[0] as { max_tokens?: number }).max_tokens).toBeUndefined();
 	});
 

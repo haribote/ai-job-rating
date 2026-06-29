@@ -142,7 +142,7 @@ describe("selectModel", () => {
 		expect(sel.changed).toBe(false);
 	});
 
-	// #153 で flexWork recall を改善した候補（gpt-oss-120b）が baseline を厳密支配した実例の固定。
+	// #153 で flexWork recall を改善した候補が baseline を厳密支配した実例の固定。
 	// 全フィールド非劣化かつ overall 改善なら strict gate を素直に通過する（選択肢(c) の正常系）。
 	it("厳密支配する候補（全フィールド非劣化＋overall 改善）を採用する（#153 実例）", () => {
 		const baseline = result("base", {
@@ -164,7 +164,7 @@ describe("selectModel", () => {
 	});
 
 	// (c) で意図的に維持する挙動: overall が大幅改善でも単一フィールドが劣化する候補は veto し baseline 据置。
-	// #141 の glm-4.7-flash（overall +大幅だが flexWork 劣化）がこのゲートで弾かれた実例に対応する。
+	// #141 の候補（overall +大幅だが flexWork 劣化）がこのゲートで弾かれた実例に対応する。
 	// recall 改善（#153）で正攻法に解消したため、本 issue ではこの strict gate を変更しない（選択肢(c)）。
 	it("overall 大幅改善でも単一フィールド劣化は veto し baseline を据え置く（#141・(c) で意図的に維持）", () => {
 		const baseline = result("base", {
@@ -228,7 +228,7 @@ describe("evaluateModels", () => {
 	});
 });
 
-// 候補カタログ（#106・id の単一ソース）: 一次ソース確認した候補が整合した形で載っている。
+// 候補カタログ（#106・id の単一ソース）: eval コスト削減で本採用 gpt-oss-20b 1 件に絞り込み済み。
 describe("EXTRACTION_MODEL_CANDIDATES", () => {
 	it("全候補は Workers AI モデル ID（@cf/ 形式）で重複しない", () => {
 		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
@@ -238,35 +238,13 @@ describe("EXTRACTION_MODEL_CANDIDATES", () => {
 		expect(new Set(ids).size).toBe(ids.length);
 	});
 
-	it("ユーザー指示の追加 3 モデルを含む（gpt-oss-120b/20b・gemma-4-26b）", () => {
-		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
-		expect(ids).toContain("@cf/openai/gpt-oss-120b");
-		expect(ids).toContain("@cf/openai/gpt-oss-20b");
-		expect(ids).toContain("@cf/google/gemma-4-26b-a4b-it");
-	});
-
 	// #147 live 実証: gpt-oss は json-mode で動くが reasoning に budget を食うため、既定 max_tokens では
-	// content 生成前に切れる。十分な maxTokens を持たせて救済する（FC は 3043 で非成立）。
-	it("gpt-oss 系は json-mode かつ reasoning 分の maxTokens を持つ（#147）", () => {
-		const gptOss = EXTRACTION_MODEL_CANDIDATES.filter((c) =>
-			c.id.startsWith("@cf/openai/gpt-oss"),
-		);
-		expect(gptOss).toHaveLength(2);
-		for (const c of gptOss) {
-			expect(c.mechanism).toBe("json-mode");
-			expect(c.maxTokens).toBe(16384);
-		}
-	});
-
-	it("現行既定（baseline）は候補に含めない（baseline は別途与える）", () => {
-		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
-		expect(ids).not.toContain("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
-	});
-
-	// #146: live で旧 ID は `5007 No such model`、正式 ID は wrangler ai models に存在（org prefix は zai-org）。
-	it("GLM は正式 ID（@cf/zai-org/...）で、不正な @cf/zai/... を含まない", () => {
-		const ids = EXTRACTION_MODEL_CANDIDATES.map((c) => c.id);
-		expect(ids).toContain("@cf/zai-org/glm-4.7-flash");
-		expect(ids).not.toContain("@cf/zai/glm-4.7-flash");
+	// content 生成前に切れる。十分な maxTokens を持たせて救済する。
+	it("本採用 gpt-oss-20b のみを保持し json-mode + maxTokens=16384 を持つ（#106）", () => {
+		expect(EXTRACTION_MODEL_CANDIDATES).toHaveLength(1);
+		const [c] = EXTRACTION_MODEL_CANDIDATES;
+		expect(c.id).toBe("@cf/openai/gpt-oss-20b");
+		expect(c.mechanism).toBe("json-mode");
+		expect(c.maxTokens).toBe(16384);
 	});
 });
