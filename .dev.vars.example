@@ -1,2 +1,7 @@
 # 企業評判機能を使う場合は Claude API キーを設定する
 # ANTHROPIC_API_KEY=""
+
+# 企業の名寄せで国税庁 法人番号 Web-API を使う場合のアプリケーションID（#32）。
+# 無料・要利用登録。未設定なら法人番号での一意化はスキップし企業名のみで名寄せする（中立）。
+# 発行: https://www.houjin-bangou.nta.go.jp/webapi/
+# HOUJIN_BANGOU_APP_ID=""

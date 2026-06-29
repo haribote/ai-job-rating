@@ -17,6 +17,8 @@ export const TABLE_NAMES = {
 	extractions: "extractions",
 	scores: "scores",
 	criteriaConfig: "criteria_config",
+	// Phase 2 企業評判の基盤（#32, migration 0002）。
+	companies: "companies",
 } as const;
 
 // scores の総合スコア行を表す予約 criterion 値（正規キーと衝突しない番兵）。
@@ -102,4 +104,21 @@ export interface ScoreRow {
 	readonly included: 0 | 1;
 	readonly weight: number | null;
 	readonly scored_at: number;
+}
+
+// ---------------------------------------------------------------------------
+// companies（Phase 2 企業評判の基盤・#32 / migration 0002）
+// ---------------------------------------------------------------------------
+
+// companies 行。company_key は決定的な名寄せキー（companyKey の出力）。一意化は法人番号を最強
+// シグナルとし、houjin_bangou 判明時はそれで、未判明時は company_key で一意化する（migration 0002
+// の partial unique index 参照）。同名でも法人番号が違えば別企業として別行になる。
+// houjin_bangou は取得できた場合のみの任意フィールド（国税庁 法人番号・13桁）。
+export interface CompanyRow {
+	readonly id: string;
+	readonly name: string;
+	readonly company_key: string;
+	readonly houjin_bangou: string | null;
+	readonly created_at: number;
+	readonly updated_at: number;
 }
