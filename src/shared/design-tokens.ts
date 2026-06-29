@@ -24,6 +24,10 @@ export const colorTokens: TokenMap = {
 	"color-accent": "#0a7d54",
 	"color-danger": "#c0362c",
 	"color-focus-ring": "#2557d6",
+	// メダル色（ベスト3強調 #109）。順位差を枠色で表すための装飾色。意味カラーには使わない。
+	"color-medal-gold": "#c8902a",
+	"color-medal-silver": "#8a929e",
+	"color-medal-bronze": "#a3622f",
 };
 
 // タイポグラフィトークン。フォントは OS のシステムフォントに委ね、追加ロード（実行時依存）を避ける。
@@ -132,6 +136,14 @@ export const chartColorMap: Record<string, string> = {
 	"chart-5": "color-border",
 };
 
+// メダル色（ベスト3強調 #109）。意味カラー・チャート色とは別系統の装飾色群。
+// border-medal-gold / text-medal-gold 等のユーティリティとして UI から参照する。
+export const medalColorMap: Record<string, string> = {
+	"medal-gold": "color-medal-gold",
+	"medal-silver": "color-medal-silver",
+	"medal-bronze": "color-medal-bronze",
+};
+
 // 角丸の基準値（shadcn の --radius 規約）。md を基準に sm/lg を計算で導く。
 const RADIUS_BASE_TOKEN = "radius-md";
 
@@ -158,6 +170,9 @@ export function toRootCssVars(): Record<string, string> {
 	for (const [name, channels] of Object.entries(channelsFor(chartColorMap))) {
 		vars[`--${name}`] = channels;
 	}
+	for (const [name, channels] of Object.entries(channelsFor(medalColorMap))) {
+		vars[`--${name}`] = channels;
+	}
 	vars["--radius"] = surfaceTokens[RADIUS_BASE_TOKEN];
 	return vars;
 }
@@ -169,6 +184,9 @@ export function toThemeColors(): Record<string, string> {
 		colors[name] = `rgb(var(--${name}) / <alpha-value>)`;
 	}
 	for (const name of Object.keys(chartColorMap)) {
+		colors[name] = `rgb(var(--${name}) / <alpha-value>)`;
+	}
+	for (const name of Object.keys(medalColorMap)) {
 		colors[name] = `rgb(var(--${name}) / <alpha-value>)`;
 	}
 	return colors;
