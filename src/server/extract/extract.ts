@@ -368,7 +368,12 @@ const CATEGORY_RULES: Partial<Record<NormalizedKey, readonly CategoryRule[]>> =
 			["常駐", "onsite"],
 		],
 		// フレックス（労働者が始業終業を選べる）→ flex のみ。裁量労働=みなし労働は別物のため寄せない（§5.2）。
-		flexWork: [["フレックス", "flex"]],
+		// 「コアタイム」はフレックス制の構成概念であり、それ自体（コアタイムなし＝フルフレックス含む）が
+		// flex 肯定シグナル（#155: 単独の「コアタイムなし」を flex に落とすため needle に加える）。
+		flexWork: [
+			["フレックス", "flex"],
+			["コアタイム", "flex"],
+		],
 	};
 
 // flexWork は flex の有無のみを表す closed categorical。canonical(=flex)に寄らない値（裁量労働・
@@ -383,12 +388,16 @@ const NEGATION_TO_ONSITE: ReadonlySet<NormalizedKey> = new Set<NormalizedKey>([
 ]);
 
 // 否定表現を含むか（canonicalizeLabel 後で部分一致）。
-// なぜ「みなし」を除くか: 否定 needle「なし」は「みなし（労働）」の部分文字列に一致し否定と誤判定する。
-// みなしは否定語ではないため先に除去する（flexWork 以外の categorical でも安全側に効く汎用ガード）。
+// なぜ false-positive を先に除くか: 否定 needle「なし／無」は否定語でない語の部分文字列にも一致する。
+// - 「みなし（労働）」: 否定ではない（flexWork 以外の categorical でも安全側に効く汎用ガード）。
+// - 「コアタイムなし／コアタイム無し」: フルフレックスの肯定であり flex の否定ではない（#155）。
+// これらを先に除去してから否定判定する。
 function hasNegation(haystack: string): boolean {
-	const withoutDeemed = haystack.replace(/みなし/g, "");
+	const withoutFalsePositives = haystack
+		.replace(/みなし/g, "")
+		.replace(/コアタイム(なし|無し|無)/g, "");
 	return NEGATION_NEEDLES.some((n) =>
-		withoutDeemed.includes(canonicalizeLabel(n)),
+		withoutFalsePositives.includes(canonicalizeLabel(n)),
 	);
 }
 

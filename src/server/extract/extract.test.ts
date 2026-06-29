@@ -447,6 +447,19 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
+	// #155: 「コアタイムなし」は否定 needle「なし」を部分文字列に含むが、否定ではなく
+	// フルフレックスの肯定シグナル。否定誤検出で unknown に畳まず flex へ落とす。
+	it("コアタイムなし・フルフレックス（コアタイムなし）は flex に落とす", () => {
+		const cases = ["コアタイムなし", "フルフレックス（コアタイムなし）"];
+		for (const raw of cases) {
+			const job = rawFieldsToNormalizedJob({ flexWork: raw });
+			expect(job.flexWork.kind).toBe("categorical");
+			if (job.flexWork.kind === "categorical") {
+				expect(job.flexWork.categories).toEqual(["flex"]);
+			}
+		}
+	});
+
 	it("裸の「あり」needle を撤去し無関係文を誤マッチしない（残業ありが yes に化けない）", () => {
 		const job = rawFieldsToNormalizedJob({ flexWork: "残業あり" });
 		if (job.flexWork.kind === "categorical") {
