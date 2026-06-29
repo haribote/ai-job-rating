@@ -24,6 +24,7 @@ import {
 } from "./jobs";
 import type { DetailJobMessage } from "./queue/detail-queue";
 import { toRankingItem } from "./ranking-list";
+import { resolveReputationApiKeyConfig } from "./reputation/api-key";
 import { parseReputationSourceInput } from "./reputation-config";
 import { readRanking } from "./scoring/ranking";
 import {
@@ -54,6 +55,10 @@ export interface Bindings {
 	// live golden eval ランナー（#106）の dev 限定フラグ。"1" のときだけ /api/_eval-models を有効化する。
 	// 本番では未設定＝404 で、多数の AI 呼び出しを誘発するルートをコスト/濫用から守る（.dev.vars で付与）。
 	EXTRACTION_EVAL?: string;
+	// 企業評判検索（#30 の Claude API web_search）の前提となる秘匿キー（§7.2・Phase 2）。
+	// 実値は wrangler secret / .dev.vars で注入し、コードに直書きしない（フォーク容易性 §8）。
+	// 本 issue（#31）はこのキーの presence を設定 UI へ明示するだけで、API 呼び出しは #30 の責務。
+	ANTHROPIC_API_KEY?: string;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）。
@@ -244,6 +249,13 @@ app.delete("/api/reputation/sources/:id", async (c) => {
 		throw cause;
 	}
 	return c.json({ status: "deleted" }, 200);
+});
+
+// 評判: APIキー設定状態 (#31)。評判検索（#30）の前提キーが注入済みかを presence の boolean だけで返す。
+// キー値そのものは絶対に返さない（秘匿）。設定 UI はこれを見て「未設定なら設定方法を案内」する。
+// 取得元設定 CRUD（#34）・評判スコア（#36/#37）とは別ルートに分離する。
+app.get("/api/reputation/config", (c) => {
+	return c.json(resolveReputationApiKeyConfig(c.env.ANTHROPIC_API_KEY), 200);
 });
 
 // 抽出モデルの live golden 横並び評価（#106・dev 限定）。本番安全のため EXTRACTION_EVAL==="1" のときだけ

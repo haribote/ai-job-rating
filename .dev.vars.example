@@ -1,4 +1,6 @@
-# 企業評判機能を使う場合は Claude API キーを設定する
+# 企業評判機能（Claude API web_search・#30 以降）を使う場合の Claude API キー（§7.2・Phase 2）。
+# 未設定なら設定画面に「未設定」と表示され評判検索はスキップする（中立）。本番は wrangler secret で注入する:
+#   wrangler secret put ANTHROPIC_API_KEY
 # ANTHROPIC_API_KEY=""
 
 # 企業の名寄せで国税庁 法人番号 Web-API を使う場合のアプリケーションID（#32）。
