@@ -207,7 +207,8 @@ export interface ExtractionTool {
 		readonly properties: Readonly<
 			Record<string, { readonly type: "string"; readonly description?: string }>
 		>;
-		// 全キーを required にする。なぜ: #15 で llama-4-scout は required 未指定だとキーを取りこぼした。
+		// 全キーを required にする。なぜ: #15 で一部モデルは required 未指定だとキーを取りこぼした
+		// （詳細は docs/spikes/issue-15-model-comparison.md）。
 		// 未記載キーは system プロンプトに従い "-" を返させ、コード側で unknown 中立へ寄せる。
 		readonly required: readonly string[];
 	};

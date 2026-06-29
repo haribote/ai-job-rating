@@ -40,84 +40,23 @@ export interface ModelCandidate {
 	readonly note: string;
 }
 
-// 抽出モデル再評価の候補カタログ（#106・id の単一ソース）。現行既定（EXTRACTION_MODEL）は baseline
-// として別に与えるため本配列には含めない。live ドライバは EXTRACTION_MODEL_CANDIDATES.map((c) => c.id) を
-// candidateModels に渡す。
-// 機構の注意（#146 live 実証で更新）: CF の当該モデルでは function-calling が非成立（3043/8006/504/5007）。
-// 一方 json-mode は ai.run 成功し、WAI native { response } と OpenAI { choices[].message.content } の双方を
-// #145 parser で回収できる。よって大半を json-mode に寄せる。gpt-oss 系のみ json-mode で content=null のため
-// FC 据置（→ viability は #147 で調査）。max_tokens は指定しない（高い値は mistral のタブ列暴走で 504 を招く）。
+// 抽出モデルカタログ（id・機構・maxTokens の単一ソース）。本配列は二役を担う:
+// (1) ランタイムの機構/maxTokens 解決源（mechanism.ts の resolveExtractionMechanism / resolveExtractionMaxTokens）。
+// (2) live 横並び評価（#106）の候補種。live ドライバは EXTRACTION_MODEL_CANDIDATES.map((c) => c.id) を渡す。
+// #106 系の再評価は完了し、本採用は @cf/openai/gpt-oss-20b（wrangler.jsonc vars.EXTRACTION_MODEL）。eval コスト
+// 削減のため候補は採用済みモデル 1 件に絞る。評価済み 8 モデルの確定メタ・live 所見・最終結果は
+// docs/spikes/issue-106-model-reeval.md に集約。将来モデルを評価するときは本配列へ追記して回す。
 export const EXTRACTION_MODEL_CANDIDATES: readonly ModelCandidate[] = [
-	{
-		id: "@cf/meta/llama-3.1-8b-instruct-fast",
-		mechanism: "json-mode",
-		contextWindow: null,
-		inputUsdPerMTok: null,
-		outputUsdPerMTok: null,
-		note: "JSON Mode 公式対応・高速安価。context/価格はモデルページで要確認（fp8-fast 変種は $0.045/$0.384）。",
-	},
-	{
-		id: "@cf/mistralai/mistral-small-3.1-24b-instruct",
-		mechanism: "json-mode",
-		contextWindow: 128000,
-		inputUsdPerMTok: 0.351,
-		outputUsdPerMTok: null,
-		note: "広 context・多言語。#146 live: FC は 504。json-mode は OpenAI choices 形で出力するが JSON 後に退化したタブ列を吐く→既定の truncation で末尾を切り先頭の JSON を温存（#145 parser で回収）。高い max_tokens はタブ生成で 504 を招くため指定しない。機構=json-mode。",
-	},
-	{
-		id: "@cf/meta/llama-4-scout-17b-16e-instruct",
-		mechanism: "json-mode",
-		contextWindow: null,
-		inputUsdPerMTok: null,
-		outputUsdPerMTok: null,
-		note: "広 context・高速（MoE 17B active）。#146 live: FC は 3043、json-mode は WAI native { response } 形で出力。機構=json-mode。",
-	},
-	{
-		// 正式 ID は @cf/zai-org/...（#146 live: 旧 @cf/zai/... は 5007 No such model。wrangler ai models で確認）。
-		id: "@cf/zai-org/glm-4.7-flash",
-		mechanism: "json-mode",
-		contextWindow: 131072,
-		inputUsdPerMTok: null,
-		outputUsdPerMTok: null,
-		note: "131,072 context・高速・多言語100+。#146 で org prefix を zai-org へ訂正。機構=json-mode。価格は要確認。",
-	},
-	{
-		id: "@cf/qwen/qwen3-30b-a3b-fp8",
-		mechanism: "json-mode",
-		contextWindow: null,
-		inputUsdPerMTok: null,
-		outputUsdPerMTok: null,
-		note: "MoE（3B active=高速）・多言語・reasoning。#146 live: FC は 8006（max_tokens 不足）、json-mode は OpenAI choices 形で出力。機構=json-mode。",
-	},
-	// --- ユーザー指示で追加（#138・各モデルページで一次確認済み 2026-06-27） ---
-	{
-		// https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/
-		id: "@cf/openai/gpt-oss-120b",
-		mechanism: "json-mode",
-		maxTokens: 16384,
-		contextWindow: 128000,
-		inputUsdPerMTok: 0.35,
-		outputUsdPerMTok: 0.75,
-		note: "reasoning。#147 live: FC は 3043。json-mode は既定 max_tokens だと reasoning で枯渇し finish_reason:length・content=null。maxTokens=16384 で完全 JSON を返す（#145 parser で回収）。機構=json-mode。",
-	},
 	{
 		// https://developers.cloudflare.com/workers-ai/models/gpt-oss-20b/
 		id: "@cf/openai/gpt-oss-20b",
 		mechanism: "json-mode",
+		// reasoning モデルは既定 max_tokens だと reasoning で budget を使い切り content 生成前に切れる（#147）。
 		maxTokens: 16384,
 		contextWindow: 128000,
 		inputUsdPerMTok: 0.2,
 		outputUsdPerMTok: 0.3,
-		note: "reasoning・低レイテンシ版。#147 live: FC は 3043、json-mode は出力可（reasoning が短く既定でも収まることが多いが安全側に maxTokens=16384）。機構=json-mode。",
-	},
-	{
-		// https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/
-		id: "@cf/google/gemma-4-26b-a4b-it",
-		mechanism: "json-mode",
-		contextWindow: 256000,
-		inputUsdPerMTok: 0.1,
-		outputUsdPerMTok: 0.3,
-		note: "256k context・reasoning・vision。広 context 最有力。#146 live: FC は 8006、json-mode は OpenAI choices 形で出力。機構=json-mode。",
+		note: "reasoning・低レイテンシ版。#106 本採用。機構=json-mode（#145 parser で OpenAI choices 形を回収）。",
 	},
 ];
 

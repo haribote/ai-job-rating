@@ -4,11 +4,11 @@
 > 受け入れ: より広 context・高速・FC 対応候補を golden で横並び評価し既定更新。モデル ID/価格は一次ソース確認。
 > golden 精度が現行以上を合格条件、劣化ならアダプタで差し戻し。
 >
-> **状態（2026-06-27）**: 評価ハーネス・モデル差し替えアダプタ・候補 shortlist に加え、
-> **live golden eval ランナー（dev 限定 route ＋ Node driver）を実装**。ユーザーが自分の secrets/account で
-> 実行できる（手順は「live 実行手順」節）。**既定の最終確定（勝者選定）は live golden が必須で subagent は
-> live 実行不可のため引き続き要手動検証**。既定は現行 `@cf/meta/llama-3.3-70b-instruct-fp8-fast` のまま
-> 据え置き（劣化防止・差し戻し既定）。
+> **状態（2026-06-29・CLOSED）**: 再評価まで完了し既定を更新済み。live golden eval（#141/#153/#106）で
+> gpt-oss 系が baseline を厳密支配し、コスパで **`@cf/openai/gpt-oss-20b` を本採用**（PR #158 / main 25dd829）。
+> 評価候補カタログ（`EXTRACTION_MODEL_CANDIDATES`）は eval コスト削減のため本採用 1 件に絞り、評価済み 8
+> モデルの確定メタ・最終結果は本ドキュメント下部「評価済みモデル最終カタログ（コードから移設）」「#106 最終結果」に集約。
+> 以下の「決定」以前の節は当時（差し替え前）の記録として温存する。
 
 ## 前提（#15 の所見を引き継ぐ）
 
@@ -61,7 +61,7 @@
 - `compareModels(baseline, candidate)`: フィールド別／全体の精度差。劣化判定は `correct` 件数（golden 期待値で total はモデル非依存＝同分母）で行い浮動小数誤差を避ける。`acceptable` = 全体が現行以上 ∧ どのフィールドも劣化なし。
 - `selectModel(baseline, candidates)`: 合格候補のうち overall correct を**厳密に上回る**最良を採用。同点・合格者なしは現行維持（差し戻し）。
 - `evaluateModels(cases, baselineModel, candidateModels, makeExtractor)`: 候補ごとに `runGolden`（#100）を回し選定まで返す。
-- `EXTRACTION_MODEL_CANDIDATES`: 候補カタログ（id・機構・context・価格・備考の単一ソース・現在 8 件）。live ドライバは `.map((c) => c.id)` を `candidateModels` に渡す。現行既定（baseline）は含めない。
+- `EXTRACTION_MODEL_CANDIDATES`: id・機構・maxTokens の単一ソース。ランタイムの機構/maxTokens 解決源（`mechanism.ts`）兼 live eval の候補種を担う。live ドライバは `.map((c) => c.id)` を `candidateModels` に渡す。**評価完了後、eval コスト削減のため本採用 `gpt-oss-20b` 1 件に絞り込み済み**（2026-06-29）。新モデルを評価するときは本配列へ追記する。当時の 8 件は下部「評価済みモデル最終カタログ」に保全。
 
 ## live 実行手順（要手動検証・ユーザーが secrets/account で実行）
 
@@ -99,13 +99,46 @@ unknown となり golden で 0 点に出る）。
 > 持つユーザーが上記手順で実行する（**要手動検証**）。route の gate・body 検証・evaluateModels 経路は fake
 > binding でユニットテスト済み（`src/server/eval-models-route.test.ts` / `src/server/extract/eval-driver.test.ts`）。
 
-## 決定
+## 決定（当時・2026-06-27）
 
 - **既定は現行 `@cf/meta/llama-3.3-70b-instruct-fp8-fast` を据え置き**（live 未実施・劣化防止の差し戻し既定）。
 - 本 PR で「モデル差し替えアダプタ」「決定的な横断評価ハーネス」「候補 shortlist + live 手順」を確定。
 
+> 以降は live 再評価（#141/#153/#106）完了後に追記した最終記録。
+
+## 評価済みモデル最終カタログ（コードから移設）
+
+`EXTRACTION_MODEL_CANDIDATES` を本採用 1 件に絞った際、削除した候補の確定メタを保全する。
+機構は **#146/#147 の live 実証**で更新済み: CF の当該モデルでは function-calling が非成立（3043/8006/504/5007）、
+一方 json-mode は ai.run 成功し WAI native `{ response }` と OpenAI `{ choices[].message.content }` の双方を
+`#145` parser で回収できる。よって全候補 json-mode に寄せた。gpt-oss 系のみ既定 max_tokens では reasoning で
+budget を使い切り content=null になるため maxTokens=16384 を明示する。
+
+| モデル ID | 機構 | maxTokens | context | 価格 in/out（USD/M tok） | live 所見（#146/#147） |
+| --- | --- | --- | --- | --- | --- |
+| `@cf/meta/llama-3.1-8b-instruct-fast` | json-mode | — | 要確認 | $0.045 / $0.384（fp8-fast 変種） | JSON Mode 公式対応・高速安価 |
+| `@cf/mistralai/mistral-small-3.1-24b-instruct` | json-mode | — | 128,000 | $0.351 / 要確認 | FC は 504。json-mode は OpenAI choices 形だが JSON 後に退化タブ列→truncation で先頭 JSON を温存。高 max_tokens はタブ暴走で 504 |
+| `@cf/meta/llama-4-scout-17b-16e-instruct` | json-mode | — | 要確認 | 要確認 | MoE 17B active。FC は 3043、json-mode は WAI native `{ response }` 形 |
+| `@cf/zai-org/glm-4.7-flash` | json-mode | — | 131,072 | 要確認 | 多言語 100+。正式 ID は `@cf/zai-org/...`（旧 `@cf/zai/...` は 5007 No such model） |
+| `@cf/qwen/qwen3-30b-a3b-fp8` | json-mode | — | 要確認 | 要確認 | MoE（3B active）・reasoning。FC は 8006、json-mode は OpenAI choices 形 |
+| `@cf/openai/gpt-oss-120b` | json-mode | 16384 | 128,000 | $0.35 / $0.75 | reasoning。FC は 3043。既定 max_tokens では枯渇し content=null、16384 で完全 JSON |
+| **`@cf/openai/gpt-oss-20b`（本採用）** | json-mode | 16384 | 128,000 | $0.20 / $0.30 | reasoning・低レイテンシ版。FC は 3043、json-mode で出力可 |
+| `@cf/google/gemma-4-26b-a4b-it` | json-mode | — | 256,000 | $0.10 / $0.30 | 256k context。FC は 8006、json-mode は OpenAI choices 形 |
+
+## #106 最終結果
+
+再 eval（#141 → flexWork recall 改善 #153 → #106）で **gpt-oss 系が baseline を厳密支配**（全フィールド非劣化＋overall 改善・regressed 0）:
+
+- `@cf/openai/gpt-oss-120b`: overall **40/48**
+- `@cf/openai/gpt-oss-20b`: overall **39/48**
+- 両者の性能差は benefitsCoverage の 1 件のみ。
+
+コスパ（gpt-oss-20b は公式価格が約半額: $0.20/$0.30 vs $0.35/$0.75）で **`@cf/openai/gpt-oss-20b` を本採用**。
+既定差し替えは `wrangler.jsonc` `vars.EXTRACTION_MODEL` の 1 行（PR #158 / main 25dd829）。gpt-oss は CF 公式 JSON Mode
+非対応で、コード側の補償機構（`#145` parser・`#147` maxTokens）で成立させている。
+
 ## follow-up（申し送り）
 
-- **機構アダプタの拡張（最優先）**: 広 context FC モデル（mistral-small-3.1 / llama-4-scout / glm-4.7-flash / qwen3）を既定にするには `extractJob` の出力機構を JSON Mode 固定から Function calling / prompt+スキーマ検証へアダプタ化する必要がある（#15・requirements §8 の方針）。これにより 504 / 24k / 遅さ / コストの根本対処になる。#107（コンテンツ抽出改善・Task 14）と協調。
-- **golden 拡充**: 現行 golden が薄いと精度差が出ない。複数社・長文（504 誘発帯）を含めると差が顕在化する。
-- **価格の最終確認**: 「要確認」セルを eval 時にモデルページ / pricing で埋める。
+- **機構アダプタの拡張**: function-calling は機構として残置（`options.mechanism` 上書きでのみ使用）。FC 系を既定にするには `extractJob` の出力機構を FC / prompt+スキーマ検証へアダプタ化する必要がある（#15・requirements §8）。
+- **新モデル評価**: 候補を `EXTRACTION_MODEL_CANDIDATES` へ追記し dev 限定 route で回す（現状は本採用 1 件で self-comparison の no-op）。
+- **golden 拡充**: 複数社・長文（504 誘発帯）を含めると精度差が顕在化する。
