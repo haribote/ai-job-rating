@@ -40,7 +40,7 @@ export const CATEGORY_OF: Record<NormalizedKey, CategoryKey> = {
 	flexWork: "flexibility",
 	// 仕事・スキル
 	skillMatch: "role",
-	// 企業
+	// 企業（口コミ評判は正規キーでなく、company 軸への集約時に 1 項目として合流する・#117/#36）
 	companySize: "company",
 	capital: "company",
 };

@@ -16,6 +16,7 @@ import {
 	validatePastedHtml,
 } from "./jobs";
 import type { DetailJobMessage, DetailQueue } from "./queue/detail-queue";
+import { DEFAULT_REPUTATION_WEIGHT_CONFIG } from "./scoring/reputation-score";
 import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./storage/db-schema";
 
 // 詳細経路のテストはキューを使わない。投入を握り潰す no-op キュー。
@@ -82,7 +83,10 @@ beforeEach(async () => {
 	await env.DB.prepare("DELETE FROM scores").run();
 	await env.DB.prepare("DELETE FROM extractions").run();
 	await env.DB.prepare("DELETE FROM criteria_config").run();
+	// reputation_snapshots は companies の子、jobs は companies を参照するため companies より先に消す。
+	await env.DB.prepare("DELETE FROM reputation_snapshots").run();
 	await env.DB.prepare("DELETE FROM jobs").run();
+	await env.DB.prepare("DELETE FROM companies").run();
 });
 
 describe("ingestFromUrl", () => {
@@ -194,8 +198,83 @@ describe("readJobDetail", () => {
 			.run();
 	}
 
+	// 企業を作成し、求人へ紐付け、取得元別の評判スナップショットを積む（評判合流テスト用）。
+	async function seedReputation(
+		jobId: string,
+		companyId: string,
+		snaps: ReadonlyArray<{
+			source: string;
+			overall: number | null;
+			count: number | null;
+		}>,
+	): Promise<void> {
+		await env.DB.prepare(
+			`INSERT INTO ${TABLE_NAMES.companies} (id, name, company_key, houjin_bangou, created_at, updated_at) VALUES (?, '会社', 'kaisha', NULL, 0, 0)`,
+		)
+			.bind(companyId)
+			.run();
+		await env.DB.prepare("UPDATE jobs SET company_id = ? WHERE id = ?")
+			.bind(companyId, jobId)
+			.run();
+		let n = 0;
+		for (const s of snaps) {
+			await env.DB.prepare(
+				`INSERT INTO ${TABLE_NAMES.reputationSnapshots} (id, company_id, source, overall_score, review_count, sub_scores_json, fetched_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+			)
+				.bind(
+					`snap-${jobId}-${n}`,
+					companyId,
+					s.source,
+					s.overall,
+					s.count,
+					n,
+					n,
+				)
+				.run();
+			n += 1;
+		}
+	}
+
 	it("未存在の job は null", async () => {
-		expect(await readJobDetail(env.DB, "nope")).toBeNull();
+		expect(await readJobDetail(env.DB, "nope", true)).toBeNull();
+	});
+
+	it("企業未紐付けは評判中立（score=null・confidence=none・sources 空）", async () => {
+		await seed("jr0", jobWith({}));
+		const detail = await readJobDetail(env.DB, "jr0", true);
+		expect(detail?.reputation).toEqual({
+			score: null,
+			weight: DEFAULT_REPUTATION_WEIGHT_CONFIG.weight,
+			confidence: "none",
+			sources: [],
+		});
+	});
+
+	it("APIキー設定済み・評判ありは company 軸寄与（score/confidence/出所）を返す", async () => {
+		await seed("jr1", jobWith({}));
+		await seedReputation("jr1", "co-1", [
+			{ source: "openwork", overall: 3.5, count: 500 },
+		]);
+		const detail = await readJobDetail(env.DB, "jr1", true);
+		expect(detail?.reputation.score).toBeCloseTo(
+			(10 * 0.5 + 500 * 0.7) / (10 + 500),
+			10,
+		);
+		expect(detail?.reputation.confidence).toBe("ok");
+		expect(detail?.reputation.sources).toEqual([
+			{ source: "openwork", overallScore: 3.5, reviewCount: 500 },
+		]);
+	});
+
+	it("APIキー未設定は評判を中立除外（snapshots があっても score=null・sources 空）", async () => {
+		await seed("jr2", jobWith({}));
+		await seedReputation("jr2", "co-2", [
+			{ source: "openwork", overall: 4.8, count: 1000 },
+		]);
+		const detail = await readJobDetail(env.DB, "jr2", false);
+		expect(detail?.reputation.score).toBeNull();
+		expect(detail?.reputation.confidence).toBe("none");
+		expect(detail?.reputation.sources).toEqual([]);
 	});
 
 	it("jobs メタ・抽出・total・フラット内訳を返す", async () => {
@@ -210,7 +289,7 @@ describe("readJobDetail", () => {
 				},
 			}),
 		);
-		const detail = await readJobDetail(env.DB, "j1");
+		const detail = await readJobDetail(env.DB, "j1", true);
 		expect(detail).not.toBeNull();
 		if (detail === null) return;
 		expect(detail.job).toMatchObject({

@@ -19,6 +19,11 @@ import {
 	parseDesired,
 } from "./scoring/criteria-config";
 import {
+	DEFAULT_REPUTATION_WEIGHT_CONFIG,
+	type ReputationConfidence,
+	resolveReputationContribution,
+} from "./scoring/reputation-score";
+import {
 	type CriteriaConfigRow,
 	type ExtractionStatus,
 	type HardFilter,
@@ -33,6 +38,7 @@ import {
 	type RawHtmlBucket,
 	rawHtmlKey,
 } from "./storage/raw-html-store";
+import { listLatestReputationSnapshots } from "./storage/reputation-store";
 
 // ---------------------------------------------------------------------------
 // 入力バリデーション（決定的・純関数）
@@ -183,11 +189,30 @@ export interface BreakdownRow {
 	readonly desired: unknown;
 }
 
+// 企業評判の取得元 1 件ぶんの出所（UI 明示用・#117）。overall_score / review_count は取得元ネイティブ
+// スケールのまま（正規化・信頼度重み付けは company 軸合流時に行う）。未取得値は null（中立）。
+export interface JobReputationSource {
+	readonly source: string;
+	readonly overallScore: number | null;
+	readonly reviewCount: number | null;
+}
+
+// 企業評判の company 軸への寄与（#36 seam を配線・#117）。score は件数で信頼度重み付けした 0..1（中立は
+// null＝company 軸の分母から除外）。weight は companySize / capital と並ぶ 1 項目分の重み。confidence は
+// 低信頼フラグ（#37）。sources は出所明示。ANTHROPIC_API_KEY 未設定時は score=null・sources=[] で中立除外。
+export interface JobReputation {
+	readonly score: number | null;
+	readonly weight: number;
+	readonly confidence: ReputationConfidence;
+	readonly sources: readonly JobReputationSource[];
+}
+
 export interface JobDetail {
 	readonly job: JobDetailMeta;
 	readonly extraction: JobDetailExtraction;
 	readonly total: number | null;
 	readonly breakdown: readonly BreakdownRow[];
+	readonly reputation: JobReputation;
 }
 
 // 正規キーの値から表示用の生表記を取り出す。raw が無ければ空文字。
@@ -196,15 +221,17 @@ function rawOf(job: NormalizedJob, key: NormalizedKey): string {
 	return "raw" in value && typeof value.raw === "string" ? value.raw : "";
 }
 
-// 1 求人の詳細（jobs メタ・最新抽出・スコア内訳）を組む（決定的・AI 非依存）。
+// 1 求人の詳細（jobs メタ・最新抽出・スコア内訳・企業評判寄与）を組む（決定的・AI 非依存）。
 // 求人または抽出が存在しなければ null（呼び出し側が 404 にする）。
+// apiKeyConfigured は ANTHROPIC_API_KEY の presence（呼び出し側が env から解決）。未設定なら評判を中立除外する。
 export async function readJobDetail(
 	db: D1Database,
 	jobId: string,
+	apiKeyConfigured: boolean,
 ): Promise<JobDetail | null> {
 	const jobRow = await db
 		.prepare(
-			`SELECT id, source_url, source_type, status, fetched_at FROM ${TABLE_NAMES.jobs} WHERE id = ?`,
+			`SELECT id, source_url, source_type, status, fetched_at, company_id FROM ${TABLE_NAMES.jobs} WHERE id = ?`,
 		)
 		.bind(jobId)
 		.first<{
@@ -213,6 +240,7 @@ export async function readJobDetail(
 			source_type: JobSourceType;
 			status: JobStatus;
 			fetched_at: number;
+			company_id: string | null;
 		}>();
 	if (jobRow === null) return null;
 
@@ -293,6 +321,30 @@ export async function readJobDetail(
 		};
 	});
 
+	// 企業評判を company 軸へ合流する寄与（#36 seam を配線・#117）。企業未紐付けは snapshots なし＝中立。
+	// ANTHROPIC_API_KEY 未設定なら resolveReputationContribution が score=null・confidence=none へ倒す（中立除外）。
+	const snapshots =
+		jobRow.company_id === null
+			? []
+			: await listLatestReputationSnapshots(db, jobRow.company_id);
+	const contribution = resolveReputationContribution(
+		apiKeyConfigured,
+		snapshots,
+	);
+	// 出所明示はキー設定済みのときだけ surface する（未設定は評判機能自体が無効＝中立除外と整合）。
+	const reputation: JobReputation = {
+		score: contribution.score,
+		weight: DEFAULT_REPUTATION_WEIGHT_CONFIG.weight,
+		confidence: contribution.confidence,
+		sources: apiKeyConfigured
+			? snapshots.map((s) => ({
+					source: s.source,
+					overallScore: s.overall_score,
+					reviewCount: s.review_count,
+				}))
+			: [],
+	};
+
 	return {
 		job: {
 			jobId: jobRow.id,
@@ -310,6 +362,7 @@ export async function readJobDetail(
 		},
 		total,
 		breakdown,
+		reputation,
 	};
 }
 
