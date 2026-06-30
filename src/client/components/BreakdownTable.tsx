@@ -10,7 +10,11 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { CoverageValue, NormalizedKey } from "../../shared/job-schema";
-import type { BreakdownRow, HardFilterMode } from "../lib/jobDetail";
+import type {
+	BreakdownRow,
+	HardFilterMode,
+	JobReputation,
+} from "../lib/jobDetail";
 
 // フラット内訳表（設計書 §4.4 / 実装計画 Task 18 / #111）。
 //
@@ -91,17 +95,29 @@ function HardFilterBadge({
 	);
 }
 
+// 企業評判の出所 1 件の表記（出所名・ネイティブスコア・件数）。未取得値は「—」で揃える（#117）。
+function formatReputationSource(
+	source: JobReputation["sources"][number],
+): string {
+	const score = source.overallScore === null ? EMPTY_MARK : source.overallScore;
+	const count = source.reviewCount === null ? "" : `・${source.reviewCount}件`;
+	return `${source.source}（${score}${count}）`;
+}
+
 export interface BreakdownTableProps {
 	// 内訳行（NORMALIZED_KEYS 順・全正規キー）。
 	rows: readonly BreakdownRow[];
 	// benefitsCoverage の signal 内訳（展開表示用）。kind!=="coverage" や未取得時は null。
 	coverage?: CoverageValue | null;
+	// 企業評判寄与（#117）。company 軸へ合流する出所・スコアを明示する。未取得・未設定は中立表示。
+	reputation?: JobReputation | null;
 	className?: string;
 }
 
 export function BreakdownTable({
 	rows,
 	coverage = null,
+	reputation = null,
 	className,
 }: BreakdownTableProps): JSX.Element {
 	// 福利厚生の signal 内訳の開閉。フラット表のうち benefits のみ「1 行＋展開」。
@@ -189,6 +205,58 @@ export function BreakdownTable({
 						</TableRow>
 					);
 				})}
+
+				{reputation !== null && (
+					// 企業評判は独立軸でなく company 軸へ合流する 1 項目（#117）。出所・スコアを明示し、
+					// 中立（score=null＝データなし / APIキー未設定 / 低信頼除外）は分母から外れることを示す。
+					<TableRow
+						data-testid="breakdown-row-reputation"
+						className={cn(reputation.score === null && "text-muted-foreground")}
+					>
+						<TableCell className="font-medium">
+							<span className="flex items-center gap-2">
+								企業評判
+								{reputation.confidence === "low" && (
+									<Badge
+										variant="outline"
+										data-testid="reputation-low-confidence"
+									>
+										低信頼
+									</Badge>
+								)}
+							</span>
+						</TableCell>
+						<TableCell>
+							{reputation.sources.length > 0 ? (
+								<span
+									data-testid="reputation-sources"
+									className="flex flex-col gap-1 text-xs"
+								>
+									{reputation.sources.map((s) => (
+										<span key={s.source}>{formatReputationSource(s)}</span>
+									))}
+								</span>
+							) : (
+								EMPTY_MARK
+							)}
+						</TableCell>
+						<TableCell>{EMPTY_MARK}</TableCell>
+						<TableCell>
+							<span className="flex items-center gap-2">
+								{formatScore(reputation.score)}
+								{reputation.score === null && (
+									<Badge
+										variant="outline"
+										data-testid="reputation-neutral-badge"
+									>
+										中立
+									</Badge>
+								)}
+							</span>
+						</TableCell>
+						<TableCell>{reputation.weight}</TableCell>
+					</TableRow>
+				)}
 			</TableBody>
 		</Table>
 	);

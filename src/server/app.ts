@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { NULL_CORPORATE_NUMBER_CLIENT } from "./companies/houjin-bangou";
+import { resolveCorporateNumberClient } from "./companies/corporate-number-client";
 import {
 	type CriteriaConfigInput,
 	inputsToConfigRows,
@@ -81,6 +81,11 @@ export interface Bindings {
 	REPUTATION_MODEL?: string;
 	// 評判キャッシュの鮮度上限（秒・#30）。未設定/不正は既定（30日）へフォールバックする（フォーク容易性 §8）。
 	REPUTATION_MAX_AGE_SECONDS?: string;
+	// 国税庁 法人番号 Web-API のアプリケーションID（秘匿・#32）。.dev.vars / wrangler secret で注入する。
+	// 未設定なら法人番号での一意化はスキップし企業名のみで名寄せする（中立・resolveCorporateNumberClient）。
+	HOUJIN_BANGOU_APP_ID?: string;
+	// 法人番号 Web-API のエンドポイント base（非秘匿・wrangler.jsonc vars）。未設定はコード既定へフォールバック。
+	HOUJIN_BANGOU_API_BASE?: string;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）。
@@ -169,7 +174,15 @@ app.post("/api/jobs", async (c) => {
 // 求人詳細。jobs メタ・最新抽出・スコア内訳（フラット）を返す。未存在は 404。
 // AI も再スコアリングも実行しない（保存済み scores/extractions を読むだけ・§5.3）。
 app.get("/api/jobs/:id", async (c) => {
-	const detail = await readJobDetail(c.env.DB, c.req.param("id"));
+	// 企業評判の company 軸合流（#117）は ANTHROPIC_API_KEY の presence で中立除外を切り替える（§5.2）。
+	const { apiKeyConfigured } = resolveReputationApiKeyConfig(
+		c.env.ANTHROPIC_API_KEY,
+	);
+	const detail = await readJobDetail(
+		c.env.DB,
+		c.req.param("id"),
+		apiKeyConfigured,
+	);
 	if (detail === null) return c.json({ error: "job not found" }, 404);
 	return c.json(detail, 200);
 });
@@ -300,10 +313,10 @@ app.put("/api/jobs/:id/reputation/manual", async (c) => {
 		);
 	}
 
-	// company 解決は当面 NULL クライアント（法人番号 enrich なし）。houjin-bangou の env は未配線のため。
-	// enrich を入れる際は env から createNtaCorporateNumberClient を組んで差し替える（#117 で統一）。
+	// company 解決の法人番号 enrich は env 駆動で統一する（#117）。HOUJIN_BANGOU_APP_ID 未設定なら
+	// resolveCorporateNumberClient が NULL クライアント（名寄せ強化なし・中立）へ倒す。
 	const result = await saveManualReputation(
-		{ db: c.env.DB, client: NULL_CORPORATE_NUMBER_CLIENT },
+		{ db: c.env.DB, client: resolveCorporateNumberClient(c.env) },
 		c.req.param("id"),
 		parsed.value,
 	);
@@ -344,7 +357,7 @@ app.post("/api/jobs/:id/reputation/url", async (c) => {
 		{
 			db: c.env.DB,
 			ai: c.env.AI,
-			client: NULL_CORPORATE_NUMBER_CLIENT,
+			client: resolveCorporateNumberClient(c.env),
 			browser: c.env.BROWSER,
 			extractOptions: { model: c.env.EXTRACTION_MODEL },
 		},

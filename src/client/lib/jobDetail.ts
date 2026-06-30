@@ -49,12 +49,34 @@ export interface JobDetailMeta {
 	readonly fetchedAt: number;
 }
 
+// 企業評判寄与の信頼度（サーバ ReputationConfidence と同値・#37）。
+export type ReputationConfidence = "none" | "low" | "ok";
+
+// 企業評判の取得元 1 件ぶんの出所（UI 明示用・#117）。overall_score / review_count は取得元ネイティブ
+// スケールのまま。未取得値は null（中立）。
+export interface ReputationSourceRef {
+	readonly source: string;
+	readonly overallScore: number | null;
+	readonly reviewCount: number | null;
+}
+
+// 企業評判の company 軸への寄与（契約。サーバ JobReputation と同値・#117）。
+// score は件数で信頼度重み付けした 0..1（中立は null＝company 軸の分母から除外）。weight は合流時の重み。
+export interface JobReputation {
+	readonly score: number | null;
+	readonly weight: number;
+	readonly confidence: ReputationConfidence;
+	readonly sources: readonly ReputationSourceRef[];
+}
+
 // GET /api/jobs/:id の応答。
 export interface JobDetailResponse {
 	readonly job: JobDetailMeta;
 	readonly extraction: JobDetailExtraction;
 	readonly total: number | null;
 	readonly breakdown: readonly BreakdownRow[];
+	// 企業評判寄与（#117）。旧 API 応答との後方互換のため optional（無ければ中立扱い）。
+	readonly reputation?: JobReputation;
 }
 
 // POST /api/jobs/:id/reextract の応答（202）。

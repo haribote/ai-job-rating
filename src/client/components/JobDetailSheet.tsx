@@ -158,13 +158,17 @@ export function JobDetailSheet({
 						</div>
 
 						<ScoreRadar
-							scores={aggregateCategoryScores(successDetail.breakdown)}
+							scores={aggregateCategoryScores(
+								successDetail.breakdown,
+								successDetail.reputation,
+							)}
 							className="max-w-xs"
 						/>
 
 						<BreakdownTable
 							rows={successDetail.breakdown}
 							coverage={coverage}
+							reputation={successDetail.reputation}
 						/>
 					</div>
 				)}

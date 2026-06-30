@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORY_KEYS } from "../../shared/categories";
 import { aggregateCategoryScores } from "./categoryScores";
-import type { BreakdownRow } from "./jobDetail";
+import type { BreakdownRow, JobReputation } from "./jobDetail";
+
+// 評判寄与の最小ダミー。score / weight / confidence は試験ごとに上書きする。
+function reputation(over: Partial<JobReputation> = {}): JobReputation {
+	return { score: 0.8, weight: 3, confidence: "ok", sources: [], ...over };
+}
 
 // 内訳 1 行の最小ダミー。included/score/weight は試験ごとに上書きする。
 function row(
@@ -59,5 +64,77 @@ describe("aggregateCategoryScores（軸集約・決定的純関数）", () => {
 			row({ key: "skillMatch", weight: 0, score: 0.9 }),
 		]);
 		expect(result.role).toBeNull();
+	});
+});
+
+describe("aggregateCategoryScores（企業評判の company 軸合流・#117）", () => {
+	it("評判は company 軸へ 1 項目として合流する（独立軸を作らない）", () => {
+		// company = companySize(w1,0.4) + capital(w1,0.6) + 評判(w3,0.8) → (0.4+0.6+3*0.8)/(1+1+3)
+		const result = aggregateCategoryScores(
+			[
+				row({ key: "companySize", weight: 1, score: 0.4 }),
+				row({ key: "capital", weight: 1, score: 0.6 }),
+			],
+			reputation({ score: 0.8, weight: 3 }),
+		);
+		expect(result.company).toBeCloseTo((0.4 + 0.6 + 3 * 0.8) / 5, 10);
+		// 5 軸のまま（評判専用の軸は増えない）。
+		expect(Object.keys(result).sort()).toEqual([...CATEGORY_KEYS].sort());
+	});
+
+	it("評判 score=null（データなし/APIキー未設定）は分母から外し企業項目だけで成立する", () => {
+		const result = aggregateCategoryScores(
+			[
+				row({ key: "companySize", weight: 1, score: 0.4 }),
+				row({ key: "capital", weight: 1, score: 0.6 }),
+			],
+			reputation({ score: null, confidence: "none" }),
+		);
+		expect(result.company).toBeCloseTo((0.4 + 0.6) / 2, 10);
+	});
+
+	it("企業項目が全 unknown でも評判だけで company 軸が成立する", () => {
+		const result = aggregateCategoryScores(
+			[row({ key: "companySize", score: null, included: false })],
+			reputation({ score: 0.7, weight: 3 }),
+		);
+		expect(result.company).toBeCloseTo(0.7, 10);
+	});
+
+	it("評判は company 軸のみに効き、他軸へ漏れない", () => {
+		const result = aggregateCategoryScores(
+			[row({ key: "annualSalary", weight: 1, score: 0.5 })],
+			reputation({ score: 0.9, weight: 3 }),
+		);
+		expect(result.compensation).toBeCloseTo(0.5, 10);
+		expect(result.company).toBeCloseTo(0.9, 10);
+	});
+
+	it("評判未指定（undefined）でも従来どおり集約する（後方互換）", () => {
+		const withRep = aggregateCategoryScores([
+			row({ key: "companySize", weight: 1, score: 0.4 }),
+		]);
+		expect(withRep.company).toBeCloseTo(0.4, 10);
+	});
+
+	it("件数の少ない高評価は company 軸を支配しない（評判 score がベイズ収縮済みである前提）", () => {
+		// 少件数高評価は seam 側で 0.5 付近へ収縮した score として渡る。多件数中評価（0.69）を超えない。
+		const fewHigh = aggregateCategoryScores(
+			[row({ key: "companySize", weight: 1, score: 0.5 })],
+			reputation({ score: 0.52, weight: 3 }),
+		).company as number;
+		const manyMid = aggregateCategoryScores(
+			[row({ key: "companySize", weight: 1, score: 0.5 })],
+			reputation({ score: 0.69, weight: 3 }),
+		).company as number;
+		expect(manyMid).toBeGreaterThan(fewHigh);
+	});
+
+	it("決定的（同一入力で同値）", () => {
+		const rows = [row({ key: "companySize", weight: 1, score: 0.4 })];
+		const rep = reputation({ score: 0.8, weight: 3 });
+		expect(aggregateCategoryScores(rows, rep).company).toBe(
+			aggregateCategoryScores(rows, rep).company,
+		);
 	});
 });

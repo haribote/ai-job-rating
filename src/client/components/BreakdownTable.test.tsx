@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CoverageValue } from "../../shared/job-schema";
 import { NORMALIZED_KEYS } from "../../shared/job-schema";
-import type { BreakdownRow } from "../lib/jobDetail";
+import type { BreakdownRow, JobReputation } from "../lib/jobDetail";
 import { BreakdownTable } from "./BreakdownTable";
 
 // 内訳 1 行の最小ダミー。
@@ -101,5 +101,53 @@ describe("BreakdownTable（フラット内訳表）", () => {
 		const signals = screen.getByTestId("coverage-signals");
 		expect(within(signals).getByText("退職金制度")).toBeInTheDocument();
 		expect(within(signals).getByText("資格支援")).toBeInTheDocument();
+	});
+
+	it("企業評判は出所・スコアを明示する 1 行として company 軸合流を示す（#117）", () => {
+		const reputation: JobReputation = {
+			score: 0.7,
+			weight: 3,
+			confidence: "ok",
+			sources: [{ source: "openwork", overallScore: 3.5, reviewCount: 500 }],
+		};
+		render(<BreakdownTable rows={allRows()} reputation={reputation} />);
+		const tr = screen.getByTestId("breakdown-row-reputation");
+		expect(within(tr).getByText("企業評判")).toBeInTheDocument();
+		expect(within(tr).getByText("0.70")).toBeInTheDocument();
+		expect(within(tr).getByText("openwork（3.5・500件）")).toBeInTheDocument();
+		expect(within(tr).queryByTestId("reputation-neutral-badge")).toBeNull();
+	});
+
+	it("評判が中立（score=null・APIキー未設定/データなし）は中立表示・出所なし", () => {
+		const reputation: JobReputation = {
+			score: null,
+			weight: 3,
+			confidence: "none",
+			sources: [],
+		};
+		render(<BreakdownTable rows={allRows()} reputation={reputation} />);
+		const tr = screen.getByTestId("breakdown-row-reputation");
+		expect(
+			within(tr).getByTestId("reputation-neutral-badge"),
+		).toHaveTextContent("中立");
+	});
+
+	it("低信頼（confidence=low）は低信頼バッジを出す", () => {
+		const reputation: JobReputation = {
+			score: 0.55,
+			weight: 3,
+			confidence: "low",
+			sources: [{ source: "openwork", overallScore: 4.8, reviewCount: 3 }],
+		};
+		render(<BreakdownTable rows={allRows()} reputation={reputation} />);
+		const tr = screen.getByTestId("breakdown-row-reputation");
+		expect(
+			within(tr).getByTestId("reputation-low-confidence"),
+		).toHaveTextContent("低信頼");
+	});
+
+	it("評判 prop 未指定は評判行を出さない（後方互換）", () => {
+		render(<BreakdownTable rows={allRows()} />);
+		expect(screen.queryByTestId("breakdown-row-reputation")).toBeNull();
 	});
 });
