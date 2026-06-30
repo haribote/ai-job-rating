@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ReputationSnapshotRow } from "../storage/db-schema";
 import {
+	classifyReputationConfidence,
 	computeReputationScore,
 	DEFAULT_REPUTATION_WEIGHT_CONFIG,
 	foldReputationIntoCompanyAxis,
 	normalizeReputationScore,
 	parseReputationSubScores,
+	resolveReputationContribution,
 	weightedAverageExcludingUnknown,
 } from "./reputation-score";
 
@@ -216,5 +218,83 @@ describe("parseReputationSubScores（sub_scores_json の安全な解釈）", () 
 			a: 1,
 		});
 		expect(parseReputationSubScores('{"b":"x"}')).toBeNull();
+	});
+});
+
+describe("classifyReputationConfidence（低信頼フラグ判定・#37）", () => {
+	it("取得行なし（空配列）は none（データなし＝中立・低信頼）", () => {
+		expect(classifyReputationConfidence([])).toBe("none");
+	});
+
+	it("全 NULL（取得済みだが該当なし）も none", () => {
+		expect(classifyReputationConfidence([snap(null, null)])).toBe("none");
+	});
+
+	it("件数合計が priorStrength 未満なら low（中立 prior が過半を占める）", () => {
+		// Σn=3 < C=10 → 事前分布の重み C/(C+Σn) が過半 → 低信頼。
+		expect(classifyReputationConfidence([snap(4.8, 3)])).toBe("low");
+	});
+
+	it("件数合計が priorStrength 以上なら ok（証拠が事前分布を上回る）", () => {
+		expect(classifyReputationConfidence([snap(3.5, 500)])).toBe("ok");
+	});
+
+	it("review_count=0 は証拠ゼロで low（取得できたが件数なし＝低信頼）", () => {
+		expect(classifyReputationConfidence([snap(5, 0)])).toBe("low");
+	});
+
+	it("分母 0（priorStrength=0 かつ全件 0）は none（評価不能＝中立）", () => {
+		const config = { ...DEFAULT_REPUTATION_WEIGHT_CONFIG, priorStrength: 0 };
+		expect(classifyReputationConfidence([snap(4, 0)], config)).toBe("none");
+	});
+});
+
+describe("resolveReputationContribution（APIキー未設定時の中立除外・#37）", () => {
+	it("APIキー未設定なら snapshots に関わらず中立除外（score=null・confidence=none）", () => {
+		// 設定済みなら寄与する豊富なデータでも、キー未設定では評判は取得できない＝中立扱い。
+		const contribution = resolveReputationContribution(false, [snap(3.5, 500)]);
+		expect(contribution).toEqual({ score: null, confidence: "none" });
+	});
+
+	it("APIキー設定済み・データありは computeReputationScore と classify を返す", () => {
+		const snapshots = [snap(3.5, 500)];
+		const contribution = resolveReputationContribution(true, snapshots);
+		expect(contribution.score).toBe(computeReputationScore(snapshots));
+		expect(contribution.confidence).toBe("ok");
+	});
+
+	it("APIキー設定済み・データなしは中立（score=null・confidence=none）", () => {
+		expect(resolveReputationContribution(true, [])).toEqual({
+			score: null,
+			confidence: "none",
+		});
+	});
+
+	it("score=null のとき confidence は必ず none（compute との整合）", () => {
+		const config = { ...DEFAULT_REPUTATION_WEIGHT_CONFIG, priorStrength: 0 };
+		const contribution = resolveReputationContribution(
+			true,
+			[snap(4, 0)],
+			config,
+		);
+		expect(contribution).toEqual({ score: null, confidence: "none" });
+	});
+
+	it("APIキー未設定でも他項目（companySize 等）のスコアリングは成立する（受け入れの直接検証）", () => {
+		// 評判を中立除外しても、company 軸の他項目だけで加重平均が成立することを seam で固定する。
+		// 実配線（scoreJob への合流）は #117 の責務。ここでは寄与 null が分母から外れることを担保する。
+		const contribution = resolveReputationContribution(false, [
+			snap(4.8, 1000),
+		]);
+		const companyAxis = weightedAverageExcludingUnknown([
+			{ score: 0.4, weight: 1 }, // companySize
+			{ score: 0.6, weight: 1 }, // capital
+			{
+				score: contribution.score,
+				weight: DEFAULT_REPUTATION_WEIGHT_CONFIG.weight,
+			},
+		]);
+		// 評判項目は分母から外れ、他 2 項目の加重平均に一致する。
+		expect(companyAxis).toBeCloseTo((0.4 + 0.6) / 2, 10);
 	});
 });

@@ -50,21 +50,23 @@ export function normalizeReputationScore(
 	return clamp01(overallScore / nativeMax);
 }
 
-// 1 企業の全取得元スナップショットから company 軸への評判寄与（0..1）を算出する（決定的）。
-//
-// 件数による信頼度重み付け＝ベイズ平均でプールする:
-//   reputation = (C·m + Σ nᵢ·xᵢ) / (C + Σ nᵢ)
-//   xᵢ = normalizeReputationScore(overall_scoreᵢ), nᵢ = review_countᵢ
-// 件数の少ない高評価は Σnᵢ が小さく中立 prior(m) へ強く収縮するため、件数の多い中評価を支配しない（DoD）。
-//
-// unknown 中立（§5.2）: overall_score か review_count が NULL の行は分母（証拠）から除外する。
-// 採用行が 0（未取得・全 NULL）なら null を返し、呼び出し側（company 軸集約）の分母からも外す。
-export function computeReputationScore(
+// 採用行（unknown 中立を除いた有効スナップショット）の集計結果。
+// computeReputationScore（スコア）と classifyReputationConfidence（低信頼判定）が同一の採用規則を
+// 共有するため切り出す（採用規則が 2 箇所でずれないことを単一ソースで保証する）。
+interface UsableEvidence {
+	readonly evidenceSum: number; // Σ nᵢ·xᵢ
+	readonly countSum: number; // Σ nᵢ（証拠の総量）
+	readonly usable: number; // 採用行数
+}
+
+// unknown 中立（§5.2）の採用規則でスナップショットを畳み込む（決定的）。
+// NULL・非有限・負件数の行は分母（証拠）から除外する。
+function reduceUsableEvidence(
 	snapshots: readonly ReputationSnapshotRow[],
-	config: ReputationWeightConfig = DEFAULT_REPUTATION_WEIGHT_CONFIG,
-): number | null {
-	let evidenceSum = 0; // Σ nᵢ·xᵢ
-	let countSum = 0; // Σ nᵢ
+	config: ReputationWeightConfig,
+): UsableEvidence {
+	let evidenceSum = 0;
+	let countSum = 0;
 	let usable = 0;
 	for (const s of snapshots) {
 		// NULL は「取得したが該当なし」＝中立。件数で重み付けできないため分母に入れない。
@@ -79,6 +81,26 @@ export function computeReputationScore(
 		countSum += s.review_count;
 		usable += 1;
 	}
+	return { evidenceSum, countSum, usable };
+}
+
+// 1 企業の全取得元スナップショットから company 軸への評判寄与（0..1）を算出する（決定的）。
+//
+// 件数による信頼度重み付け＝ベイズ平均でプールする:
+//   reputation = (C·m + Σ nᵢ·xᵢ) / (C + Σ nᵢ)
+//   xᵢ = normalizeReputationScore(overall_scoreᵢ), nᵢ = review_countᵢ
+// 件数の少ない高評価は Σnᵢ が小さく中立 prior(m) へ強く収縮するため、件数の多い中評価を支配しない（DoD）。
+//
+// unknown 中立（§5.2）: overall_score か review_count が NULL の行は分母（証拠）から除外する。
+// 採用行が 0（未取得・全 NULL）なら null を返し、呼び出し側（company 軸集約）の分母からも外す。
+export function computeReputationScore(
+	snapshots: readonly ReputationSnapshotRow[],
+	config: ReputationWeightConfig = DEFAULT_REPUTATION_WEIGHT_CONFIG,
+): number | null {
+	const { evidenceSum, countSum, usable } = reduceUsableEvidence(
+		snapshots,
+		config,
+	);
 	if (usable === 0) return null;
 	const { priorStrength, priorMean } = config;
 	// 分母が 0（フォークが priorStrength=0 にし、かつ全行 review_count=0 で countSum=0）のときは
@@ -86,6 +108,54 @@ export function computeReputationScore(
 	const denominator = priorStrength + countSum;
 	if (denominator <= 0) return null;
 	return clamp01((priorStrength * priorMean + evidenceSum) / denominator);
+}
+
+// 評判寄与の信頼度（#37 の低信頼フラグ UI が消費する 3 値）。
+// - none: 採用行なし・全 NULL・評価不能（データなし＝中立）。
+// - low: 証拠（Σnᵢ）が事前分布 C 未満で、中立 prior が過半を占める（低信頼）。
+// - ok: 証拠が C 以上で素の評価を信頼できる。
+export type ReputationConfidence = "none" | "low" | "ok";
+
+// スナップショット群の評判寄与の信頼度を判定する（決定的・§5.2）。
+//
+// なぜ閾値が Σnᵢ < priorStrength(C) か:
+// - ベイズ平均 rep=(C·m+Σnx)/(C+Σn) の事前分布の重みは C/(C+Σn)。Σn<C のとき過半（>0.5）を中立 prior が
+//   占めるため、件数が C 未満なら「素の評価より中立に寄った低信頼な値」とみなす。
+// - usable=0 / 分母 0 は computeReputationScore が null を返すケースと一致させ none（中立）に倒す。
+export function classifyReputationConfidence(
+	snapshots: readonly ReputationSnapshotRow[],
+	config: ReputationWeightConfig = DEFAULT_REPUTATION_WEIGHT_CONFIG,
+): ReputationConfidence {
+	const { countSum, usable } = reduceUsableEvidence(snapshots, config);
+	if (usable === 0) return "none";
+	if (config.priorStrength + countSum <= 0) return "none";
+	return countSum < config.priorStrength ? "low" : "ok";
+}
+
+// 評判の company 軸への寄与（スコア＋信頼度）。UI（#37）とスコア合流（#117）の共有契約。
+export interface ReputationContribution {
+	readonly score: number | null;
+	readonly confidence: ReputationConfidence;
+}
+
+// ANTHROPIC_API_KEY の構成状態を踏まえた評判寄与を解決する（決定的・§5.2 unknown 中立）。
+//
+// なぜキー未設定で中立除外か:
+// - 評判検索（#30）は Claude API キーを必須とする。未設定では評判を取得できないため、寄与を null（中立）に倒し
+//   company 軸の分母から外す。他項目（companySize / capital 等）のスコアリングは成立させる（受け入れ条件）。
+// - score=null（データなし・評価不能）のとき confidence は必ず none に揃え、computeReputationScore と整合させる。
+//
+// seam（#117 へ委譲）: apiKeyConfigured / snapshots の供給（env presence・求人→企業名 ingest 配線）は本層では
+// 行わない。呼び出し側がこの寄与を WeightedTerm として company 軸へ載せる。
+export function resolveReputationContribution(
+	apiKeyConfigured: boolean,
+	snapshots: readonly ReputationSnapshotRow[],
+	config: ReputationWeightConfig = DEFAULT_REPUTATION_WEIGHT_CONFIG,
+): ReputationContribution {
+	if (!apiKeyConfigured) return { score: null, confidence: "none" };
+	const score = computeReputationScore(snapshots, config);
+	if (score === null) return { score: null, confidence: "none" };
+	return { score, confidence: classifyReputationConfidence(snapshots, config) };
 }
 
 // company 軸の 1 項目分の重み付き値。companySize / capital のサブスコアや評判寄与を表す。

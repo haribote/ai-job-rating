@@ -3,6 +3,7 @@ import {
 	fetchReputationApiKeyConfig,
 	type ReputationApiKeyConfig,
 } from "../lib/reputation";
+import { ReputationScoreState } from "./ReputationScoreState";
 
 // 企業評判（Phase 2）の設定節（#31）。設定画面に差し込み、評判検索（#30）の前提キーの構成状態と
 // 取得元/スコア表示の足場を描く。
@@ -12,7 +13,7 @@ import {
 //   共有ファイル衝突を最小化する。
 // - presence の取得ライフサイクル（loading/error/success）をここに閉じ、Settings の取得（GET /api/config）と
 //   独立させる。キー値そのものはサーバが返さない（presence のみ・秘匿 §8）。
-// - スコア数値の表示は評判スコアが成立する #36/#37 の責務。ここでは未実装の数値を作り込まず、足場のみ置く。
+// - スコアの中立扱い・低信頼フラグ表示は #37（ReputationScoreState）。実データ配線は #117。
 
 export interface ReputationApiKeySectionProps {
 	// 構成状態の取得関数（既定は GET /api/reputation/config）。テストはフェイクを注入する。
@@ -107,13 +108,12 @@ export function ReputationApiKeySection({
 						取得元（口コミサイト等）の設定・表示は順次対応予定です。
 					</p>
 
-					{/* スコア数値表示は評判スコアが成立する #36/#37 で実装する。未実装の数値はここに作らない。 */}
-					<p
-						data-testid="reputation-score-placeholder"
-						className="text-gray-500"
-					>
-						評判スコアの表示は今後のリリースで対応します。
-					</p>
+					{/* 評判の中立扱い・低信頼フラグ表示（#37）。実データ（求人→企業の snapshots）の供給は #117。
+					    ここでは apiKeyConfigured のみ既知なので、未設定なら中立、設定済みでもデータ未配線なら
+					    中立（データなし）として表示する。 */}
+					<ReputationScoreState
+						apiKeyConfigured={state.config.apiKeyConfigured}
+					/>
 				</div>
 			)}
 		</section>
