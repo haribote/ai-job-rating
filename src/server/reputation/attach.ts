@@ -21,7 +21,13 @@ export type ResolveCompanyForReputationResult =
 	| { ok: true; companyId: string }
 	| { ok: false; reason: "job_not_found" | "company_unresolved" };
 
-// 求人を企業へ解決する（実在確認 → 名寄せ → upsert → 紐付け）。評判保存の前段で使う。
+// 求人を企業へ解決する（評判保存の前段）。
+// なぜこの順序か:
+// - 先に求人の実在を確認する。resolveCompanyForJob は company を upsert してから link するため、
+//   不正な jobId をそのまま渡すと孤児 company を作ってしまう。これを防ぐ。
+// - 既に企業へ紐付け済みの求人はその company を尊重し、body の companyName で**上書きしない**。
+//   linkJobToCompany は無条件 UPDATE のため、未確認の companyName で再紐付けすると抽出パイプラインが
+//   付けた正しい紐付けを別企業へ誤って付け替えうる。紐付けは未設定の求人に対する初回のみ行う。
 export async function resolveCompanyForReputation(
 	db: D1Database,
 	jobId: string,
@@ -29,14 +35,17 @@ export async function resolveCompanyForReputation(
 	client: CorporateNumberClient,
 	opts: CompaniesStoreOptions = {},
 ): Promise<ResolveCompanyForReputationResult> {
-	// 先に求人の実在を確認する。resolveCompanyForJob は company を upsert してから link するため、
-	// 不正な jobId をそのまま渡すと孤児 company を作ってしまう。これを防ぐ。
 	const job = await db
-		.prepare(`SELECT id FROM ${TABLE_NAMES.jobs} WHERE id = ?`)
+		.prepare(`SELECT id, company_id FROM ${TABLE_NAMES.jobs} WHERE id = ?`)
 		.bind(jobId)
-		.first<{ id: string }>();
+		.first<{ id: string; company_id: string | null }>();
 	if (job === null) {
 		return { ok: false, reason: "job_not_found" };
+	}
+
+	// 既存の紐付けを尊重する（companyName は未紐付け時のフォールバックとしてのみ使う）。
+	if (job.company_id !== null) {
+		return { ok: true, companyId: job.company_id };
 	}
 
 	const company = await resolveCompanyForJob(

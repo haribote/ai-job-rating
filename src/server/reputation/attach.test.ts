@@ -57,6 +57,45 @@ describe("resolveCompanyForReputation", () => {
 		if (a.ok && b.ok) expect(a.companyId).toBe(b.companyId);
 	});
 
+	it("既に紐付け済みの求人は既存 company を尊重し companyName で上書きしない", async () => {
+		// 抽出パイプラインが付けた正しい紐付けを用意する。
+		await env.DB.prepare(
+			"INSERT INTO companies (id, name, company_key) VALUES (?, ?, ?)",
+		)
+			.bind("co-correct", "Correct Co", "correct")
+			.run();
+		await env.DB.prepare(
+			"INSERT INTO jobs (id, source_url, source_type, status, fetched_at, company_id) VALUES (?, ?, ?, ?, ?, ?)",
+		)
+			.bind(
+				"job-linked",
+				"https://example.com/linked",
+				"paste",
+				"scored",
+				1000,
+				"co-correct",
+			)
+			.run();
+
+		const r = await resolveCompanyForReputation(
+			env.DB,
+			"job-linked",
+			"別会社 株式会社", // 異なる企業名を渡しても上書きしない
+			NULL_CORPORATE_NUMBER_CLIENT,
+		);
+		expect(r).toEqual({ ok: true, companyId: "co-correct" });
+
+		const job = await env.DB.prepare("SELECT company_id FROM jobs WHERE id = ?")
+			.bind("job-linked")
+			.first<{ company_id: string }>();
+		expect(job?.company_id).toBe("co-correct");
+		// 別会社の company 行を新規作成していない。
+		const { results } = await env.DB.prepare("SELECT id FROM companies").all<{
+			id: string;
+		}>();
+		expect(results.map((x) => x.id)).toEqual(["co-correct"]);
+	});
+
 	it("不存在の job は job_not_found を返し company を作らない", async () => {
 		const r = await resolveCompanyForReputation(
 			env.DB,

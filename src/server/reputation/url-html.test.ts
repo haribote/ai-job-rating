@@ -153,6 +153,14 @@ describe("parseReputationAiOutput（決定的パース）", () => {
 		expect(r.subScores).toEqual({ ok: 3 });
 	});
 
+	it("response が record でない（配列等）なら choices へフォールスルーする", () => {
+		const r = parseReputationAiOutput({
+			response: [],
+			choices: [{ message: { content: '{"overallScore": 4}' } }],
+		});
+		expect(r.overallScore).toBe(4);
+	});
+
 	it("想定外形は全 null へ畳む", () => {
 		expect(parseReputationAiOutput(null)).toEqual({
 			overallScore: null,

@@ -287,6 +287,8 @@ app.put("/api/jobs/:id/reputation/manual", async (c) => {
 		);
 	}
 
+	// company 解決は当面 NULL クライアント（法人番号 enrich なし）。houjin-bangou の env は未配線のため。
+	// enrich を入れる際は env から createNtaCorporateNumberClient を組んで差し替える（#117 で統一）。
 	const result = await saveManualReputation(
 		{ db: c.env.DB, client: NULL_CORPORATE_NUMBER_CLIENT },
 		c.req.param("id"),

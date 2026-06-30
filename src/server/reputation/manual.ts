@@ -16,7 +16,7 @@ import {
 	saveReputationSnapshot,
 } from "../storage/reputation-store";
 import { resolveCompanyForReputation } from "./attach";
-import { asRecord } from "./parse-utils";
+import { asRecord, isFiniteNonNegativeNumber } from "./parse-utils";
 
 // 入力検証の失敗分類（reputation-config.ts の reason 方式に倣う）。ルートが 400 の reason に詰める。
 export type ManualReputationInputError =
@@ -59,11 +59,7 @@ export function parseManualReputationInput(
 	// overallScore: 任意。指定時は有限・非負（スケールは取得元依存のため上限なし・#33）。
 	let overallScore: number | null = null;
 	if (o.overallScore !== undefined && o.overallScore !== null) {
-		if (
-			typeof o.overallScore !== "number" ||
-			!Number.isFinite(o.overallScore) ||
-			o.overallScore < 0
-		) {
+		if (!isFiniteNonNegativeNumber(o.overallScore)) {
 			return { ok: false, reason: "overallScore" };
 		}
 		overallScore = o.overallScore;
@@ -73,9 +69,8 @@ export function parseManualReputationInput(
 	let reviewCount: number | null = null;
 	if (o.reviewCount !== undefined && o.reviewCount !== null) {
 		if (
-			typeof o.reviewCount !== "number" ||
-			!Number.isInteger(o.reviewCount) ||
-			o.reviewCount < 0
+			!isFiniteNonNegativeNumber(o.reviewCount) ||
+			!Number.isInteger(o.reviewCount)
 		) {
 			return { ok: false, reason: "reviewCount" };
 		}
@@ -91,7 +86,7 @@ export function parseManualReputationInput(
 		if (entries.length === 0) return { ok: false, reason: "subScores" };
 		const out: Record<string, number> = {};
 		for (const [key, value] of entries) {
-			if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+			if (!isFiniteNonNegativeNumber(value)) {
 				return { ok: false, reason: "subScores" };
 			}
 			out[key] = value;

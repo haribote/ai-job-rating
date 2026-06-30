@@ -27,7 +27,7 @@ import {
 	saveReputationSnapshot,
 } from "../storage/reputation-store";
 import { resolveCompanyForReputation } from "./attach";
-import { asRecord } from "./parse-utils";
+import { asRecord, isFiniteNonNegativeNumber } from "./parse-utils";
 
 // ---------------------------------------------------------------------------
 // 入力検証（純関数）
@@ -136,9 +136,7 @@ export function buildReputationExtractionMessages(
 
 // 数値を有限・非負に正規化する。範囲外・非数は null（unknown 中立）。
 function finiteNonNegative(value: unknown): number | null {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0
-		? value
-		: null;
+	return isFiniteNonNegativeNumber(value) ? value : null;
 }
 
 // AI 応答から評判スコアを決定的に取り出す純関数。想定外形は全 null へ畳む（落とさない）。
@@ -176,9 +174,11 @@ function extractJsonObject(output: unknown): Record<string, unknown> | null {
 	const direct = asRecord(output);
 	if (direct !== null) {
 		const response = direct.response;
-		// Workers AI: { response: object|string }
+		// Workers AI: { response: object|string }。response が record でない（配列等）の場合は
+		// ここで null へ畳まず、下の choices / 素のオブジェクト候補へフォールスルーする。
 		if (typeof response === "object" && response !== null) {
-			return asRecord(response);
+			const record = asRecord(response);
+			if (record !== null) return record;
 		}
 		if (typeof response === "string") {
 			return parseJsonLoose(response);
