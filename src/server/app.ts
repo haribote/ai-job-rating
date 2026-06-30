@@ -34,8 +34,16 @@ import {
 	ingestUrlHtmlReputation,
 	parseUrlHtmlReputationInput,
 } from "./reputation/url-html";
+import {
+	createClaudeReputationClient,
+	DEFAULT_WEB_SEARCH_SOURCE,
+	fetchReputationSnapshot,
+	resolveReputationMaxAgeSeconds,
+	resolveReputationModel,
+} from "./reputation/web-search";
 import { parseReputationSourceInput } from "./reputation-config";
 import { readRanking } from "./scoring/ranking";
+import { getCompanyById } from "./storage/companies-store";
 import {
 	deleteReputationSource,
 	listReputationSources,
@@ -68,6 +76,11 @@ export interface Bindings {
 	// 実値は wrangler secret / .dev.vars で注入し、コードに直書きしない（フォーク容易性 §8）。
 	// 本 issue（#31）はこのキーの presence を設定 UI へ明示するだけで、API 呼び出しは #30 の責務。
 	ANTHROPIC_API_KEY?: string;
+	// 評判 web_search（#30）の使用モデル上書き（wrangler.jsonc vars / .dev.vars）。
+	// 未設定なら web-search.ts の resolveReputationModel がコード既定（claude-opus-4-8）へフォールバックする。
+	REPUTATION_MODEL?: string;
+	// 評判キャッシュの鮮度上限（秒・#30）。未設定/不正は既定（30日）へフォールバックする（フォーク容易性 §8）。
+	REPUTATION_MAX_AGE_SECONDS?: string;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）。
@@ -359,6 +372,68 @@ app.post("/api/jobs/:id/reputation/url", async (c) => {
 		default:
 			return c.json({ snapshot: result.snapshot }, 201);
 	}
+});
+
+// 評判: web_search 取得トリガー (#30)。企業（companies.id）の評判を Claude API の web_search で取得し
+// reputation snapshot として保存する（fetch_method="web_search" 経路）。冪等＝fresh キャッシュがあれば
+// web_search を呼ばず返す（§5.3 抽出↔スコアリング分離・キャッシュ）。
+// - APIキー未設定は中立: 評判を取得せず 200 { status:"skipped" }（unknown 中立・分母除外は #36/#37）。
+// - 企業未存在は 404。
+// - 有効な web_search 取得元（#34）があればその name ごとに、無ければ既定 source 名で 1 件取得する。
+// 注: 求人→企業名の供給は現状未配線（#32 申し送り）。本ルートは companies.id を入力に取得するコア層で、
+//     求人本体（POST /api/jobs/:id/reputation）への自動配線は capstone #117 へ handoff する。
+app.post("/api/companies/:id/reputation", async (c) => {
+	const apiKey = c.env.ANTHROPIC_API_KEY;
+	if (
+		apiKey === undefined ||
+		!resolveReputationApiKeyConfig(apiKey).apiKeyConfigured
+	) {
+		return c.json({ status: "skipped", reason: "api-key-not-configured" }, 200);
+	}
+
+	const companyId = c.req.param("id");
+	const company = await getCompanyById(c.env.DB, companyId);
+	if (company === null) return c.json({ error: "company not found" }, 404);
+
+	// 有効な取得元のうち web_search 経路のみを対象にする（priority 昇順は store が保証）。
+	// 取得元未設定でも web_search は §7.2 の主軸のため既定 source 名で単体成立させる。
+	const enabled = await listReputationSources(c.env.DB, { enabledOnly: true });
+	const webSearchSources = enabled.filter(
+		(s) => s.fetch_method === "web_search",
+	);
+	const sourceNames =
+		webSearchSources.length > 0
+			? webSearchSources.map((s) => s.name)
+			: [DEFAULT_WEB_SEARCH_SOURCE];
+
+	const client = createClaudeReputationClient({
+		apiKey,
+		model: resolveReputationModel(c.env.REPUTATION_MODEL),
+	});
+	const maxAgeSeconds = resolveReputationMaxAgeSeconds(
+		c.env.REPUTATION_MAX_AGE_SECONDS,
+	);
+
+	const snapshots = [];
+	for (const source of sourceNames) {
+		const result = await fetchReputationSnapshot(
+			{ db: c.env.DB, client, maxAgeSeconds },
+			{
+				companyId,
+				companyName: company.name,
+				houjinBangou: company.houjin_bangou,
+				source,
+			},
+		);
+		snapshots.push({
+			source,
+			cached: result.cached,
+			fetched: result.fetched,
+			snapshot: result.snapshot,
+		});
+	}
+
+	return c.json({ status: "ok", companyId, snapshots }, 200);
 });
 
 // 抽出モデルの live golden 横並び評価（#106・dev 限定）。本番安全のため EXTRACTION_EVAL==="1" のときだけ
