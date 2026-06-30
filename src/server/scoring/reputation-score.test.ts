@@ -118,6 +118,13 @@ describe("computeReputationScore（unknown 中立・分母除外）", () => {
 			DEFAULT_REPUTATION_WEIGHT_CONFIG.priorMean,
 		);
 	});
+
+	it("priorStrength=0 かつ全行 review_count=0（分母 0）は NaN でなく null へ倒す", () => {
+		// フォークが prior を無効化(priorStrength=0)し、証拠も 0 件のとき 0/0=NaN を company 軸へ
+		// 漏らさず中立(null＝分母除外)にする。
+		const config = { ...DEFAULT_REPUTATION_WEIGHT_CONFIG, priorStrength: 0 };
+		expect(computeReputationScore([snap(4, 0)], config)).toBeNull();
+	});
 });
 
 describe("weightedAverageExcludingUnknown（null は分母除外）", () => {

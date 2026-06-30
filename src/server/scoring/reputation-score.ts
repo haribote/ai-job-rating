@@ -81,9 +81,11 @@ export function computeReputationScore(
 	}
 	if (usable === 0) return null;
 	const { priorStrength, priorMean } = config;
-	return clamp01(
-		(priorStrength * priorMean + evidenceSum) / (priorStrength + countSum),
-	);
+	// 分母が 0（フォークが priorStrength=0 にし、かつ全行 review_count=0 で countSum=0）のときは
+	// 証拠も事前分布も無く定義不能。NaN を company 軸へ漏らさず中立（null＝分母除外）へ倒す。
+	const denominator = priorStrength + countSum;
+	if (denominator <= 0) return null;
+	return clamp01((priorStrength * priorMean + evidenceSum) / denominator);
 }
 
 // company 軸の 1 項目分の重み付き値。companySize / capital のサブスコアや評判寄与を表す。
