@@ -8,7 +8,7 @@
 //   再実装しない。設定変更は決定的・AI 非再実行（§5.3）。サーバは別バンドルのため型は client 側で定義する。
 
 import type { ApiClient } from "./api";
-import { apiDelete, apiGet, apiPut } from "./api";
+import { apiDelete, apiGet, apiPost, apiPut } from "./api";
 
 // 取得方式（§7.2・サーバ ReputationFetchMethod と整合）。server は別バンドルのため client 側で再定義する。
 export type ReputationFetchMethod = "web_search" | "url_html" | "manual";
@@ -90,4 +90,69 @@ export async function fetchReputationApiKeyConfig(
 	get: ApiClient["get"] = apiGet,
 ): Promise<ReputationApiKeyConfig> {
 	return get<ReputationApiKeyConfig>("/reputation/config");
+}
+
+// ---------------------------------------------------------------------------
+// 補助/フォールバック経路（#35）: 手入力上書き / URL・HTML 投入
+// ---------------------------------------------------------------------------
+
+// 保存された評判スナップショット 1 行（サーバ ReputationSnapshotRow と整合・snake_case）。
+// overall_score / review_count / sub_scores_json は NULL 許容（unknown 中立・解釈は #36）。
+export interface ReputationSnapshot {
+	readonly id: string;
+	readonly company_id: string;
+	readonly source: string;
+	readonly overall_score: number | null;
+	readonly review_count: number | null;
+	readonly sub_scores_json: string | null;
+	readonly fetched_at: number;
+	readonly created_at: number;
+}
+
+// 手入力上書きの入力（サーバ parseManualReputationInput と整合）。company は companyName で解決する。
+// overall/count/sub のいずれか 1 つ以上を指定する（空の上書きはサーバが 400）。
+export interface ManualReputationInput {
+	readonly companyName: string;
+	readonly source: string;
+	readonly overallScore?: number | null;
+	readonly reviewCount?: number | null;
+	readonly subScores?: Record<string, number> | null;
+}
+
+// URL/HTML 投入の入力（サーバ parseUrlHtmlReputationInput と整合）。url と html は排他。
+export interface UrlHtmlReputationInput {
+	readonly companyName: string;
+	readonly source: string;
+	readonly url?: string;
+	readonly html?: string;
+}
+
+interface SnapshotResponse {
+	readonly snapshot: ReputationSnapshot;
+}
+
+// 手入力で評判スコアを上書きする（append-only で最新を積む）。保存後の snapshot を返す。
+export async function overrideReputationManually(
+	jobId: string,
+	input: ManualReputationInput,
+	put: ApiClient["put"] = apiPut,
+): Promise<ReputationSnapshot> {
+	const res = await put<SnapshotResponse>(
+		`/jobs/${jobId}/reputation/manual`,
+		input,
+	);
+	return res.snapshot;
+}
+
+// 評判ページの URL/HTML を投入し AI 抽出して保存する。保存後の snapshot を返す。
+export async function ingestReputationFromUrlHtml(
+	jobId: string,
+	input: UrlHtmlReputationInput,
+	post: ApiClient["post"] = apiPost,
+): Promise<ReputationSnapshot> {
+	const res = await post<SnapshotResponse>(
+		`/jobs/${jobId}/reputation/url`,
+		input,
+	);
+	return res.snapshot;
 }

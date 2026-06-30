@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { NULL_CORPORATE_NUMBER_CLIENT } from "./companies/houjin-bangou";
 import {
 	type CriteriaConfigInput,
 	inputsToConfigRows,
@@ -25,6 +26,14 @@ import {
 import type { DetailJobMessage } from "./queue/detail-queue";
 import { toRankingItem } from "./ranking-list";
 import { resolveReputationApiKeyConfig } from "./reputation/api-key";
+import {
+	parseManualReputationInput,
+	saveManualReputation,
+} from "./reputation/manual";
+import {
+	ingestUrlHtmlReputation,
+	parseUrlHtmlReputationInput,
+} from "./reputation/url-html";
 import { parseReputationSourceInput } from "./reputation-config";
 import { readRanking } from "./scoring/ranking";
 import {
@@ -256,6 +265,98 @@ app.delete("/api/reputation/sources/:id", async (c) => {
 // 取得元設定 CRUD（#34）・評判スコア（#36/#37）とは別ルートに分離する。
 app.get("/api/reputation/config", (c) => {
 	return c.json(resolveReputationApiKeyConfig(c.env.ANTHROPIC_API_KEY), 200);
+});
+
+// 評判: 手入力上書き (#35・fetch_method = manual)。任意のスコアを手で入れて company 単位 snapshot を積む。
+// append-only で「最新 manual を積む＝上書き」を表現する（getLatest が最新を返す・§8）。company は body の
+// companyName から解決する（求人の企業名抽出はまだ未配線のため・#117 で配線時に省略可へ）。
+// 不正入力は保存前に 400、求人不在は 404、企業名が名寄せ不能なら 400 で弾く（決定的・コスト保護）。
+app.put("/api/jobs/:id/reputation/manual", async (c) => {
+	let body: unknown;
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ error: "invalid json body", reason: "body" }, 400);
+	}
+
+	const parsed = parseManualReputationInput(body);
+	if (!parsed.ok) {
+		return c.json(
+			{ error: "invalid manual reputation", reason: parsed.reason },
+			400,
+		);
+	}
+
+	const result = await saveManualReputation(
+		{ db: c.env.DB, client: NULL_CORPORATE_NUMBER_CLIENT },
+		c.req.param("id"),
+		parsed.value,
+	);
+	if (result.kind === "job-not-found") {
+		return c.json({ error: "job not found" }, 404);
+	}
+	if (result.kind === "company-unresolved") {
+		return c.json(
+			{ error: "company could not be resolved", reason: "companyName" },
+			400,
+		);
+	}
+	return c.json({ snapshot: result.snapshot }, 200);
+});
+
+// 評判: URL/HTML 投入 → AI 抽出 (#35・fetch_method = url_html)。Workers AI で構造化スコアを取り出し保存する。
+// url は fetchWithStrategy で取得（#115 再利用）、html は直接投入（ネットワーク不要）。AI を呼ぶ前に入力検証・
+// 求人/企業解決で弾く（コスト保護）。取得失敗 502、AI 抽出失敗 502、求人不在 404、企業名不能 400。
+app.post("/api/jobs/:id/reputation/url", async (c) => {
+	let body: unknown;
+	try {
+		body = await c.req.json();
+	} catch {
+		return c.json({ error: "invalid json body", reason: "body" }, 400);
+	}
+
+	const parsed = parseUrlHtmlReputationInput(body);
+	if (!parsed.ok) {
+		// 上限超過のみ 413、それ以外の入力不正は 400（POST /api/jobs と同方針）。
+		const status = parsed.reason === "too-large" ? 413 : 400;
+		return c.json(
+			{ error: "invalid url/html reputation", reason: parsed.reason },
+			status,
+		);
+	}
+
+	const result = await ingestUrlHtmlReputation(
+		{
+			db: c.env.DB,
+			ai: c.env.AI,
+			client: NULL_CORPORATE_NUMBER_CLIENT,
+			browser: c.env.BROWSER,
+			extractOptions: { model: c.env.EXTRACTION_MODEL },
+		},
+		c.req.param("id"),
+		parsed.value,
+	);
+	switch (result.kind) {
+		case "job-not-found":
+			return c.json({ error: "job not found" }, 404);
+		case "company-unresolved":
+			return c.json(
+				{ error: "company could not be resolved", reason: "companyName" },
+				400,
+			);
+		case "fetch-error":
+			return c.json(
+				{ error: "failed to fetch url", reason: result.reason },
+				FETCH_ERROR_STATUS,
+			);
+		case "extraction-failed":
+			return c.json(
+				{ error: "reputation extraction failed", reason: "extraction" },
+				FETCH_ERROR_STATUS,
+			);
+		default:
+			return c.json({ snapshot: result.snapshot }, 201);
+	}
 });
 
 // 抽出モデルの live golden 横並び評価（#106・dev 限定）。本番安全のため EXTRACTION_EVAL==="1" のときだけ
