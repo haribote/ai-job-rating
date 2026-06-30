@@ -47,18 +47,24 @@ describe("ReputationApiKeySection", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("スコア数値表示は #36/#37 待ちの旨を明示し、未実装の数値を描かない", async () => {
+	it("評判スコアは中立扱い・低信頼フラグで表示する（実データ配線は #117）", async () => {
 		render(
 			<ReputationApiKeySection
 				configFetcher={configFetcher({ apiKeyConfigured: true })}
 			/>,
 		);
 
+		// 設定済みでもデータ未配線のため、中立（データなし）・低信頼として表示する。
 		await waitFor(() => {
-			expect(
-				screen.getByTestId("reputation-score-placeholder"),
-			).toBeInTheDocument();
+			expect(screen.getByTestId("reputation-score-state")).toBeInTheDocument();
 		});
+		expect(screen.getByTestId("reputation-score-state")).toHaveAttribute(
+			"data-neutral",
+			"true",
+		);
+		expect(
+			screen.getByTestId("reputation-low-confidence-badge"),
+		).toBeInTheDocument();
 	});
 
 	it("取得失敗時はエラーを表示する", async () => {
