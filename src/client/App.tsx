@@ -1,9 +1,6 @@
 import { type JSX, useState, useSyncExternalStore } from "react";
-import {
-	AddJobModal,
-	type SubmitJob,
-	type SubmitJobResponse,
-} from "./components/AddJobModal";
+import type { SubmitJobResponse } from "../shared/submit-job";
+import { AddJobModal, type SubmitJob } from "./components/AddJobModal";
 import { TopBar } from "./components/TopBar";
 import { fetchJobDetail, type JobDetailFetcher } from "./lib/jobDetail";
 import type { RankingFetcher } from "./lib/useRanking";

@@ -150,6 +150,109 @@ describe("ingestFromUrl", () => {
 	});
 });
 
+// 認証下ページの取得を投入フローへ配線する（Cookie 入力導線・#187）。
+// cookie 非空時のみ fetchAuthedHtml 経路へ分岐し、AuthFetchError を auth-error へ写す。
+describe("ingestFromUrl（認証下取得・Cookie 配線・#187）", () => {
+	it("cookie 指定時は fetchAuthedHtml 経路で Cookie ヘッダを送出し取込する", async () => {
+		let sentCookie: string | undefined;
+		const fetcher: Fetcher = async (_url, init) => {
+			const headers = init?.headers as Record<string, string> | undefined;
+			sentCookie = headers?.cookie;
+			return new Response("<p>年収 700万〜900万</p>", { status: 200 });
+		};
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
+			"https://example.com/jobs/1",
+			{ cookie: "session=abc123" },
+		);
+		expect(result.kind).toBe("detail");
+		expect(sentCookie).toBe("session=abc123");
+	});
+
+	it("401 は auth-error(auth) を返す", async () => {
+		const fetcher: Fetcher = async () => new Response("no", { status: 401 });
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
+			"https://example.com/jobs/1",
+			{ cookie: "session=abc123" },
+		);
+		expect(result).toEqual({ kind: "auth-error", reason: "auth" });
+	});
+
+	it("クロスオリジン redirect は auth-error(redirect) を返す（Cookie 再送しない）", async () => {
+		const fetcher: Fetcher = async () =>
+			new Response(null, {
+				status: 302,
+				headers: { location: "https://evil.example.net/login" },
+			});
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
+			"https://example.com/jobs/1",
+			{ cookie: "session=abc123" },
+		);
+		expect(result).toEqual({ kind: "auth-error", reason: "redirect" });
+	});
+
+	it("構文不正な Cookie は auth-error(invalid-credential) を返す（fetch 前に弾く）", async () => {
+		let fetched = false;
+		const fetcher: Fetcher = async () => {
+			fetched = true;
+			return new Response("ok", { status: 200 });
+		};
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
+			"https://example.com/jobs/1",
+			{ cookie: "bad\x00cookie" },
+		);
+		expect(result).toEqual({
+			kind: "auth-error",
+			reason: "invalid-credential",
+		});
+		expect(fetched).toBe(false);
+	});
+
+	it("cookie 空文字は fetchHtml 経路を維持する（後方互換）", async () => {
+		// 空 Cookie は認証下取得へ切り替えない。401 は auth-error でなく通常の fetch-error になる。
+		const fetcher: Fetcher = async () => new Response("no", { status: 401 });
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+			},
+			"https://example.com/jobs/1",
+			{ cookie: "" },
+		);
+		expect(result).toEqual({ kind: "fetch-error", reason: "http" });
+	});
+});
+
 describe("ingestFromHtml", () => {
 	it("貼り付け HTML を取込し jobId と status を返す", async () => {
 		const result = await ingestFromHtml(

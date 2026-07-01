@@ -10,6 +10,11 @@
 import type { NormalizedJob, NormalizedKey } from "../shared/job-schema";
 import { NORMALIZED_KEYS } from "../shared/job-schema";
 import type { AiRunner } from "./extract/ai";
+import {
+	AuthFetchError,
+	type AuthFetchErrorKind,
+	fetchAuthedHtml,
+} from "./fetch/fetch-authed-html";
 import { type Fetcher, FetchHtmlError, fetchHtml } from "./fetch/fetch-html";
 import { classifyPage } from "./fetch/list-detail";
 import { type DetailQueue, enqueueDetailJobs } from "./queue/detail-queue";
@@ -99,26 +104,51 @@ export interface IngestDeps {
 // 取得失敗の種別。上流取得の失敗（502 相当）として呼び出し側へ返す。
 export type FetchErrorReason = "http" | "timeout" | "network";
 
+// 認証下取得の失敗種別（#187）。auth は 401/403、invalid-credential は Cookie 構文不正、
+// redirect は安全に追従できない redirect。fetchAuthedHtml の分類（AuthFetchErrorKind）を再利用する。
+export type AuthErrorReason = AuthFetchErrorKind;
+
 // URL 投入の結果。詳細は取込済み jobId、一覧はキュー投入件数、取得失敗は理由を返す。
+// 認証下取得（cookie 指定）固有の失敗は auth-error として分けて返す（#187）。
 export type IngestUrlResult =
 	| { kind: "detail"; jobId: string; status: ExtractionStatus }
 	| { kind: "list"; count: number }
-	| { kind: "fetch-error"; reason: FetchErrorReason };
+	| { kind: "fetch-error"; reason: FetchErrorReason }
+	| { kind: "auth-error"; reason: AuthErrorReason };
+
+// URL 投入の追加オプション（#187）。cookie はリクエスト単位の秘匿値のため IngestDeps ではなく
+// 引数で渡す。非空のときだけ認証下取得（fetchAuthedHtml）へ分岐する。
+export interface IngestUrlOptions {
+	cookie?: string;
+}
 
 // 取得 → 一覧なら detailUrls をキュー投入 / 詳細なら取込（永続化）。取得失敗は理由つきで返す。
 // HTML は一切組み立てない（JSON 契約・#95）。想定外の例外（抽出層など）は握り潰さず再 throw する。
 export async function ingestFromUrl(
 	deps: IngestDeps,
 	url: string,
+	options: IngestUrlOptions = {},
 ): Promise<IngestUrlResult> {
+	// cookie が非空なら認証下取得へ分岐する。Cookie は取得ヘッダにのみ使い保持しない（§8・#75）。
+	const cookie = options.cookie;
+	const useAuthed = typeof cookie === "string" && cookie !== "";
 	let html: string;
 	try {
-		const result = await fetchHtml(url, {
-			fetcher: deps.fetcher,
-			timeoutMs: deps.timeoutMs,
-		});
+		const result = useAuthed
+			? await fetchAuthedHtml(url, cookie, {
+					fetcher: deps.fetcher,
+					timeoutMs: deps.timeoutMs,
+				})
+			: await fetchHtml(url, {
+					fetcher: deps.fetcher,
+					timeoutMs: deps.timeoutMs,
+				});
 		html = result.html;
 	} catch (cause) {
+		// AuthFetchError を先に判定する（fetchAuthedHtml は network/timeout を FetchHtmlError のまま透過）。
+		if (cause instanceof AuthFetchError) {
+			return { kind: "auth-error", reason: cause.kind };
+		}
 		if (cause instanceof FetchHtmlError) {
 			return { kind: "fetch-error", reason: cause.kind };
 		}

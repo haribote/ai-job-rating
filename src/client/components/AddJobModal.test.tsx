@@ -54,6 +54,28 @@ describe("validateSubmission（投入入力の検証）", () => {
 			reason: "too-large",
 		});
 	});
+
+	// 認証下ページ取得用の Cookie（#187）。URL タブでのみ有効・任意。
+	it("URL タブ: cookie 非空はボディに cookie を含める", () => {
+		expect(
+			validateSubmission("url", "https://example.com/job-1", "", "session=abc"),
+		).toEqual({
+			ok: true,
+			body: { url: "https://example.com/job-1", cookie: "session=abc" },
+		});
+	});
+
+	it("URL タブ: cookie 空・空白はボディに含めない（空文字は送らない）", () => {
+		expect(
+			validateSubmission("url", "https://example.com/job-1", "", "   "),
+		).toEqual({ ok: true, body: { url: "https://example.com/job-1" } });
+	});
+
+	it("HTML タブ: cookie は無視される（html ボディのみ）", () => {
+		expect(
+			validateSubmission("html", "", "<html>x</html>", "session=abc"),
+		).toEqual({ ok: true, body: { html: "<html>x</html>" } });
+	});
 });
 
 describe("AddJobModal（求人投入モーダル）", () => {
@@ -140,6 +162,62 @@ describe("AddJobModal（求人投入モーダル）", () => {
 
 		expect(screen.getByRole("alert")).toBeInTheDocument();
 		expect(submit).not.toHaveBeenCalled();
+	});
+
+	it("Cookie 欄は URL タブのみ表示し HTML タブでは隠す（#187）", () => {
+		render(<AddJobModal open={true} onOpenChange={() => {}} />);
+
+		expect(screen.getByTestId("add-job-cookie-input")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByTestId("add-job-tab-html"));
+		expect(
+			screen.queryByTestId("add-job-cookie-input"),
+		).not.toBeInTheDocument();
+	});
+
+	it("Cookie を入力して送信すると {url, cookie} で submit する（#187）", async () => {
+		const submit = vi.fn(async () => ({
+			jobId: "job-1",
+			status: "ok" as const,
+		}));
+		render(<AddJobModal open={true} onOpenChange={() => {}} submit={submit} />);
+
+		fireEvent.change(screen.getByTestId("add-job-url-input"), {
+			target: { value: "https://example.com/job-1" },
+		});
+		fireEvent.change(screen.getByTestId("add-job-cookie-input"), {
+			target: { value: "session=abc" },
+		});
+		fireEvent.click(screen.getByTestId("add-job-submit"));
+
+		await vi.waitFor(() =>
+			expect(submit).toHaveBeenCalledWith({
+				url: "https://example.com/job-1",
+				cookie: "session=abc",
+			}),
+		);
+	});
+
+	it.each([
+		["invalid-credential", "Cookie の形式が正しくありません。"],
+		["auth", "認証に失敗しました。Cookie を確認してください。"],
+		["redirect", "別サイトへのリダイレクトを検出したため中断しました。"],
+	])("認証系エラー reason=%s を分類表示する（#187）", async (reason, message) => {
+		const submit = vi.fn(async () => {
+			throw new ApiRequestError(
+				reason === "invalid-credential" ? 400 : 502,
+				"e",
+				reason,
+			);
+		});
+		render(<AddJobModal open={true} onOpenChange={() => {}} submit={submit} />);
+
+		fireEvent.change(screen.getByTestId("add-job-url-input"), {
+			target: { value: "https://example.com/job-1" },
+		});
+		fireEvent.click(screen.getByTestId("add-job-submit"));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(message);
 	});
 
 	it("API エラー時はメッセージを出しモーダルを閉じない", async () => {

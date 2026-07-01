@@ -16,6 +16,7 @@ import {
 	evaluateModels,
 } from "./extract/model-eval";
 import {
+	type AuthErrorReason,
 	type IngestUrlResult,
 	ingestFromHtml,
 	ingestFromUrl,
@@ -105,6 +106,12 @@ app.use("*", createAuthMiddleware());
 // 取得失敗の種別 → HTTP ステータス。上流取得の失敗は 502（Bad Gateway）へ集約する。
 const FETCH_ERROR_STATUS = 502;
 
+// 認証下取得（Cookie 投入）の失敗種別 → HTTP ステータス（#187）。Cookie 構文不正はユーザー入力起因の
+// 400、認証失敗・リダイレクト拒否は上流取得の失敗として 502 へ集約する（既存 fetch-error に倣う）。
+export function authErrorStatus(reason: AuthErrorReason): 400 | 502 {
+	return reason === "invalid-credential" ? 400 : FETCH_ERROR_STATUS;
+}
+
 // 死活監視の契約。固定形式を返し、ユニットテストで担保する。
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 
@@ -118,7 +125,7 @@ app.get("/api/ai-health", async (c) => {
 // detail/paste は取込→永続化して 201 { jobId, status }、一覧 URL はキュー投入して 202 { status, count }。
 // 検証失敗は 400、上流取得失敗は 502。AI を呼ぶ前に空入力・不正 URL・サイズ超過を弾く（コスト保護）。
 app.post("/api/jobs", async (c) => {
-	let body: { url?: unknown; html?: unknown };
+	let body: { url?: unknown; html?: unknown; cookie?: unknown };
 	try {
 		body = await c.req.json();
 	} catch {
@@ -140,6 +147,9 @@ app.post("/api/jobs", async (c) => {
 		if (!validated.ok) {
 			return c.json({ error: "invalid url", reason: validated.reason }, 400);
 		}
+		// cookie は URL 投入時のみ有効・任意（認証下ページ取得用・#187）。取得ヘッダにのみ使い、
+		// レスポンス・ログ・永続化のいずれにも残さない（fetchAuthedHtml の最小保持設計・§8）。
+		const cookie = typeof body.cookie === "string" ? body.cookie : undefined;
 		const result: IngestUrlResult = await ingestFromUrl(
 			{
 				ai: c.env.AI,
@@ -149,11 +159,18 @@ app.post("/api/jobs", async (c) => {
 				model: c.env.EXTRACTION_MODEL,
 			},
 			validated.url,
+			{ cookie },
 		);
 		if (result.kind === "fetch-error") {
 			return c.json(
 				{ error: "failed to fetch url", reason: result.reason },
 				FETCH_ERROR_STATUS,
+			);
+		}
+		if (result.kind === "auth-error") {
+			return c.json(
+				{ error: "failed to fetch authed url", reason: result.reason },
+				authErrorStatus(result.reason),
 			);
 		}
 		if (result.kind === "list") {

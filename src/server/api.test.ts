@@ -5,7 +5,7 @@ import {
 	type NormalizedFieldValue,
 	type NormalizedJob,
 } from "../shared/job-schema";
-import app from "./app";
+import app, { authErrorStatus } from "./app";
 import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./storage/db-schema";
 
 // 全キー unknown の最小求人を作り、必要キーだけ実値で上書きする。
@@ -124,6 +124,28 @@ describe("POST /api/jobs（入力検証）", () => {
 		const res = await postJobs({ html: "a".repeat(2 * 1024 * 1024 + 1) });
 		expect(res.status).toBe(413);
 		await expect(res.json()).resolves.toMatchObject({ reason: "too-large" });
+	});
+});
+
+// 認証下ページの取得を投入フローへ配線する（Cookie 入力導線・#187）。
+describe("POST /api/jobs（Cookie 認証下取得・#187）", () => {
+	it("authErrorStatus: invalid-credential は 400、auth/redirect は 502", () => {
+		expect(authErrorStatus("invalid-credential")).toBe(400);
+		expect(authErrorStatus("auth")).toBe(502);
+		expect(authErrorStatus("redirect")).toBe(502);
+	});
+
+	it("構文不正な Cookie は 400(invalid-credential) を返し Cookie を漏らさない", async () => {
+		// 制御文字入り Cookie は fetchAuthedHtml が fetch 前に弾く（ネットワーク非依存で決定的）。
+		const res = await postJobs({
+			url: "https://example.com/jobs/1",
+			cookie: "leaky_secret\x00value",
+		});
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json).toMatchObject({ reason: "invalid-credential" });
+		// Cookie 生値がレスポンスに一切残らないこと（最小保持・§8）。
+		expect(JSON.stringify(json)).not.toContain("leaky_secret");
 	});
 });
 
