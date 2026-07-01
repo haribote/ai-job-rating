@@ -37,7 +37,19 @@ export interface SmokeArgs {
 	readonly companyId: string | null;
 	readonly coreOnly: boolean;
 	readonly timeoutMs: number;
+	// #183 サイトアクセス制限（Basic 認証）用 credential。両方揃うときだけドライバが Authorization を付与する。
+	readonly authUser: string | null;
+	readonly authPass: string | null;
 	readonly errors: readonly string[];
+}
+
+// Basic 認証ヘッダを組む（#183）。片方でも欠ければ null＝認証なし（本番の fail-open 構成と両対応）。
+export function buildBasicAuthHeader(
+	user: string | null,
+	pass: string | null,
+): string | null {
+	if (!user || !pass) return null;
+	return `Basic ${btoa(`${user}:${pass}`)}`;
 }
 
 // 最小合成求人 HTML。AI 抽出へ十分な信号を与えつつマーカーで残置ジョブを識別可能にする。
@@ -222,6 +234,8 @@ export function parseSmokeArgs(argv: readonly string[]): SmokeArgs {
 	let companyId: string | null = null;
 	let coreOnly = false;
 	let timeoutMs = DEFAULT_SMOKE_TIMEOUT_MS;
+	let authUser: string | null = null;
+	let authPass: string | null = null;
 	const errors: string[] = [];
 
 	// オプションの値を 1 つ消費する。値が無い/次がフラグ（--）なら消費せず errors へ
@@ -261,6 +275,12 @@ export function parseSmokeArgs(argv: readonly string[]): SmokeArgs {
 				}
 				break;
 			}
+			case "--auth-user":
+				authUser = takeValue("--auth-user");
+				break;
+			case "--auth-pass":
+				authPass = takeValue("--auth-pass");
+				break;
 			case "--core-only":
 				coreOnly = true;
 				break;
@@ -275,7 +295,16 @@ export function parseSmokeArgs(argv: readonly string[]): SmokeArgs {
 		baseUrl = baseUrl.replace(/\/+$/, "");
 	}
 
-	return { baseUrl, spaUrl, companyId, coreOnly, timeoutMs, errors };
+	return {
+		baseUrl,
+		spaUrl,
+		companyId,
+		coreOnly,
+		timeoutMs,
+		authUser,
+		authPass,
+		errors,
+	};
 }
 
 // PASS/FAIL/SKIP を理由付きで整形する。末尾に合否サマリを付す。

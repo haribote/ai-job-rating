@@ -13,6 +13,8 @@
 //
 // 実行:
 //   npm run smoke -- --base-url https://<deployed> [--spa-url <SPA求人URL>] [--company-id <id>] [--core-only]
+// サイトアクセス制限（#183）有効時は Basic 認証 credential を渡す（env SMOKE_AUTH_USER/PASS でも可）:
+//   npm run smoke -- --base-url https://<deployed> --auth-user <user> --auth-pass <pass>
 //
 // 段階化＋既定フル: health→ai-health→最小抽出→(reputation D1)→(Claude 評判)→(BR dynamic import) を試行。
 // 前提（キー/URL/id）が欠ける項目は理由付き SKIP、fail が 1 つでもあれば非ゼロ終了。
@@ -25,6 +27,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 
 const {
+	buildBasicAuthHeader,
 	buildSmokeHtml,
 	decideExitCode,
 	formatSmokeReport,
@@ -48,15 +51,25 @@ if (args.errors.length > 0) {
 	process.exit(2);
 }
 
+// #183 サイトアクセス制限（Basic 認証）。引数優先、無ければ env（SMOKE_AUTH_USER/PASS）を使う。
+// 両方揃うときだけ Authorization を付与する（本番が fail-open で無認証なら付けない）。
+const authHeader = buildBasicAuthHeader(
+	args.authUser ?? process.env.SMOKE_AUTH_USER ?? null,
+	args.authPass ?? process.env.SMOKE_AUTH_PASS ?? null,
+);
+
 // timeout 付き fetch。timeout 欠落での無限待ちを避ける（過去バグ対策）。
 // 接続失敗・timeout は { status: 0, body } に畳み込み、解釈側が fail 判定できるようにする。
 async function request(method, path, jsonBody) {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
+		const headers = {};
+		if (jsonBody) headers["content-type"] = "application/json";
+		if (authHeader) headers.authorization = authHeader;
 		const res = await fetch(`${args.baseUrl}${path}`, {
 			method,
-			headers: jsonBody ? { "content-type": "application/json" } : undefined,
+			headers: Object.keys(headers).length > 0 ? headers : undefined,
 			body: jsonBody ? JSON.stringify(jsonBody) : undefined,
 			signal: controller.signal,
 		});

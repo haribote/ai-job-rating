@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createAuthMiddleware } from "./auth";
 import { resolveCorporateNumberClient } from "./companies/corporate-number-client";
 import {
 	type CriteriaConfigInput,
@@ -86,12 +87,20 @@ export interface Bindings {
 	HOUJIN_BANGOU_APP_ID?: string;
 	// 法人番号 Web-API のエンドポイント base（非秘匿・wrangler.jsonc vars）。未設定はコード既定へフォールバック。
 	HOUJIN_BANGOU_API_BASE?: string;
+	// サイトアクセス制限（Basic 認証・#183）の秘匿 credential。実値は wrangler secret / .dev.vars で注入する。
+	// 両方揃うときのみ認証を有効化し、欠けたら fail-open（dev/e2e は素通り）＋警告する（createAuthMiddleware）。
+	AUTH_USER?: string;
+	AUTH_PASS?: string;
 }
 
 // アプリ本体を index.ts から切り出し、Hono の app.request() で単体テスト可能にする（責務分離）。
 // SSR HTML を撤去し、すべて /api/* の JSON エンドポイントへ再編した（#95 Task 2）。
 // HTML を返す経路は静的資産フォールスルー（c.env.ASSETS）のみで、API は JSON 契約に固定する。
 const app = new Hono<{ Bindings: Bindings }>();
+
+// サイトアクセス制限（#183）。全ルート登録より前に置き、SPA(HTML)・/api/* を一括で Basic 認証保護する。
+// AUTH_USER/AUTH_PASS 未設定なら素通り（fail-open）なので dev/e2e は従来どおり通る。
+app.use("*", createAuthMiddleware());
 
 // 取得失敗の種別 → HTTP ステータス。上流取得の失敗は 502（Bad Gateway）へ集約する。
 const FETCH_ERROR_STATUS = 502;

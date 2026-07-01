@@ -38,4 +38,25 @@ describe("app", () => {
 		expect(res.status).toBe(200);
 		await expect(res.text()).resolves.toBe("spa-shell");
 	});
+
+	// #183 サイトアクセス制限。middleware の分岐は auth.test.ts で網羅し、ここでは app へ配線されて
+	// 全ルート（health 含む）が保護されることのみ統合確認する。既定 env は AUTH 系が無く fail-open。
+	it("AUTH_USER/AUTH_PASS 設定時は /api/health も credential 無しで 401", async () => {
+		const res = await app.request(
+			"/api/health",
+			{},
+			{ ...env, AUTH_USER: "owner", AUTH_PASS: "s3cret" },
+		);
+		expect(res.status).toBe(401);
+	});
+
+	it("AUTH_USER/AUTH_PASS 設定時は正しい credential で通過する", async () => {
+		const res = await app.request(
+			"/api/health",
+			{ headers: { authorization: `Basic ${btoa("owner:s3cret")}` } },
+			{ ...env, AUTH_USER: "owner", AUTH_PASS: "s3cret" },
+		);
+		expect(res.status).toBe(200);
+		await expect(res.json()).resolves.toEqual({ status: "ok" });
+	});
 });

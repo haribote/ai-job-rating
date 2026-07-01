@@ -7,3 +7,10 @@
 # 無料・要利用登録。未設定なら法人番号での一意化はスキップし企業名のみで名寄せする（中立）。
 # 発行: https://www.houjin-bangou.nta.go.jp/webapi/
 # HOUJIN_BANGOU_APP_ID=""
+
+# サイトアクセス制限（Basic 認証・#183）。オーナー限定で SPA・/api/* を保護する。
+# 両方設定すると認証が有効になり、未設定なら無認証で公開する（fail-open・開発/e2e 用）。本番は wrangler secret で注入する:
+#   wrangler secret put AUTH_USER
+#   wrangler secret put AUTH_PASS
+# AUTH_USER=""
+# AUTH_PASS=""
