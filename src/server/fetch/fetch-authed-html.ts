@@ -123,7 +123,10 @@ function parsePairsFromString(raw: string): CookiePairsResult {
 		}
 		const name = part.slice(0, eq);
 		const value = part.slice(eq + 1);
-		if (!COOKIE_NAME_RE.test(name) || !COOKIE_VALUE_RE.test(value)) {
+		// name は token 必須。value は fetch 経路（buildFromString）に合わせ寛容にする（制御文字は
+		// 冒頭で除去済み）。COOKIE_VALUE_RE で厳格化すると引用符付き値などを弾き、fetch で認証成功した
+		// Cookie が BR で invalid-credential になる非対称を生む（#189 レビュー指摘）。
+		if (!COOKIE_NAME_RE.test(name)) {
 			return { ok: false, reason: "invalid" };
 		}
 		pairs.push({ name, value });

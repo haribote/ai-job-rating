@@ -42,10 +42,16 @@ export class RenderHtmlError extends Error {
 
 // puppeteer ページの最小サブセット。テストが fake を注入できるよう必要な操作だけに絞る。
 export interface RenderedPage {
-	// 認証下 SPA 用に Cookie を投入する。url を渡してブラウザにドメインを推論させ、
-	// cookie jar がドメイン一致時のみ送信する＝クロスオリジン redirect/サブリソースへ再送しない（#75）。
+	// 認証下 SPA 用に Cookie を投入する。url でドメインを推論させ cookie jar のドメイン一致時のみ
+	// 送信＝クロスオリジンへ再送しない（#75）。path="/" でホスト全体に効かせる（既定は URL の
+	// default-path に絞られ別パスの XHR に届かず未ログイン化する）。
 	setCookie(
-		...cookies: Array<{ name: string; value: string; url: string }>
+		...cookies: Array<{
+			name: string;
+			value: string;
+			url: string;
+			path: string;
+		}>
 	): Promise<unknown>;
 	goto(
 		url: string,
@@ -135,7 +141,12 @@ export async function renderHtml(
 		// 送信するため、クロスオリジン redirect/サブリソースへは自動的に再送されない（#75）。
 		if (options.cookie !== undefined && options.cookie.length > 0) {
 			await page.setCookie(
-				...options.cookie.map((c) => ({ name: c.name, value: c.value, url })),
+				...options.cookie.map((c) => ({
+					name: c.name,
+					value: c.value,
+					url,
+					path: "/",
+				})),
 			);
 		}
 		await page.goto(url, { waitUntil: WAIT_UNTIL, timeout: timeoutMs });

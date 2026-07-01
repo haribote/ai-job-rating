@@ -155,8 +155,17 @@ describe("parseCookiePairs", () => {
 		});
 	});
 
-	// 制御文字・不正な value は拒否する（注入・漏洩経路の遮断）
-	it("制御文字や不正な value を含む入力は reason=invalid で弾く", () => {
+	// fetch 経路（buildFromString）が通す値は BR 経路でも通す（非対称で auth 成功 Cookie を弾かない）。
+	// 引用符付き値など COOKIE_VALUE_RE 外でも、制御文字が無ければ受理して setCookie へ渡す。
+	it("引用符付きなど非 token な value も制御文字が無ければ受理する", () => {
+		expect(parseCookiePairs('session="abc 123"')).toEqual({
+			ok: true,
+			pairs: [{ name: "session", value: '"abc 123"' }],
+		});
+	});
+
+	// 制御文字は拒否する（注入・漏洩経路の遮断）。value 構文は fetch 経路に合わせ寛容にする。
+	it("制御文字を含む入力は reason=invalid で弾く", () => {
 		expect(parseCookiePairs("session=abc123\r\nX-Evil: 1")).toEqual({
 			ok: false,
 			reason: "invalid",

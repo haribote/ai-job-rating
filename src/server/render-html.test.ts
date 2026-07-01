@@ -168,10 +168,11 @@ describe("renderHtml", () => {
 
 		const setCookie = page.setCookie as ReturnType<typeof vi.fn>;
 		expect(setCookie).toHaveBeenCalledTimes(1);
-		// 各 cookie は url=対象URL で投入し、ブラウザにホスト限定させる
+		// 各 cookie は url=対象URL・path="/" で投入する。path を明示しないと CDP が URL の
+		// default-path（/jobs → 親ディレクトリ）へ絞り、別パスの XHR に届かず未ログイン化する。
 		expect(setCookie.mock.calls[0]).toEqual([
-			{ name: "session", value: "abc123", url: TARGET },
-			{ name: "theme", value: "dark", url: TARGET },
+			{ name: "session", value: "abc123", url: TARGET, path: "/" },
+			{ name: "theme", value: "dark", url: TARGET, path: "/" },
 		]);
 		// goto より前に呼ぶ（描画前に cookie を効かせる）
 		const goto = page.goto as ReturnType<typeof vi.fn>;

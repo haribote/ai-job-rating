@@ -298,7 +298,12 @@ describe("ingestFromUrl（認証下 SPA・BR への Cookie 適用・#189）", ()
 
 		expect(result.kind).toBe("detail");
 		expect(setCookieArgs).toEqual([
-			{ name: "session", value: "abc123", url: "https://example.com/jobs/1" },
+			{
+				name: "session",
+				value: "abc123",
+				url: "https://example.com/jobs/1",
+				path: "/",
+			},
 		]);
 	});
 
