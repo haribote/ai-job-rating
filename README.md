@@ -67,6 +67,31 @@ npm run deploy
 
 **Workers AI** と **Browser Rendering** はアカウント側で有効化が必要な場合があります。
 
+### 6. デプロイ後の live スモーク
+
+unit test / dry-run では検出できない runtime-only バグ（dynamic import の未バンドル → `No such module`、binding 未解決、compat date 既定超過など）を deploy 直後に検出します。デプロイ済み URL に対して実行します。
+
+```sh
+# コア（health / ai-health / 最小抽出＝AI+D1+R2）だけ検証
+npm run smoke -- --base-url https://<deployed> --core-only
+
+# フル: 上記に加え reputation D1・Claude web_search・Browser Rendering の dynamic import まで検証
+#   評判検索は課金。事前に `wrangler secret put ANTHROPIC_API_KEY` と対象 company の id が必要
+#   （company 発見 API は無いため id は D1 から引く）。--spa-url は JS 描画が必要な既知の求人 URL。
+npm run smoke -- --base-url https://<deployed> \
+  --company-id <companies.id> --spa-url https://<SPA求人URL>
+```
+
+各チェックは **PASS / FAIL / SKIP** で表示されます。FAIL が 1 つでもあれば非ゼロ終了します。前提（`ANTHROPIC_API_KEY` / `--company-id` / `--spa-url`）が欠ける項目は理由付きで **SKIP**（未検証）になります。
+
+スモークは本番 D1 にジョブを残します（`DELETE /api/jobs` は無いため。最小抽出で 1 件、`--spa-url` 指定のフル実行では BR チェック分を加えて最大 2 件）。実行末尾に残置ジョブ全件を消す `DELETE ... WHERE id IN (...)` が出力されるので、それをそのまま実行して削除できます（`extractions` / `scores` は `ON DELETE CASCADE`）:
+
+```sh
+# スモーク出力の cleanup 行をそのまま実行（下記は 1 件の例）
+npx wrangler d1 execute ai-job-rating --remote \
+  --command "DELETE FROM jobs WHERE id IN ('<スモークが出力した jobId>')"
+```
+
 ## 使い方
 
 | 動線 | 内容 |
