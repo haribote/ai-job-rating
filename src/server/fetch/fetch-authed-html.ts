@@ -95,6 +95,66 @@ export function buildCookieHeader(input: CookieInput): CookieHeaderResult {
 		: buildFromPairs(input);
 }
 
+// name/value ペア分解の決定的結果。invalid は構文不正、empty は実質空入力。
+export type CookiePairsResult =
+	| { ok: true; pairs: CookiePair[] }
+	| { ok: false; reason: "empty" | "invalid" };
+
+// 生 Cookie 文字列を name/value ペアへ分解する。";" で分割し各要素を最初の "=" で割る。
+// 制御文字は注入・漏洩経路になるため取得前に弾く（buildFromString と同方針）。
+function parsePairsFromString(raw: string): CookiePairsResult {
+	const trimmed = raw.trim();
+	if (trimmed === "") {
+		return { ok: false, reason: "empty" };
+	}
+	if (CONTROL_CHAR_RE.test(trimmed)) {
+		return { ok: false, reason: "invalid" };
+	}
+	const pairs: CookiePair[] = [];
+	for (const segment of trimmed.split(";")) {
+		const part = segment.trim();
+		if (part === "") {
+			continue;
+		}
+		const eq = part.indexOf("=");
+		if (eq <= 0) {
+			// "=" 無し・空 name（"=value"）は分解不能。
+			return { ok: false, reason: "invalid" };
+		}
+		const name = part.slice(0, eq);
+		const value = part.slice(eq + 1);
+		if (!COOKIE_NAME_RE.test(name) || !COOKIE_VALUE_RE.test(value)) {
+			return { ok: false, reason: "invalid" };
+		}
+		pairs.push({ name, value });
+	}
+	if (pairs.length === 0) {
+		return { ok: false, reason: "empty" };
+	}
+	return { ok: true, pairs };
+}
+
+// ペア配列を RFC6265 構文で検証してそのまま返す（buildFromPairs と同じ検証）。
+function parsePairsFromArray(input: CookiePair[]): CookiePairsResult {
+	if (input.length === 0) {
+		return { ok: false, reason: "empty" };
+	}
+	for (const { name, value } of input) {
+		if (!COOKIE_NAME_RE.test(name) || !COOKIE_VALUE_RE.test(value)) {
+			return { ok: false, reason: "invalid" };
+		}
+	}
+	return { ok: true, pairs: input.map(({ name, value }) => ({ name, value })) };
+}
+
+// Cookie 入力を name/value ペアへ決定的に分解する（BR の page.setCookie 用）。
+// buildCookieHeader と同じ RFC6265 検証を用い、失敗時は理由だけ返す（生値を戻り値に載せない・最小保持）。
+export function parseCookiePairs(input: CookieInput): CookiePairsResult {
+	return typeof input === "string"
+		? parsePairsFromString(input)
+		: parsePairsFromArray(input);
+}
+
 // 401/403 を認証失敗とみなす。Cookie 失効・権限不足の代表的ステータス。
 const AUTH_FAILURE_STATUSES = new Set([401, 403]);
 

@@ -1,5 +1,7 @@
+import { inspect } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { RenderHtmlError, type RenderHtmlResult } from "../render-html";
+import { AuthFetchError } from "./fetch-authed-html";
 import { FetchHtmlError, type FetchHtmlResult } from "./fetch-html";
 import {
 	type FetchHtmlFn,
@@ -257,5 +259,91 @@ describe("fetchWithStrategy", () => {
 		});
 		expect(result.source).toBe("render");
 		expect(renderHtmlFn).toHaveBeenCalledTimes(2);
+	});
+
+	// 認証下取得: cookie 非空なら fetch 経路を authed fetch に切り替える（BR 不要な SSR）
+	it("cookie 非空なら authed fetch 経路を使い fetchHtml を呼ばない", async () => {
+		const fetchHtmlFn = okFetch(SSR_HTML);
+		const fetchAuthedHtmlFn = vi.fn(
+			async (url: string): Promise<FetchHtmlResult> => ({
+				url,
+				status: 200,
+				html: SSR_HTML,
+			}),
+		);
+		const result = await fetchWithStrategy(URL, {
+			browser: {},
+			cookie: "session=abc123",
+			fetchHtmlFn,
+			fetchAuthedHtmlFn,
+			renderHtmlFn: okRender("<rendered/>"),
+		});
+		expect(result.source).toBe("fetch");
+		expect(fetchAuthedHtmlFn).toHaveBeenCalledTimes(1);
+		expect(fetchHtmlFn).not.toHaveBeenCalled();
+	});
+
+	// 認証下 SPA: BR フォールバック時に cookie pairs を render options へ渡す
+	it("cookie 非空 + SPA は render に cookie pairs を渡す", async () => {
+		const fetchAuthedHtmlFn = vi.fn(
+			async (url: string): Promise<FetchHtmlResult> => ({
+				url,
+				status: 200,
+				html: SPA_SHELL_HTML,
+			}),
+		);
+		const renderHtmlFn = okRender("<html><body>rendered authed</body></html>");
+		const result = await fetchWithStrategy(URL, {
+			browser: {},
+			cookie: "session=abc123; theme=dark",
+			fetchAuthedHtmlFn,
+			renderHtmlFn,
+		});
+		expect(result.source).toBe("render");
+		// render は (binding, url, options) で呼ばれ、options.cookie に分解済み pairs が入る
+		const [, , renderOptions] = (renderHtmlFn as ReturnType<typeof vi.fn>).mock
+			.calls[0];
+		expect(renderOptions?.cookie).toEqual([
+			{ name: "session", value: "abc123" },
+			{ name: "theme", value: "dark" },
+		]);
+	});
+
+	// 不正 cookie + SPA は BR へ渡す前に invalid-credential で弾き、生値を漏らさない
+	it("不正 cookie + SPA は AuthFetchError(invalid-credential) を投げ生値を漏らさない", async () => {
+		const fetchAuthedHtmlFn = vi.fn(
+			async (url: string): Promise<FetchHtmlResult> => ({
+				url,
+				status: 200,
+				html: SPA_SHELL_HTML,
+			}),
+		);
+		const renderHtmlFn = okRender("<rendered/>");
+		const SECRET = "leak-me";
+		const error = await fetchWithStrategy(URL, {
+			browser: {},
+			cookie: `session=${SECRET}\x00`,
+			fetchAuthedHtmlFn,
+			renderHtmlFn,
+		}).catch((e) => e);
+		expect(error).toBeInstanceOf(AuthFetchError);
+		expect(error.kind).toBe("invalid-credential");
+		// BR には渡さない
+		expect(renderHtmlFn).not.toHaveBeenCalled();
+		expect(inspect(error, { depth: 10 })).not.toContain(SECRET);
+	});
+
+	// cookie 未指定は従来経路（fetchHtml）で完全後方互換
+	it("cookie 未指定は fetchHtml 経路（後方互換）", async () => {
+		const fetchHtmlFn = okFetch(SSR_HTML);
+		const fetchAuthedHtmlFn = vi.fn();
+		const result = await fetchWithStrategy(URL, {
+			browser: {},
+			fetchHtmlFn,
+			fetchAuthedHtmlFn,
+		});
+		expect(result.source).toBe("fetch");
+		expect(fetchHtmlFn).toHaveBeenCalledTimes(1);
+		expect(fetchAuthedHtmlFn).not.toHaveBeenCalled();
 	});
 });

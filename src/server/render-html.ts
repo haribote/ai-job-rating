@@ -4,6 +4,8 @@
 // 本文トリミング（trim-html）や構造化抽出（extract）はこの層に持ち込まない。
 // ブラウザ起動は DI（BrowserLauncher 注入）して実ブラウザなしでユニットテスト可能にする。
 
+import type { CookiePair } from "./fetch/fetch-authed-html";
+
 // 取得結果。成功時はレンダリング後の HTML を返す。
 // 静的取得（FetchHtmlResult）と同形にし、後続層（trim/抽出・#26 のエラー導線）が両経路を同じく扱える。
 export interface RenderHtmlResult {
@@ -40,6 +42,11 @@ export class RenderHtmlError extends Error {
 
 // puppeteer ページの最小サブセット。テストが fake を注入できるよう必要な操作だけに絞る。
 export interface RenderedPage {
+	// 認証下 SPA 用に Cookie を投入する。url を渡してブラウザにドメインを推論させ、
+	// cookie jar がドメイン一致時のみ送信する＝クロスオリジン redirect/サブリソースへ再送しない（#75）。
+	setCookie(
+		...cookies: Array<{ name: string; value: string; url: string }>
+	): Promise<unknown>;
 	goto(
 		url: string,
 		options?: { waitUntil?: string; timeout?: number },
@@ -63,6 +70,9 @@ export interface RenderHtmlOptions {
 	timeoutMs?: number;
 	// テスト用にブラウザ起動を差し替える。未指定時は @cloudflare/puppeteer を遅延 import する。
 	launch?: BrowserLauncher;
+	// 認証下 SPA 用の Cookie（name/value ペア）。指定時のみ goto 前に url 限定で setCookie する。
+	// 生値は setCookie にのみ使い、結果・例外・ログへ残さない（最小保持・§8）。
+	cookie?: CookiePair[];
 }
 
 // 既定タイムアウト。SPA レンダリングが長時間ぶら下がるのを防ぐ。
@@ -121,6 +131,13 @@ export async function renderHtml(
 
 	try {
 		const page = await browser.newPage();
+		// Cookie は goto の前に url 限定で投入する。ブラウザの cookie jar がドメイン一致時のみ
+		// 送信するため、クロスオリジン redirect/サブリソースへは自動的に再送されない（#75）。
+		if (options.cookie !== undefined && options.cookie.length > 0) {
+			await page.setCookie(
+				...options.cookie.map((c) => ({ name: c.name, value: c.value, url })),
+			);
+		}
 		await page.goto(url, { waitUntil: WAIT_UNTIL, timeout: timeoutMs });
 		const html = await page.content();
 		return { url, status: 200, html };

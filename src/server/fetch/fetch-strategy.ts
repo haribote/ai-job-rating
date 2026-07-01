@@ -17,6 +17,14 @@ import {
 	renderHtml,
 } from "../render-html";
 import {
+	AuthFetchError,
+	type CookieInput,
+	type CookiePair,
+	type FetchAuthedHtmlOptions,
+	fetchAuthedHtml,
+	parseCookiePairs,
+} from "./fetch-authed-html";
+import {
 	FetchHtmlError,
 	type FetchHtmlOptions,
 	type FetchHtmlResult,
@@ -33,6 +41,12 @@ export type RenderHtmlFn = (
 	url: string,
 	options?: RenderHtmlOptions,
 ) => Promise<RenderHtmlResult>;
+// 認証下取得の DI シグネチャ。cookie 非空時に fetch 経路をこれへ切り替える。
+export type FetchAuthedHtmlFn = (
+	url: string,
+	cookie: CookieInput,
+	options?: FetchAuthedHtmlOptions,
+) => Promise<FetchHtmlResult>;
 
 // どの経路で取得したか。後段（取込・抽出）はこれを区別する必要はないが、観測・テスト用に保持する。
 export type FetchSource = "fetch" | "render";
@@ -113,6 +127,9 @@ export interface FetchStrategyOptions {
 	// BR バインディング（env.BROWSER）。未指定なら SPA を検出しても BR せず fetch 結果を返す
 	// （フォーク容易性・テスト容易性: binding 無しでも取得戦略が成立する）。
 	browser?: unknown;
+	// 認証下取得の Cookie（生文字列 or name/value ペア）。非空なら fetch 経路を authed fetch に
+	// 切り替え、BR フォールバック時は分解した pairs を renderHtml へ渡す（#189）。
+	cookie?: CookieInput;
 	// fetch 層へ渡すオプション（fetcher 注入・timeout・headers・redirect 等）。
 	fetch?: FetchHtmlOptions;
 	// BR 層へ渡すオプション（launch 注入・timeout）。
@@ -125,9 +142,10 @@ export interface FetchStrategyOptions {
 	baseDelayMs?: number;
 	// 待機関数。レート/バックオフの待ちに使う。テストでは注入して決定的にする。
 	sleep?: SleepFn;
-	// テスト用の取得経路差し替え。未指定は実体（fetchHtml / renderHtml）。
+	// テスト用の取得経路差し替え。未指定は実体（fetchHtml / renderHtml / fetchAuthedHtml）。
 	fetchHtmlFn?: FetchHtmlFn;
 	renderHtmlFn?: RenderHtmlFn;
+	fetchAuthedHtmlFn?: FetchAuthedHtmlFn;
 }
 
 // fetch 優先 → 安価な SPA 検出 → 必要時のみ BR、という取得戦略を 1 回の取得として実行する。
@@ -140,17 +158,34 @@ export async function fetchWithStrategy(
 ): Promise<FetchStrategyResult> {
 	const fetchFn = options.fetchHtmlFn ?? fetchHtml;
 	const renderFn = options.renderHtmlFn ?? renderHtml;
+	const authedFetchFn = options.fetchAuthedHtmlFn ?? fetchAuthedHtml;
 	const retries = options.retries ?? DEFAULT_RETRIES;
 	const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
 	const sleep = options.sleep;
 
+	// cookie が非空なら認証下取得へ分岐する（fetch 経路は authed、BR 経路は pairs を setCookie）。
+	const cookie = options.cookie;
+	const useAuthed =
+		cookie !== undefined &&
+		(typeof cookie === "string" ? cookie !== "" : cookie.length > 0);
+
 	// 1) SSR fetch を優先する。一過性失敗のみバックオフ再試行（4xx 等は即 throw でコストを無駄にしない）。
-	const fetched = await retryWithBackoff(() => fetchFn(url, options.fetch), {
-		retries,
-		baseDelayMs,
-		isRetryable: isTransientFetchError,
-		sleep,
-	});
+	// AuthFetchError（auth/invalid-credential/redirect）は非 transient なのでそのまま透過する。
+	const fetched = await retryWithBackoff(
+		() =>
+			cookie !== undefined && useAuthed
+				? authedFetchFn(url, cookie, {
+						fetcher: options.fetch?.fetcher,
+						timeoutMs: options.fetch?.timeoutMs,
+					})
+				: fetchFn(url, options.fetch),
+		{
+			retries,
+			baseDelayMs,
+			isRetryable: isTransientFetchError,
+			sleep,
+		},
+	);
 
 	// 2) 安価な SPA 検出。本文が取れていれば BR を呼ばない（必要最小の BR 呼出）。
 	const needsRender = isLikelySpa(fetched.html, options.spaMinTextChars);
@@ -163,9 +198,26 @@ export async function fetchWithStrategy(
 		};
 	}
 
-	// 3) SPA のみ BR フォールバック。起動の一過性失敗のみ再試行する。
+	// 3) SPA のみ BR フォールバック。認証下なら cookie を pairs へ分解して渡す（url 限定 setCookie）。
+	// 分解不能な cookie は BR へ渡す前に弾く（無駄な起動を避け、生値も載せない・最小保持）。
+	let cookiePairs: CookiePair[] | undefined;
+	if (cookie !== undefined && useAuthed) {
+		const parsed = parseCookiePairs(cookie);
+		if (!parsed.ok) {
+			throw new AuthFetchError({
+				kind: "invalid-credential",
+				url,
+				message: `invalid cookie input (${parsed.reason}): ${url}`,
+			});
+		}
+		cookiePairs = parsed.pairs;
+	}
 	const rendered = await retryWithBackoff(
-		() => renderFn(options.browser, url, options.render),
+		() =>
+			renderFn(options.browser, url, {
+				...options.render,
+				cookie: cookiePairs,
+			}),
 		{
 			retries,
 			baseDelayMs,

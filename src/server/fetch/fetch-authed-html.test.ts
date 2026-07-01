@@ -4,6 +4,7 @@ import {
 	AuthFetchError,
 	buildCookieHeader,
 	fetchAuthedHtml,
+	parseCookiePairs,
 } from "./fetch-authed-html";
 import { type Fetcher, FetchHtmlError } from "./fetch-html";
 
@@ -85,6 +86,92 @@ describe("buildCookieHeader", () => {
 			ok: false,
 			reason: "invalid",
 		});
+	});
+});
+
+describe("parseCookiePairs", () => {
+	// 生 Cookie 文字列を name/value ペアへ分解する（BR の page.setCookie 用）
+	it("生 Cookie 文字列を name/value ペア配列へ分解する", () => {
+		expect(parseCookiePairs("session=abc123; theme=dark")).toEqual({
+			ok: true,
+			pairs: [
+				{ name: "session", value: "abc123" },
+				{ name: "theme", value: "dark" },
+			],
+		});
+	});
+
+	// 前後 OWS や要素間の空白は整えて分解する
+	it("前後・区切りの空白を整えて分解する", () => {
+		expect(parseCookiePairs("  a=1 ;  b=2  ")).toEqual({
+			ok: true,
+			pairs: [
+				{ name: "a", value: "1" },
+				{ name: "b", value: "2" },
+			],
+		});
+	});
+
+	// value に "=" を含む場合は最初の "=" だけで name/value を割る
+	it("最初の = のみで割り value 内の = は保持する", () => {
+		expect(parseCookiePairs("token=a=b=c")).toEqual({
+			ok: true,
+			pairs: [{ name: "token", value: "a=b=c" }],
+		});
+	});
+
+	// ペア配列はそのまま検証して返す（buildCookieHeader と同じ RFC6265 検証）
+	it("ペア配列は検証して返す", () => {
+		expect(
+			parseCookiePairs([
+				{ name: "session", value: "abc123" },
+				{ name: "theme", value: "dark" },
+			]),
+		).toEqual({
+			ok: true,
+			pairs: [
+				{ name: "session", value: "abc123" },
+				{ name: "theme", value: "dark" },
+			],
+		});
+	});
+
+	// 空入力は reason=empty（無駄な setCookie を避ける）
+	it("空文字・空白のみ・空配列は reason=empty で弾く", () => {
+		expect(parseCookiePairs("")).toEqual({ ok: false, reason: "empty" });
+		expect(parseCookiePairs("   ")).toEqual({ ok: false, reason: "empty" });
+		expect(parseCookiePairs([])).toEqual({ ok: false, reason: "empty" });
+	});
+
+	// "=" を含まない要素・空 name は分解不能として弾く
+	it("= を含まない要素や空 name は reason=invalid で弾く", () => {
+		expect(parseCookiePairs("session")).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+		expect(parseCookiePairs("=abc123")).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+	});
+
+	// 制御文字・不正な value は拒否する（注入・漏洩経路の遮断）
+	it("制御文字や不正な value を含む入力は reason=invalid で弾く", () => {
+		expect(parseCookiePairs("session=abc123\r\nX-Evil: 1")).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+		expect(parseCookiePairs("session=abc123\x00")).toEqual({
+			ok: false,
+			reason: "invalid",
+		});
+	});
+
+	// 失敗時は理由だけを返し、生値を戻り値に載せない（最小保持）
+	it("失敗時に生 Cookie 値を戻り値へ載せない", () => {
+		const result = parseCookiePairs(`session=${SECRET}\x00`);
+		expect(result.ok).toBe(false);
+		assertNoSecret(result);
 	});
 });
 
