@@ -8,8 +8,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import type {
+	JobSubmissionBody,
+	SubmitJobResponse,
+} from "../../shared/submit-job";
 import { ApiRequestError, apiPost } from "../lib/api";
-import type { ExtractionStatus } from "../lib/useRanking";
 
 // 求人投入モーダル（設計書 §4.2 / 実装計画 Task 20 / #113）。
 //
@@ -28,18 +31,18 @@ export const MAX_HTML_BYTES = 2 * 1024 * 1024;
 
 export type SubmitTab = "url" | "html";
 
-// 送信ボディは url か html の排他（#95）。どちらのタブが active かで形が決まる。
-export type JobSubmissionBody = { url: string } | { html: string };
-
 export type SubmissionValidation =
 	| { ok: true; body: JobSubmissionBody }
 	| { ok: false; reason: "empty" | "invalid" | "too-large" };
 
-// active タブと両入力から送信ボディを決定する純関数。url/html の排他はここで閉じる。
+// active タブと入力から送信ボディを決定する純関数。url/html の排他はここで閉じる。
+// cookie は URL タブでのみ有効な任意フィールド（認証下ページ取得用・#187）。非空のときだけ載せる
+// （空文字は送らず、Cookie 無しの後方互換を保つ）。
 export function validateSubmission(
 	tab: SubmitTab,
 	url: string,
 	html: string,
+	cookie = "",
 ): SubmissionValidation {
 	if (tab === "url") {
 		const trimmed = url.trim();
@@ -53,7 +56,14 @@ export function validateSubmission(
 		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
 			return { ok: false, reason: "invalid" };
 		}
-		return { ok: true, body: { url: trimmed } };
+		const trimmedCookie = cookie.trim();
+		return {
+			ok: true,
+			body:
+				trimmedCookie === ""
+					? { url: trimmed }
+					: { url: trimmed, cookie: trimmedCookie },
+		};
 	}
 	if (html.trim() === "") return { ok: false, reason: "empty" };
 	// 文字数ではなく UTF-8 バイト長で上限判定する（サーバと同じ基準）。
@@ -61,11 +71,6 @@ export function validateSubmission(
 	if (bytes > MAX_HTML_BYTES) return { ok: false, reason: "too-large" };
 	return { ok: true, body: { html } };
 }
-
-// POST /api/jobs の応答（#95）。詳細/貼付は jobId＋抽出状態、一覧 URL はキュー投入件数。
-export type SubmitJobResponse =
-	| { jobId: string; status: ExtractionStatus }
-	| { status: "queued"; count: number };
 
 // 投入関数。既定は POST /api/jobs。テストはフェイクを注入する。
 export type SubmitJob = (body: JobSubmissionBody) => Promise<SubmitJobResponse>;
@@ -88,6 +93,13 @@ function messageForReason(reason: string | undefined): string {
 		case "timeout":
 		case "network":
 			return "ページの取得に失敗しました。URL を確認してください。";
+		// 認証下ページ取得（Cookie 投入）の失敗分類（#187）。
+		case "invalid-credential":
+			return "Cookie の形式が正しくありません。";
+		case "auth":
+			return "認証に失敗しました。Cookie を確認してください。";
+		case "redirect":
+			return "別サイトへのリダイレクトを検出したため中断しました。";
 		default:
 			return "投入に失敗しました。時間をおいて再試行してください。";
 	}
@@ -113,6 +125,8 @@ export function AddJobModal({
 	const [tab, setTab] = useState<SubmitTab>("url");
 	const [url, setUrl] = useState("");
 	const [html, setHtml] = useState("");
+	// 認証下ページ取得用の Cookie（任意・URL タブのみ・#187）。秘匿値のため送信ヘッダにのみ使う。
+	const [cookie, setCookie] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
@@ -131,7 +145,7 @@ export function AddJobModal({
 		event.preventDefault();
 		// 送信中の二重投入を防ぐ（ボタン無効化だけでは Enter 連打を弾けない）。
 		if (submitting) return;
-		const validated = validateSubmission(tab, url, html);
+		const validated = validateSubmission(tab, url, html, cookie);
 		if (!validated.ok) {
 			setError(messageForReason(validated.reason));
 			return;
@@ -144,6 +158,7 @@ export function AddJobModal({
 			// 成功時のみ入力を破棄してモーダルを閉じる。
 			setUrl("");
 			setHtml("");
+			setCookie("");
 			setSubmitting(false);
 			onOpenChange(false);
 		} catch (cause) {
@@ -207,20 +222,38 @@ export function AddJobModal({
 					className="flex flex-col gap-3"
 				>
 					{tab === "url" ? (
-						<div className="flex flex-col gap-1.5">
-							<label htmlFor="add-job-url" className="text-sm font-medium">
-								求人ページの URL
-							</label>
-							<input
-								id="add-job-url"
-								data-testid="add-job-url-input"
-								type="url"
-								value={url}
-								onChange={(event) => setUrl(event.target.value)}
-								placeholder="https://example.com/jobs/123"
-								className="h-10 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							/>
-						</div>
+						<>
+							<div className="flex flex-col gap-1.5">
+								<label htmlFor="add-job-url" className="text-sm font-medium">
+									求人ページの URL
+								</label>
+								<input
+									id="add-job-url"
+									data-testid="add-job-url-input"
+									type="url"
+									value={url}
+									onChange={(event) => setUrl(event.target.value)}
+									placeholder="https://example.com/jobs/123"
+									className="h-10 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								/>
+							</div>
+							{/* 認証下（ログイン後）の求人ページ用。任意。秘匿値のため type=password で伏せ、
+							    送信時のリクエストヘッダにのみ使う（永続化・ログ出力しない・#187）。 */}
+							<div className="flex flex-col gap-1.5">
+								<label htmlFor="add-job-cookie" className="text-sm font-medium">
+									Cookie（任意・認証下ページ用）
+								</label>
+								<input
+									id="add-job-cookie"
+									data-testid="add-job-cookie-input"
+									type="password"
+									value={cookie}
+									onChange={(event) => setCookie(event.target.value)}
+									placeholder="Cookie（任意・認証下ページ用）"
+									className="h-10 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								/>
+							</div>
+						</>
 					) : (
 						<div className="flex flex-col gap-1.5">
 							<label htmlFor="add-job-html" className="text-sm font-medium">

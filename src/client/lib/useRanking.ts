@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { NormalizedKey } from "../../shared/job-schema";
+import type { ExtractionStatus } from "../../shared/submit-job";
 import { apiGet } from "./api";
 
 // GET /api/ranking（#95 契約）を購読する React フック。
@@ -10,8 +11,8 @@ import { apiGet } from "./api";
 // - 契約はサーバ側の責務（抽出↔スコア分離・unknown 中立・正規化）。本フックは消費するだけで再実装しない。
 // - fetcher を注入可能にし、jsdom テストをネットワーク非依存・決定的に保つ（注入する fetcher は安定参照前提）。
 
-// 抽出状態（契約。サーバ ExtractionStatus と同値）。
-export type ExtractionStatus = "ok" | "partial" | "failed";
+// 抽出状態（契約）。投入契約と共有する単一ソースへ集約した（#187）。既存 import 元を壊さないため再輸出する。
+export type { ExtractionStatus };
 
 // ランキング一覧 1 行の契約型（#95）。company/title は抽出スキーマ未対応で現状 null。
 export interface RankingItem {

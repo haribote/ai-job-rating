@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { SubmitJobResponse } from "../shared/submit-job";
 import {
 	App,
 	addPendingId,
 	pendingIdFromResponse,
 	removePendingId,
 } from "./App";
-import type { SubmitJobResponse } from "./components/AddJobModal";
 import type { JobDetailResponse } from "./lib/jobDetail";
 import type { RankingItem, RankingResponse } from "./lib/useRanking";
 
