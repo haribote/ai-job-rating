@@ -219,6 +219,14 @@ describe("parseSmokeArgs", () => {
 		const a = parseSmokeArgs(["--base-url", "https://e.com", "--nope"]);
 		expect(a.errors.length).toBeGreaterThan(0);
 	});
+	it("値が欠けたオプションは次のフラグを値として飲み込まない", () => {
+		// `--base-url --core-only` は URL 忘れ。baseUrl に --core-only を吸わせず、
+		// baseUrl 欠落エラーを出しつつ --core-only は真として解釈する。
+		const a = parseSmokeArgs(["--base-url", "--core-only"]);
+		expect(a.baseUrl).toBeNull();
+		expect(a.coreOnly).toBe(true);
+		expect(a.errors.length).toBeGreaterThan(0);
+	});
 });
 
 describe("formatSmokeReport", () => {

@@ -16,6 +16,7 @@
 //
 // 段階化＋既定フル: health→ai-health→最小抽出→(reputation D1)→(Claude 評判)→(BR dynamic import) を試行。
 // 前提（キー/URL/id）が欠ける項目は理由付き SKIP、fail が 1 つでもあれば非ゼロ終了。
+// 応答上限は --timeout-ms（既定 120s）で調整する。本番 D1 に残したジョブは末尾で cleanup SQL を案内する。
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,8 +40,8 @@ const {
 } = await import(resolve(root, "src/server/smoke/live-smoke.ts"));
 
 const args = parseSmokeArgs(process.argv.slice(2));
-// 環境変数で応答上限を上書き可能にする（reasoning モデル等で延びる場合にコード変更なしで延ばせる）。
-const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS) || args.timeoutMs;
+// 応答上限は --timeout-ms（検証済み・既定 120s）を単一の情報源にする。
+const timeoutMs = args.timeoutMs;
 
 if (args.errors.length > 0) {
 	for (const e of args.errors) console.error(`引数エラー: ${e}`);
@@ -93,6 +94,9 @@ const skip = (id, label, detail) =>
 	push("ai-health", "GET /api/ai-health", interpretAiHealth(status, body));
 }
 
+// live 実行が本番 D1 に残したジョブ id を全て集める（最小抽出＋BR）。末尾で一括 cleanup を案内する。
+const createdJobIds = [];
+
 // 3. 最小抽出（AI＋D1＋R2）。成功した jobId は cleanup 用に記録・表示する。
 let smokeJobId = null;
 {
@@ -101,7 +105,10 @@ let smokeJobId = null;
 	});
 	const interpretation = interpretExtraction(status, body);
 	push("extraction", "POST /api/jobs {html}", interpretation);
-	if (interpretation.outcome === "pass") smokeJobId = body.jobId;
+	if (interpretation.outcome === "pass") {
+		smokeJobId = body.jobId;
+		createdJobIds.push(body.jobId);
+	}
 }
 
 // 4. ジョブ詳細（永続化＋スコアリング）
@@ -113,13 +120,16 @@ if (smokeJobId) {
 }
 
 // 5. ANTHROPIC_API_KEY binding の presence
+let reputationConfigOk = false;
 let apiKeyConfigured = false;
 {
 	const { status, body } = await request("GET", "/api/reputation/config");
 	const interpretation = interpretReputationConfig(status, body);
 	push("reputation-config", "GET /api/reputation/config", interpretation);
-	if (interpretation.outcome === "pass")
+	if (interpretation.outcome === "pass") {
+		reputationConfigOk = true;
 		apiKeyConfigured = body.apiKeyConfigured === true;
+	}
 }
 
 // 6. reputation D1 到達性（課金なし）
@@ -135,6 +145,13 @@ let apiKeyConfigured = false;
 // 7. Claude API web_search（課金・full かつ前提が揃うときのみ）
 if (args.coreOnly) {
 	skip("reputation", "POST /api/companies/:id/reputation", "--core-only 指定");
+} else if (!reputationConfigOk) {
+	// config チェック自体が FAIL のときはキー有無を判定できない。誤って「未設定」と断じない。
+	skip(
+		"reputation",
+		"POST /api/companies/:id/reputation",
+		"reputation-config が FAIL のため判定不可（Claude web_search 未検証）",
+	);
 } else if (!apiKeyConfigured) {
 	skip(
 		"reputation",
@@ -177,17 +194,20 @@ if (args.coreOnly) {
 		"POST /api/jobs {url:SPA}",
 		interpretBrowserRender(status, body),
 	);
+	// BR チェックも 201 で本番 D1 にジョブ行を残すため cleanup 対象に含める。
 	if (status >= 200 && status < 300 && body && typeof body.jobId === "string") {
-		console.log(`（BR チェックが作成した jobId: ${body.jobId}）`);
+		createdJobIds.push(body.jobId);
 	}
 }
 
 console.log("");
 console.log(formatSmokeReport(results));
-if (smokeJobId) {
+if (createdJobIds.length > 0) {
+	// 残置ジョブ（最小抽出＋BR）を一括削除する SQL を案内する（extractions/scores は ON DELETE CASCADE）。
+	const idList = createdJobIds.map((id) => `'${id}'`).join(", ");
 	console.log("");
 	console.log(
-		`残置した最小抽出ジョブの cleanup: wrangler d1 execute ai-job-rating --remote --command "DELETE FROM jobs WHERE id = '${smokeJobId}'"`,
+		`残置した ${createdJobIds.length} 件のジョブの cleanup: wrangler d1 execute ai-job-rating --remote --command "DELETE FROM jobs WHERE id IN (${idList})"`,
 	);
 }
 

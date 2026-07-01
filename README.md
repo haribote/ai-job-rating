@@ -84,11 +84,12 @@ npm run smoke -- --base-url https://<deployed> \
 
 各チェックは **PASS / FAIL / SKIP** で表示されます。FAIL が 1 つでもあれば非ゼロ終了します。前提（`ANTHROPIC_API_KEY` / `--company-id` / `--spa-url`）が欠ける項目は理由付きで **SKIP**（未検証）になります。
 
-最小抽出チェックは本番 D1 にジョブ 1 件を残します（`DELETE /api/jobs` は無いため）。スモークが出力した jobId を使って手動で削除できます（`extractions` / `scores` は `ON DELETE CASCADE`）:
+スモークは本番 D1 にジョブを残します（`DELETE /api/jobs` は無いため。最小抽出で 1 件、`--spa-url` 指定のフル実行では BR チェック分を加えて最大 2 件）。実行末尾に残置ジョブ全件を消す `DELETE ... WHERE id IN (...)` が出力されるので、それをそのまま実行して削除できます（`extractions` / `scores` は `ON DELETE CASCADE`）:
 
 ```sh
+# スモーク出力の cleanup 行をそのまま実行（下記は 1 件の例）
 npx wrangler d1 execute ai-job-rating --remote \
-  --command "DELETE FROM jobs WHERE id = '<スモークが出力した jobId>'"
+  --command "DELETE FROM jobs WHERE id IN ('<スモークが出力した jobId>')"
 ```
 
 ## 使い方

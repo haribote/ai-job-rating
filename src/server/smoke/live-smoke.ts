@@ -12,8 +12,10 @@
 export const SMOKE_MARKER = "AI-JOB-RATING-LIVE-SMOKE";
 
 // 1 リクエストの応答待ち上限（ms）。過去バグ「fetch timeout 欠落で fetch failed」対策として
-// ドライバは必ず AbortController でこの値を付与する。環境変数 SMOKE_TIMEOUT_MS で上書き可。
-export const DEFAULT_SMOKE_TIMEOUT_MS = 30_000;
+// ドライバは必ず AbortController でこの値を付与する。--timeout-ms で上書き可。
+// 既定は 120s: 最小抽出は同期 Workers AI 推論＋D1/R2 書込を挟むため、cold model load でも
+// 健全な deploy を timeout で false FAIL にしないよう余裕を取る。
+export const DEFAULT_SMOKE_TIMEOUT_MS = 120_000;
 
 export type SmokeOutcome = "pass" | "fail" | "skip";
 
@@ -222,28 +224,40 @@ export function parseSmokeArgs(argv: readonly string[]): SmokeArgs {
 	let timeoutMs = DEFAULT_SMOKE_TIMEOUT_MS;
 	const errors: string[] = [];
 
-	for (let i = 0; i < argv.length; i += 1) {
+	// オプションの値を 1 つ消費する。値が無い/次がフラグ（--）なら消費せず errors へ
+	// （`--base-url --core-only` のように次のフラグを値として飲み込むのを防ぐ）。
+	let i = 0;
+	const takeValue = (name: string): string | null => {
+		const next = argv[i + 1];
+		if (next === undefined || next.startsWith("--")) {
+			errors.push(`${name} に値がありません`);
+			return null;
+		}
+		i += 1;
+		return next;
+	};
+
+	for (; i < argv.length; i += 1) {
 		const arg = argv[i];
 		switch (arg) {
 			case "--base-url":
-				i += 1;
-				baseUrl = argv[i] ?? null;
+				baseUrl = takeValue("--base-url");
 				break;
 			case "--spa-url":
-				i += 1;
-				spaUrl = argv[i] ?? null;
+				spaUrl = takeValue("--spa-url");
 				break;
 			case "--company-id":
-				i += 1;
-				companyId = argv[i] ?? null;
+				companyId = takeValue("--company-id");
 				break;
 			case "--timeout-ms": {
-				i += 1;
-				const n = Number(argv[i]);
-				if (!Number.isFinite(n) || n <= 0) {
-					errors.push(`--timeout-ms が不正です: ${argv[i]}`);
-				} else {
-					timeoutMs = n;
+				const value = takeValue("--timeout-ms");
+				if (value !== null) {
+					const n = Number(value);
+					if (!Number.isFinite(n) || n <= 0) {
+						errors.push(`--timeout-ms が不正です: ${value}`);
+					} else {
+						timeoutMs = n;
+					}
 				}
 				break;
 			}
