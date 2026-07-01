@@ -16,6 +16,11 @@ import {
 	validatePastedHtml,
 } from "./jobs";
 import type { DetailJobMessage, DetailQueue } from "./queue/detail-queue";
+import type {
+	BrowserLauncher,
+	RenderBrowser,
+	RenderedPage,
+} from "./render-html";
 import { DEFAULT_REPUTATION_WEIGHT_CONFIG } from "./scoring/reputation-score";
 import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./storage/db-schema";
 
@@ -250,6 +255,88 @@ describe("ingestFromUrl（認証下取得・Cookie 配線・#187）", () => {
 			{ cookie: "" },
 		);
 		expect(result).toEqual({ kind: "fetch-error", reason: "http" });
+	});
+});
+
+// 未描画 SPA シェル（isLikelySpa が true と判定する最小形）。
+const SPA_SHELL = `<!doctype html><html><head>
+<script type="module" src="/assets/index.js"></script>
+</head><body><div id="root"></div></body></html>`;
+
+// 認証下 SPA を BR 経由で取込する（#189）。browser + renderLaunch 注入で実ブラウザなしに検証する。
+describe("ingestFromUrl（認証下 SPA・BR への Cookie 適用・#189）", () => {
+	it("cookie 付き詳細 SPA は BR 経由で取込し、url 限定で setCookie する", async () => {
+		const fetcher: Fetcher = async () =>
+			new Response(SPA_SHELL, { status: 200 });
+		let setCookieArgs: unknown[] | undefined;
+		const page: RenderedPage = {
+			setCookie: async (...cookies) => {
+				setCookieArgs = cookies;
+			},
+			goto: async () => {},
+			content: async () => "<p>年収 700万〜900万</p>",
+		};
+		const browser: RenderBrowser = {
+			newPage: async () => page,
+			close: async () => {},
+		};
+		const renderLaunch: BrowserLauncher = async () => browser;
+
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+				browser: {},
+				renderLaunch,
+			},
+			"https://example.com/jobs/1",
+			{ cookie: "session=abc123" },
+		);
+
+		expect(result.kind).toBe("detail");
+		expect(setCookieArgs).toEqual([
+			{
+				name: "session",
+				value: "abc123",
+				url: "https://example.com/jobs/1",
+				path: "/",
+			},
+		]);
+	});
+
+	it("BR 失敗（RenderHtmlError）は fetch-error にマップする", async () => {
+		const fetcher: Fetcher = async () =>
+			new Response(SPA_SHELL, { status: 200 });
+		const page: RenderedPage = {
+			setCookie: async () => {},
+			goto: async () => {
+				throw new Error("net::ERR_NAME_NOT_RESOLVED");
+			},
+			content: async () => "unused",
+		};
+		const browser: RenderBrowser = {
+			newPage: async () => page,
+			close: async () => {},
+		};
+		const renderLaunch: BrowserLauncher = async () => browser;
+
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+				browser: {},
+				renderLaunch,
+			},
+			"https://example.com/jobs/1",
+		);
+
+		expect(result).toEqual({ kind: "fetch-error", reason: "network" });
 	});
 });
 

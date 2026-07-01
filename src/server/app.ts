@@ -157,6 +157,8 @@ app.post("/api/jobs", async (c) => {
 				bucket: c.env.RAW_HTML,
 				queue: c.env.JOB_QUEUE,
 				model: c.env.EXTRACTION_MODEL,
+				// 認証下 SPA を BR で認証下レンダリングするため binding を渡す（#189）。
+				browser: c.env.BROWSER,
 			},
 			validated.url,
 			{ cookie },

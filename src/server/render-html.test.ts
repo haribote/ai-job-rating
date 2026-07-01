@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import {
 	type BrowserLauncher,
@@ -8,6 +9,13 @@ import {
 } from "./render-html";
 
 const TARGET = "https://example.com/jobs/123";
+// 検出対象の秘匿断片。漏洩検査はこの値を例外チェーン全体から探す
+const SECRET = "super-secret-session-token";
+
+// 例外チェーンに秘匿値が現れないことを保証する（cause 連鎖も inspect で深く辿る）。
+function assertNoSecret(error: unknown): void {
+	expect(inspect(error, { depth: 10 })).not.toContain(SECRET);
+}
 
 // 実ブラウザ起動を避けるための最小 fake。goto→content のレンダリング後 HTML 取得経路だけを検証する。
 function fakeLauncher(opts: {
@@ -17,6 +25,7 @@ function fakeLauncher(opts: {
 		options?: { waitUntil?: string; timeout?: number },
 	) => void | Promise<void>;
 	onContent?: () => string | Promise<string>;
+	onSetCookie?: () => void | Promise<void>;
 }): {
 	launch: BrowserLauncher;
 	close: ReturnType<typeof vi.fn>;
@@ -24,6 +33,9 @@ function fakeLauncher(opts: {
 } {
 	const close = vi.fn(async () => {});
 	const page: RenderedPage = {
+		setCookie: vi.fn(async () => {
+			await opts.onSetCookie?.();
+		}),
 		goto: vi.fn(async (url: string, options) => {
 			await opts.onGoto?.(url, options);
 		}),
@@ -140,5 +152,61 @@ describe("renderHtml", () => {
 		expect(error).toBeInstanceOf(RenderHtmlError);
 		expect(error.kind).toBe("render");
 		expect(error.cause).toBe(cause);
+	});
+
+	// 認証下 SPA 用に Cookie を url 限定で投入する（cookie jar がドメイン一致時のみ送信＝クロスオリジン非再送）
+	it("cookie 指定時、goto の前に url 限定で setCookie する", async () => {
+		const { launch, page } = fakeLauncher({ html: "ok" });
+
+		await renderHtml(binding, TARGET, {
+			launch,
+			cookie: [
+				{ name: "session", value: "abc123" },
+				{ name: "theme", value: "dark" },
+			],
+		});
+
+		const setCookie = page.setCookie as ReturnType<typeof vi.fn>;
+		expect(setCookie).toHaveBeenCalledTimes(1);
+		// 各 cookie は url=対象URL・path="/" で投入する。path を明示しないと CDP が URL の
+		// default-path（/jobs → 親ディレクトリ）へ絞り、別パスの XHR に届かず未ログイン化する。
+		expect(setCookie.mock.calls[0]).toEqual([
+			{ name: "session", value: "abc123", url: TARGET, path: "/" },
+			{ name: "theme", value: "dark", url: TARGET, path: "/" },
+		]);
+		// goto より前に呼ぶ（描画前に cookie を効かせる）
+		const goto = page.goto as ReturnType<typeof vi.fn>;
+		expect(setCookie.mock.invocationCallOrder[0]).toBeLessThan(
+			goto.mock.invocationCallOrder[0],
+		);
+	});
+
+	// cookie 未指定は従来と完全一致（setCookie を呼ばない）
+	it("cookie 未指定なら setCookie を呼ばない", async () => {
+		const { launch, page } = fakeLauncher({ html: "ok" });
+
+		await renderHtml(binding, TARGET, { launch });
+
+		expect(page.setCookie as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+	});
+
+	// setCookie 失敗時も cookie 生値を漏らさず kind=render へ整形する（最小保持）
+	it("setCookie 失敗時に cookie 生値を漏らさず RenderHtmlError を投げる", async () => {
+		const { launch, close } = fakeLauncher({
+			onSetCookie: () => {
+				throw new Error("setCookie failed");
+			},
+		});
+
+		const error = await renderHtml(binding, TARGET, {
+			launch,
+			cookie: [{ name: "session", value: SECRET }],
+		}).catch((e) => e);
+
+		expect(error).toBeInstanceOf(RenderHtmlError);
+		expect(error.kind).toBe("render");
+		assertNoSecret(error);
+		// 失敗時もブラウザを閉じる
+		expect(close).toHaveBeenCalledTimes(1);
 	});
 });

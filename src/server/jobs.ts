@@ -13,11 +13,12 @@ import type { AiRunner } from "./extract/ai";
 import {
 	AuthFetchError,
 	type AuthFetchErrorKind,
-	fetchAuthedHtml,
 } from "./fetch/fetch-authed-html";
-import { type Fetcher, FetchHtmlError, fetchHtml } from "./fetch/fetch-html";
+import { type Fetcher, FetchHtmlError } from "./fetch/fetch-html";
+import { fetchWithStrategy } from "./fetch/fetch-strategy";
 import { classifyPage } from "./fetch/list-detail";
 import { type DetailQueue, enqueueDetailJobs } from "./queue/detail-queue";
+import { type BrowserLauncher, RenderHtmlError } from "./render-html";
 import {
 	NORMALIZED_KEY_KINDS,
 	type NormalizedKeyKind,
@@ -99,6 +100,10 @@ export interface IngestDeps {
 	// テスト用に fetch を差し替える。未指定時は fetchHtml が globalThis.fetch を使う。
 	fetcher?: Fetcher;
 	timeoutMs?: number;
+	// BR バインディング（env.BROWSER）。未指定なら SPA を検出しても BR せず fetch 結果を使う（#189）。
+	browser?: unknown;
+	// テスト用にブラウザ起動を差し替える（render-html の DI）。未指定時は実 @cloudflare/puppeteer。
+	renderLaunch?: BrowserLauncher;
 }
 
 // 取得失敗の種別。上流取得の失敗（502 相当）として呼び出し側へ返す。
@@ -117,7 +122,7 @@ export type IngestUrlResult =
 	| { kind: "auth-error"; reason: AuthErrorReason };
 
 // URL 投入の追加オプション（#187）。cookie はリクエスト単位の秘匿値のため IngestDeps ではなく
-// 引数で渡す。非空のときだけ認証下取得（fetchAuthedHtml）へ分岐する。
+// 引数で渡す。非空のときだけ fetchWithStrategy が認証下取得（fetch/BR 両経路）へ分岐する（#189）。
 export interface IngestUrlOptions {
 	cookie?: string;
 }
@@ -129,28 +134,31 @@ export async function ingestFromUrl(
 	url: string,
 	options: IngestUrlOptions = {},
 ): Promise<IngestUrlResult> {
-	// cookie が非空なら認証下取得へ分岐する。Cookie は取得ヘッダにのみ使い保持しない（§8・#75）。
-	const cookie = options.cookie;
-	const useAuthed = typeof cookie === "string" && cookie !== "";
+	// 取得戦略へ委譲する（fetch 優先→SPA 検出→必要時のみ BR・#115）。cookie 非空なら fetch/BR
+	// 両経路を認証下で行う（#189）。Cookie は取得時のヘッダ/setCookie にのみ使い保持しない（§8・#75）。
 	let html: string;
 	try {
-		const result = useAuthed
-			? await fetchAuthedHtml(url, cookie, {
-					fetcher: deps.fetcher,
-					timeoutMs: deps.timeoutMs,
-				})
-			: await fetchHtml(url, {
-					fetcher: deps.fetcher,
-					timeoutMs: deps.timeoutMs,
-				});
+		const result = await fetchWithStrategy(url, {
+			browser: deps.browser,
+			cookie: options.cookie,
+			fetch: { fetcher: deps.fetcher, timeoutMs: deps.timeoutMs },
+			render: deps.renderLaunch ? { launch: deps.renderLaunch } : undefined,
+		});
 		html = result.html;
 	} catch (cause) {
-		// AuthFetchError を先に判定する（fetchAuthedHtml は network/timeout を FetchHtmlError のまま透過）。
+		// AuthFetchError を先に判定する（authed 経路は network/timeout を FetchHtmlError のまま透過）。
 		if (cause instanceof AuthFetchError) {
 			return { kind: "auth-error", reason: cause.kind };
 		}
 		if (cause instanceof FetchHtmlError) {
 			return { kind: "fetch-error", reason: cause.kind };
+		}
+		// BR フォールバックの失敗は上流取得失敗（502 相当）として扱う。timeout は種別を保つ。
+		if (cause instanceof RenderHtmlError) {
+			return {
+				kind: "fetch-error",
+				reason: cause.kind === "timeout" ? "timeout" : "network",
+			};
 		}
 		throw cause;
 	}
