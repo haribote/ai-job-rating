@@ -11,13 +11,15 @@
 	// React SPA を静的資産として配信する（#96）。
 	// - not_found_handling=single-page-application: 未知パスのナビゲーションは index.html を 200 で返し、
 	//   SPA のクライアントルーティング（/settings 等のリロード）が 404 にならないようにする。
-	// - run_worker_first=["/api/*"]: /api/* は assets より先に必ず Worker を実行し JSON 契約を返す
-	//   （navigation 時も含め決定的に Worker へ。precedence は wrangler dev 実機で検証する）。
+	// - run_worker_first=true: 全リクエストを assets より先に必ず Worker へ通す（#185）。SPA(HTML) を含む
+	//   全経路を Basic 認証（createAuthMiddleware, #183）で守るため。/api/* 限定だと SPA が Asset Worker
+	//   直配信で Worker を迂回し認証が抜ける。SPA フォールバックは catch-all の env.ASSETS.fetch が担い、
+	//   not_found_handling も維持される。トレードオフ: 静的資産取得も Worker 呼び出しとして課金される。
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/api/*"]
+		"run_worker_first": true
 	},
 	// Workers AI バインディング（§7.1, JSON Mode 構造化抽出）。env.AI でアクセスする
 	"ai": {
