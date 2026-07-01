@@ -59,4 +59,27 @@ describe("app", () => {
 		expect(res.status).toBe(200);
 		await expect(res.json()).resolves.toEqual({ status: "ok" });
 	});
+
+	// #185 回帰ガード。SPA(HTML) の catch-all も認証で守られる配線を固定する。実バグは wrangler の
+	// run_worker_first が SPA を Worker 迂回させていた点だが（本テストは app 層で再現不能）、middleware
+	// 順序や catch-all 位置の変更で SPA 保護が抜けないよう app レベルで担保する。ASSETS は呼ばれないこと。
+	it("AUTH_USER/AUTH_PASS 設定時は SPA(catch-all) も credential 無しで 401", async () => {
+		let assetsCalled = false;
+		const assetsStub = {
+			fetch: () => {
+				assetsCalled = true;
+				return Promise.resolve(new Response("spa-shell"));
+			},
+		} as unknown as Fetcher;
+
+		const res = await app.request(
+			"/",
+			{},
+			{ ...env, ASSETS: assetsStub, AUTH_USER: "owner", AUTH_PASS: "s3cret" },
+		);
+
+		expect(res.status).toBe(401);
+		// 認証前に ASSETS へ抜けない（保護の実効性）。
+		expect(assetsCalled).toBe(false);
+	});
 });
