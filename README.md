@@ -67,7 +67,20 @@ npm run deploy
 
 **Workers AI** と **Browser Rendering** はアカウント側で有効化が必要な場合があります。
 
-### 6. デプロイ後の live スモーク
+### 6. サイトアクセス制限（任意・推奨）
+
+デプロイ済み Worker はそのままだと URL を知る誰でも `/`・`/api/*` を叩けます（投入や評判取得は課金 AI/API を誘発します）。オーナー限定にするには Basic 認証の credential を **secret** に設定します。
+
+```sh
+wrangler secret put AUTH_USER
+wrangler secret put AUTH_PASS
+```
+
+- **両方**設定すると SPA・`/api/*` が Basic 認証で保護されます（ブラウザは認証ダイアログを表示）。
+- どちらか欠けると認証は無効（fail-open）で無認証公開になり、起動ログに警告が出ます。ローカル開発・e2e はこの状態で従来どおり動きます。
+- credential はコードに直書きせず secret / `.dev.vars` で注入します（`.dev.vars.example` 参照）。
+
+### 7. デプロイ後の live スモーク
 
 unit test / dry-run では検出できない runtime-only バグ（dynamic import の未バンドル → `No such module`、binding 未解決、compat date 既定超過など）を deploy 直後に検出します。デプロイ済み URL に対して実行します。
 
@@ -80,6 +93,12 @@ npm run smoke -- --base-url https://<deployed> --core-only
 #   （company 発見 API は無いため id は D1 から引く）。--spa-url は JS 描画が必要な既知の求人 URL。
 npm run smoke -- --base-url https://<deployed> \
   --company-id <companies.id> --spa-url https://<SPA求人URL>
+```
+
+サイトアクセス制限（§6）を有効にしている場合は、スモークにも Basic 認証 credential を渡します（env `SMOKE_AUTH_USER` / `SMOKE_AUTH_PASS` でも可）:
+
+```sh
+npm run smoke -- --base-url https://<deployed> --auth-user <user> --auth-pass <pass>
 ```
 
 各チェックは **PASS / FAIL / SKIP** で表示されます。FAIL が 1 つでもあれば非ゼロ終了します。前提（`ANTHROPIC_API_KEY` / `--company-id` / `--spa-url`）が欠ける項目は理由付きで **SKIP**（未検証）になります。

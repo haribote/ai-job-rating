@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	buildBasicAuthHeader,
 	buildSmokeHtml,
 	decideExitCode,
 	formatSmokeReport,
@@ -219,6 +220,18 @@ describe("parseSmokeArgs", () => {
 		const a = parseSmokeArgs(["--base-url", "https://e.com", "--nope"]);
 		expect(a.errors.length).toBeGreaterThan(0);
 	});
+	it("--auth-user / --auth-pass を取り出す（#183 Basic 認証）", () => {
+		const a = parseSmokeArgs([
+			"--base-url",
+			"https://e.com",
+			"--auth-user",
+			"owner",
+			"--auth-pass",
+			"s3cret",
+		]);
+		expect(a.authUser).toBe("owner");
+		expect(a.authPass).toBe("s3cret");
+	});
 	it("値が欠けたオプションは次のフラグを値として飲み込まない", () => {
 		// `--base-url --core-only` は URL 忘れ。baseUrl に --core-only を吸わせず、
 		// baseUrl 欠落エラーを出しつつ --core-only は真として解釈する。
@@ -226,6 +239,18 @@ describe("parseSmokeArgs", () => {
 		expect(a.baseUrl).toBeNull();
 		expect(a.coreOnly).toBe(true);
 		expect(a.errors.length).toBeGreaterThan(0);
+	});
+});
+
+describe("buildBasicAuthHeader", () => {
+	it("user/pass 両方あれば Basic ヘッダを組む", () => {
+		const header = buildBasicAuthHeader("owner", "s3cret");
+		expect(header).toBe(`Basic ${btoa("owner:s3cret")}`);
+	});
+	it("どちらか欠ければ null（fail-open な本番と両対応）", () => {
+		expect(buildBasicAuthHeader("owner", null)).toBeNull();
+		expect(buildBasicAuthHeader(null, "s3cret")).toBeNull();
+		expect(buildBasicAuthHeader(null, null)).toBeNull();
 	});
 });
 
