@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import app from "./app";
 
 // Hono アプリの最小ルートを検証する（責務分離: app をテスト対象に切り出す）。
@@ -81,5 +81,61 @@ describe("app", () => {
 		expect(res.status).toBe(401);
 		// 認証前に ASSETS へ抜けない（保護の実効性）。
 		expect(assetsCalled).toBe(false);
+	});
+});
+
+// 認証下 Cookie ストアの明示削除（cleanup 導線・#190）。実 KV（env.AUTH_COOKIES）で往復を確認する。
+describe("DELETE /api/auth/cookies", () => {
+	// 他テストの残留に依存しないよう Cookie ストアを空にする。
+	beforeEach(async () => {
+		const { keys } = await env.AUTH_COOKIES.list({ prefix: "auth-cookie:" });
+		for (const k of keys) await env.AUTH_COOKIES.delete(k.name);
+	});
+
+	async function seed(origin: string, cookie: string): Promise<void> {
+		await env.AUTH_COOKIES.put(`auth-cookie:${origin}`, cookie);
+	}
+
+	it("?url= 指定はその origin 1 件だけ削除する（値は返さない）", async () => {
+		await seed("https://a.example.com", "s=1");
+		await seed("https://b.example.com", "s=2");
+		const res = await app.request(
+			"/api/auth/cookies?url=https://a.example.com/jobs/1",
+			{ method: "DELETE" },
+			env,
+		);
+		expect(res.status).toBe(200);
+		await expect(res.json()).resolves.toEqual({ status: "deleted", count: 1 });
+		expect(
+			await env.AUTH_COOKIES.get("auth-cookie:https://a.example.com"),
+		).toBeNull();
+		// 別 origin は残る。
+		expect(
+			await env.AUTH_COOKIES.get("auth-cookie:https://b.example.com"),
+		).toBe("s=2");
+	});
+
+	it("?url= が未保存 origin なら count 0（削除の有無を正直に返す）", async () => {
+		const res = await app.request(
+			"/api/auth/cookies?url=https://none.example.com/x",
+			{ method: "DELETE" },
+			env,
+		);
+		expect(res.status).toBe(200);
+		await expect(res.json()).resolves.toEqual({ status: "deleted", count: 0 });
+	});
+
+	it("url 未指定は全消しし件数を返す", async () => {
+		await seed("https://a.example.com", "s=1");
+		await seed("https://b.example.com", "s=2");
+		const res = await app.request(
+			"/api/auth/cookies",
+			{ method: "DELETE" },
+			env,
+		);
+		expect(res.status).toBe(200);
+		await expect(res.json()).resolves.toEqual({ status: "deleted", count: 2 });
+		const { keys } = await env.AUTH_COOKIES.list({ prefix: "auth-cookie:" });
+		expect(keys.length).toBe(0);
 	});
 });

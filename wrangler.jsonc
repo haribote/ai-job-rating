@@ -95,5 +95,17 @@
 			"binding": "RAW_HTML",
 			"bucket_name": "ai-job-rating-raw-html"
 		}
+	],
+	// KV バインディング（§6, 軽量設定・キャッシュ）。env.AUTH_COOKIES でアクセスする。
+	// 用途: 認証下の一覧→詳細を通す単一テナント Cookie ストア（origin 単位で 1 件・TTL 失効・#190）。
+	// 同期投入時に origin をキーに Cookie を書き、キュー consumer が job.url の origin で読み出して
+	// 認証下取得へ渡す。DetailJobMessage には Cookie を載せない（キューへ秘匿値を残さない・§8）。
+	// id はアカウント固有のため、フォーク先が `wrangler kv namespace create ai-job-rating-auth-cookies`
+	// で発行した値に差し替える（フォーク容易性 §8）。ローカル開発・テストでは miniflare が in-memory KV を与える。
+	"kv_namespaces": [
+		{
+			"binding": "AUTH_COOKIES",
+			"id": "00000000000000000000000000000000"
+		}
 	]
 }

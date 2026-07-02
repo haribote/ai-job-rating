@@ -14,7 +14,7 @@ Cloudflare Workers 単体（Hono + 静的資産）で動くセルフホスト前
 - **wrangler** 
   - `npx wrangler ...` で実行できます。初回は `npx wrangler login` で認証します。
 
-Workers AI / D1 / R2 / Queues / Browser Rendering の各バインディングは `wrangler.jsonc` に定義済みです。フォーク先で手編集が必要なのは **D1 の `database_id` 1 箇所のみ**です（後述）。
+Workers AI / D1 / R2 / KV / Queues / Browser Rendering の各バインディングは `wrangler.jsonc` に定義済みです。フォーク先で手編集が必要なのは **D1 の `database_id` と KV の `id` の 2 箇所**です（後述）。
 
 ## ローカル開発
 
@@ -25,7 +25,7 @@ npx wrangler d1 migrations apply ai-job-rating --local
 npm run dev
 ```
 
-`http://localhost:8787` で起動します。ローカル開発では miniflare が D1 / R2 / Queues / Browser を疑似提供するため、Cloudflare 上のリソース作成は不要です。
+`http://localhost:8787` で起動します。ローカル開発では miniflare が D1 / R2 / KV / Queues / Browser を疑似提供するため、Cloudflare 上のリソース作成は不要です。
 
 > `.npmrc` で `ignore-scripts=true`（サプライチェーン防御）を設定しているため、依存の postinstall は実行されません。本プロジェクトは postinstall に依存しません。
 
@@ -40,14 +40,18 @@ npm run dev
 npx wrangler d1 create ai-job-rating
 # R2（生 HTML 保存）
 npx wrangler r2 bucket create ai-job-rating-raw-html
+# KV（認証下の一覧→詳細を通す Cookie ストア・#190）。出力される id を手順 2 で使う
+npx wrangler kv namespace create ai-job-rating-auth-cookies
 # Queues（複数ページの非同期取得 + DLQ）
 npx wrangler queues create ai-job-rating-details
 npx wrangler queues create ai-job-rating-details-dlq
 ```
 
-### 2. `database_id` を差し替え
+### 2. `database_id` と KV `id` を差し替え
 
 手順 1 の `wrangler d1 create` が出力した `database_id`（`Created your new D1 database ...` に続けて表示される）を、`wrangler.jsonc` の D1 設定にある placeholder `00000000-0000-0000-0000-000000000000` と置き換えてください。
+
+同様に `wrangler kv namespace create` が出力した `id` を、`wrangler.jsonc` の `kv_namespaces` にある placeholder `00000000000000000000000000000000` と置き換えてください。
 
 ### 3. リモート D1 へマイグレーション適用
 

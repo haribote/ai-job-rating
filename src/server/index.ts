@@ -6,6 +6,7 @@ import {
 	type ProcessDetailDeps,
 	processDetailBatch,
 } from "./queue/detail-queue";
+import { resolveJobCookie } from "./storage/cookie-store";
 import { ingestJob } from "./storage/ingest";
 
 // consumer(#24) が 1 詳細ジョブを処理するための deps を env から束ねる。
@@ -15,10 +16,15 @@ import { ingestJob } from "./storage/ingest";
 function buildProcessDeps(env: Bindings): ProcessDetailDeps {
 	return {
 		process: async (job: DetailJobMessage) => {
+			// 認証下の一覧から enqueue された詳細ジョブは、同期投入時に保存した Cookie を origin 単位で読み出して
+			// 認証下取得する（#190）。未保存/TTL 失効/cross-origin は undefined になり中立取得へ倒れる。
+			// Cookie はキューメッセージに載せず（DetailJobMessage 不変）、ストア（KV）からのみ引く（§8 最小保持）。
+			const cookie = await resolveJobCookie(env.AUTH_COOKIES, job.url);
 			// SSR で本文が取れれば BR を呼ばず、未描画 SPA シェルのときだけ env.BROWSER で BR へフォールバックする
 			// （BR 呼出を必要最小に・コスト最小化, #115）。transient/504 はバックオフ再試行で吸収する。
 			const { html } = await fetchWithStrategy(job.url, {
 				browser: env.BROWSER,
+				cookie,
 			});
 			// 取得した詳細 HTML を取込→永続化する（同期経路 /fetch と同じ ingestJob を共有）。
 			// 失敗時は ingestJob 内で extraction_status=failed として保存され、例外は呼び出し元

@@ -47,6 +47,11 @@ import { parseReputationSourceInput } from "./reputation-config";
 import { readRanking } from "./scoring/ranking";
 import { getCompanyById } from "./storage/companies-store";
 import {
+	deleteAllCookies,
+	deleteCookie,
+	resolveAuthCookieTtlSeconds,
+} from "./storage/cookie-store";
+import {
 	deleteReputationSource,
 	listReputationSources,
 	ReputationStoreError,
@@ -68,6 +73,11 @@ export interface Bindings {
 	DB: D1Database;
 	// R2 バインディング（wrangler.jsonc の r2_buckets.binding と一致, §6）。生 HTML 等の保存に使う（#17）
 	RAW_HTML: R2Bucket;
+	// KV バインディング（wrangler.jsonc の kv_namespaces.binding と一致, §6）。認証下の一覧→詳細を通す
+	// 単一テナント Cookie ストア（origin 単位・TTL 失効・#190）。同期投入時に書き込み、キュー consumer が読む。
+	AUTH_COOKIES: KVNamespace;
+	// 認証下 Cookie ストアの TTL 上書き（秒・#190）。未設定/不正はコード既定へフォールバックする（§8）。
+	AUTH_COOKIE_TTL_SECONDS?: string;
 	// 抽出モデル ID の上書き（wrangler.jsonc の vars.EXTRACTION_MODEL / .dev.vars, §7.1 / #106）。
 	// 未設定なら extract.ts の resolveExtractionModel がコード既定へフォールバックする（フォーク容易性 §8）。
 	EXTRACTION_MODEL?: string;
@@ -159,6 +169,12 @@ app.post("/api/jobs", async (c) => {
 				model: c.env.EXTRACTION_MODEL,
 				// 認証下 SPA を BR で認証下レンダリングするため binding を渡す（#189）。
 				browser: c.env.BROWSER,
+				// 認証下の一覧なら Cookie を origin 単位でストアへ保存し、enqueue された詳細ジョブの
+				// consumer 経路が同一 origin で読み出せるようにする（#190）。
+				cookieStore: c.env.AUTH_COOKIES,
+				cookieTtlSeconds: resolveAuthCookieTtlSeconds(
+					c.env.AUTH_COOKIE_TTL_SECONDS,
+				),
 			},
 			validated.url,
 			{ cookie },
@@ -546,6 +562,18 @@ app.post("/api/_eval-models", async (c) => {
 		makeExtractor,
 	);
 	return c.json(selection, 200);
+});
+
+// 認証下 Cookie ストアの明示削除（cleanup 導線・#190）。TTL 失効を待たず投入 Cookie を破棄できる。
+// - ?url= 指定時はその origin 1 件だけ削除、未指定は単一テナント前提で全消し。
+// - Cookie 値は一切返さない（削除件数のみ・§8 最小保持）。
+app.delete("/api/auth/cookies", async (c) => {
+	const url = c.req.query("url");
+	const count =
+		url !== undefined
+			? await deleteCookie(c.env.AUTH_COOKIES, url)
+			: await deleteAllCookies(c.env.AUTH_COOKIES);
+	return c.json({ status: "deleted", count }, 200);
 });
 
 // API ルートに該当しない GET は静的資産（SPA）へフォールスルーする。
