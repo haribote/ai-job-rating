@@ -22,6 +22,7 @@ import type {
 	RenderedPage,
 } from "./render-html";
 import { DEFAULT_REPUTATION_WEIGHT_CONFIG } from "./scoring/reputation-score";
+import type { CookieKv } from "./storage/cookie-store";
 import { TABLE_NAMES, TOTAL_SCORE_CRITERION } from "./storage/db-schema";
 
 // 詳細経路のテストはキューを使わない。投入を握り潰す no-op キュー。
@@ -539,5 +540,115 @@ describe("reextractJob", () => {
 			.bind(jobId)
 			.first<{ n: number }>();
 		expect(ext?.n).toBe(2);
+	});
+});
+
+// 認証下の一覧→詳細を通す単一テナント Cookie ストアへの書き込み配線（#190）。
+// 一覧を Cookie 付きで投入したとき、enqueue される詳細ジョブが consumer 経路で認証下取得できるよう、
+// origin 単位で Cookie をストアへ保存する。書き込みは「これから詳細ジョブが enqueue される」list 分岐に絞る。
+describe("ingestFromUrl（Cookie ストアへの保存・#190）", () => {
+	// put 呼び出しを記録する CookieKv モック（実 KV は使わず配線だけ検証する）。
+	function makeSpyStore(): {
+		store: CookieKv;
+		puts: { key: string; value: string; ttl?: number }[];
+	} {
+		const puts: { key: string; value: string; ttl?: number }[] = [];
+		const store: CookieKv = {
+			get: async () => null,
+			put: async (key, value, options) => {
+				puts.push({ key, value, ttl: options?.expirationTtl });
+			},
+			delete: async () => {},
+			list: async () => ({ keys: [], list_complete: true }),
+		};
+		return { store, puts };
+	}
+
+	const listFetcher: Fetcher = async () =>
+		new Response(
+			'<a href="/jobs/1">A</a><a href="/jobs/2">B</a><a href="/jobs/3">C</a>',
+			{ status: 200 },
+		);
+
+	it("一覧＋cookie 非空は origin キーで Cookie を保存する（TTL 付き）", async () => {
+		const { store, puts } = makeSpyStore();
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher: listFetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+				cookieStore: store,
+				cookieTtlSeconds: 21600,
+			},
+			"https://example.com/jobs",
+			{ cookie: "session=abc123" },
+		);
+		expect(result).toEqual({ kind: "list", count: 3 });
+		expect(puts).toEqual([
+			{
+				key: "auth-cookie:https://example.com",
+				value: "session=abc123",
+				ttl: 21600,
+			},
+		]);
+	});
+
+	it("詳細 URL では保存しない（sync 完結でストア不要）", async () => {
+		const { store, puts } = makeSpyStore();
+		const fetcher: Fetcher = async () =>
+			new Response("<p>年収 700万〜900万</p>", { status: 200 });
+		await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+				cookieStore: store,
+				cookieTtlSeconds: 21600,
+			},
+			"https://example.com/jobs/1",
+			{ cookie: "session=abc123" },
+		);
+		expect(puts).toEqual([]);
+	});
+
+	it("cookie なしの一覧では保存しない", async () => {
+		const { store, puts } = makeSpyStore();
+		await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher: listFetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+				cookieStore: store,
+				cookieTtlSeconds: 21600,
+			},
+			"https://example.com/jobs",
+		);
+		expect(puts).toEqual([]);
+	});
+
+	it("取得失敗時は保存しない（認証失敗 Cookie を残さない）", async () => {
+		const { store, puts } = makeSpyStore();
+		const fetcher: Fetcher = async () => new Response("no", { status: 401 });
+		const result = await ingestFromUrl(
+			{
+				ai: fakeAi,
+				fetcher,
+				db: env.DB,
+				bucket: env.RAW_HTML,
+				queue: noopQueue,
+				cookieStore: store,
+				cookieTtlSeconds: 21600,
+			},
+			"https://example.com/jobs",
+			{ cookie: "session=abc123" },
+		);
+		expect(result.kind).toBe("auth-error");
+		expect(puts).toEqual([]);
 	});
 });

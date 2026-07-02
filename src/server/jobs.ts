@@ -30,6 +30,11 @@ import {
 	resolveReputationContribution,
 } from "./scoring/reputation-score";
 import {
+	type CookieKv,
+	DEFAULT_AUTH_COOKIE_TTL_SECONDS,
+	saveCookie,
+} from "./storage/cookie-store";
+import {
 	type CriteriaConfigRow,
 	type ExtractionStatus,
 	type HardFilter,
@@ -104,6 +109,11 @@ export interface IngestDeps {
 	browser?: unknown;
 	// テスト用にブラウザ起動を差し替える（render-html の DI）。未指定時は実 @cloudflare/puppeteer。
 	renderLaunch?: BrowserLauncher;
+	// 認証下 Cookie ストア（env.AUTH_COOKIES・#190）。一覧を Cookie 付きで投入したとき origin 単位で保存し、
+	// キュー consumer が同一 origin の詳細取得時に読み出せるようにする。未指定なら保存しない（後方互換）。
+	cookieStore?: CookieKv;
+	// 保存 Cookie の TTL（秒・#190）。handler が resolveAuthCookieTtlSeconds(env.AUTH_COOKIE_TTL_SECONDS) を渡す。
+	cookieTtlSeconds?: number;
 }
 
 // 取得失敗の種別。上流取得の失敗（502 相当）として呼び出し側へ返す。
@@ -167,6 +177,21 @@ export async function ingestFromUrl(
 	// 詳細はその場で取込→永続化する。
 	const classification = classifyPage(html, url);
 	if (classification.kind === "list") {
+		// 認証下の一覧なら、enqueue される詳細ジョブが consumer 経路で認証下取得できるよう Cookie を保存する（#190）。
+		// 取得成功後に書くので、認証失敗した Cookie は保存されない（fetchAuthedHtml が auth-error で先に返す）。
+		// 書き込みは詳細ジョブが実際に enqueue される list 分岐に絞る（purpose-driven・最小保持）。
+		if (
+			deps.cookieStore &&
+			options.cookie !== undefined &&
+			options.cookie !== ""
+		) {
+			await saveCookie(
+				deps.cookieStore,
+				url,
+				options.cookie,
+				deps.cookieTtlSeconds ?? DEFAULT_AUTH_COOKIE_TTL_SECONDS,
+			);
+		}
 		const count = await enqueueDetailJobs(deps.queue, classification, url);
 		return { kind: "list", count };
 	}
