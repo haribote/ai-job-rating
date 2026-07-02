@@ -10,11 +10,11 @@ import {
 	surfaceTokens,
 	toRootCssVars,
 	toTailwindTheme,
-	toThemeColors,
+	toThemeColorVars,
 	typographyTokens,
 } from "./design-tokens";
 
-// hex → RGB チャンネル。Tailwind の <alpha-value> 合成で使う決定的変換。
+// hex → RGB チャンネル。v4 の @theme（rgb(var(--x))）と color-mix opacity で使う決定的変換。
 describe("hexToRgbChannels", () => {
 	it("6桁 hex を 10進チャンネル文字列に変換する", () => {
 		expect(hexToRgbChannels("#ffffff")).toBe("255 255 255");
@@ -71,18 +71,19 @@ describe("toRootCssVars", () => {
 	});
 });
 
-describe("toThemeColors", () => {
-	it("各色は対応する CSS 変数を <alpha-value> 付きで参照する", () => {
-		const colors = toThemeColors();
-		expect(colors.background).toBe("rgb(var(--background) / <alpha-value>)");
-		expect(colors.primary).toBe("rgb(var(--primary) / <alpha-value>)");
-		expect(colors["chart-1"]).toBe("rgb(var(--chart-1) / <alpha-value>)");
-		expect(colors["medal-gold"]).toBe("rgb(var(--medal-gold) / <alpha-value>)");
+// v4 の @theme 用色トークン。値は :root（RGB チャンネル）を rgb() で束ねて参照する（#132）。
+describe("toThemeColorVars", () => {
+	it("各色は --color-<name> を対応する :root 変数へ rgb() で束ねる", () => {
+		const vars = toThemeColorVars();
+		expect(vars["--color-background"]).toBe("rgb(var(--background))");
+		expect(vars["--color-primary"]).toBe("rgb(var(--primary))");
+		expect(vars["--color-chart-1"]).toBe("rgb(var(--chart-1))");
+		expect(vars["--color-medal-gold"]).toBe("rgb(var(--medal-gold))");
 	});
 
 	it("参照する全変数が toRootCssVars に宣言済み（名前タイポ検出）", () => {
 		const declared = new Set(Object.keys(toRootCssVars()));
-		const referenced = Object.values(toThemeColors()).map(
+		const referenced = Object.values(toThemeColorVars()).map(
 			(v) => `--${/var\(--([\w-]+)/.exec(v)?.[1]}`,
 		);
 		const undeclared = referenced.filter((name) => !declared.has(name));
@@ -96,12 +97,12 @@ describe("toThemeColors", () => {
 	});
 });
 
-// Tailwind theme.extend がトークンを単一ソースとして供給することを担保する。
+// Tailwind theme.extend がトークンを単一ソースとして供給することを担保する（色は @theme が担当）。
 describe("toTailwindTheme", () => {
 	const theme = toTailwindTheme();
 
-	it("colors は toThemeColors と一致する", () => {
-		expect(theme.colors).toEqual(toThemeColors());
+	it("色は theme に含めない（v4 は globals.css の @theme で登録する）", () => {
+		expect("colors" in theme).toBe(false);
 	});
 
 	it("フォントファミリ・サイズはタイポグラフィトークン由来", () => {

@@ -177,19 +177,22 @@ export function toRootCssVars(): Record<string, string> {
 	return vars;
 }
 
-// Tailwind theme の colors。各色は対応する CSS 変数を `<alpha-value>` 付きで参照する。
-export function toThemeColors(): Record<string, string> {
-	const colors: Record<string, string> = {};
+// v4 の @theme に登録する色トークン名 → 参照する :root 変数の対応（--color-<name>: rgb(var(--<name>))）。
+// 色の登録は globals.css の `@theme`（非 inline）が行う（v4 は @theme の色にのみ opacity modifier を
+// color-mix で適用し、JS config の theme.colors では var() ベース色の modifier を無視するため, #132）。
+// 本関数は単一ソースの名前集合を可視化し、globals.css の @theme と照合するための基準を与える。
+export function toThemeColorVars(): Record<string, string> {
+	const vars: Record<string, string> = {};
 	for (const name of Object.keys(shadcnColorMap)) {
-		colors[name] = `rgb(var(--${name}) / <alpha-value>)`;
+		vars[`--color-${name}`] = `rgb(var(--${name}))`;
 	}
 	for (const name of Object.keys(chartColorMap)) {
-		colors[name] = `rgb(var(--${name}) / <alpha-value>)`;
+		vars[`--color-${name}`] = `rgb(var(--${name}))`;
 	}
 	for (const name of Object.keys(medalColorMap)) {
-		colors[name] = `rgb(var(--${name}) / <alpha-value>)`;
+		vars[`--color-${name}`] = `rgb(var(--${name}))`;
 	}
-	return colors;
+	return vars;
 }
 
 // Tailwind の spacing キーはプレフィックス無し（p-4 等）。`space-4` → `4` に正規化する。
@@ -204,7 +207,8 @@ function toSpacingScale(): Record<string, string> {
 // tailwind.config.ts の `theme.extend` にそのまま渡せる形へトークンを供給する（単一ソース）。
 export function toTailwindTheme() {
 	return {
-		colors: toThemeColors(),
+		// 色は globals.css の `@theme`（非 inline）が登録する（v4 の opacity modifier 対応, #132）。
+		// ここでは色以外の theme（タイポグラフィ・間隔・角丸等）のみを供給する。
 		fontFamily: {
 			sans: typographyTokens["font-sans"],
 			mono: typographyTokens["font-mono"],

@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -12,7 +13,7 @@ import { defineConfig } from "vite";
 //   毎ビルドで emptyOutDir=true により一掃し、ハッシュ付き古い asset の残留を防ぐ。
 // - publicDir は既定で "public" だが outDir と同一になり衝突するため無効化する。
 export default defineConfig({
-	plugins: [react()],
+	plugins: [react(), tailwindcss()],
 	publicDir: false,
 	resolve: {
 		// shadcn 規約のパスエイリアス（@/components, @/lib 等）。tsconfig.client.json の paths と一致させる。

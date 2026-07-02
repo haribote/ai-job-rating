@@ -1,11 +1,51 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+/* shadcn overlay 系アニメーション（animate-in / fade / zoom / slide）。v4 では JS プラグイン
+ * tailwindcss-animate ではなく CSS 版 tw-animate-css を使う（#132）。 */
+@import "tw-animate-css";
+/* design-tokens.ts を単一ソースとする JS 設定を v4 でも明示ロードする。v4 は JS config を
+ * 自動検出しないため @config が必須（theme / :root 注入プラグイン / darkMode を継続, #97 / #132）。 */
+@config "../../../tailwind.config.ts";
 
 /*
- * shadcn の意味カラー（:root の CSS 変数）は design-tokens.ts から tailwind.config.ts の
- * base プラグイン経由で注入される（ここに値を直書きしない＝単一ソース性, #97）。
+ * v4 の色トークン登録（@theme）。
+ * 値の単一ソースは design-tokens.ts で、色チャンネル（"R G B"）を :root 変数（--primary 等）へ
+ * base プラグイン経由で注入する（ここに値を直書きしない, #97）。ここでは名前 → その :root 変数の
+ * 参照のみを登録する。@theme に載せることで opacity modifier（bg-primary/90 等）が color-mix で
+ * 合成される（v4 は JS config の theme.colors では var() ベース色の modifier を無視するため, #132）。
+ * `inline` は付けない: inline 展開すると modifier が無視され full opacity になる。非 inline なら
+ * v4 が --color-<name> を経由して color-mix を生成する（実測で確認, #132）。
+ * 変数名は toRootCssVars() が注入するキーと一致させる（不一致は未解決 var として描画に現れる）。
  */
+@theme {
+	--color-background: rgb(var(--background));
+	--color-foreground: rgb(var(--foreground));
+	--color-card: rgb(var(--card));
+	--color-card-foreground: rgb(var(--card-foreground));
+	--color-popover: rgb(var(--popover));
+	--color-popover-foreground: rgb(var(--popover-foreground));
+	--color-primary: rgb(var(--primary));
+	--color-primary-foreground: rgb(var(--primary-foreground));
+	--color-secondary: rgb(var(--secondary));
+	--color-secondary-foreground: rgb(var(--secondary-foreground));
+	--color-muted: rgb(var(--muted));
+	--color-muted-foreground: rgb(var(--muted-foreground));
+	--color-accent: rgb(var(--accent));
+	--color-accent-foreground: rgb(var(--accent-foreground));
+	--color-destructive: rgb(var(--destructive));
+	--color-destructive-foreground: rgb(var(--destructive-foreground));
+	--color-border: rgb(var(--border));
+	--color-input: rgb(var(--input));
+	--color-ring: rgb(var(--ring));
+	--color-chart-1: rgb(var(--chart-1));
+	--color-chart-2: rgb(var(--chart-2));
+	--color-chart-3: rgb(var(--chart-3));
+	--color-chart-4: rgb(var(--chart-4));
+	--color-chart-5: rgb(var(--chart-5));
+	--color-medal-gold: rgb(var(--medal-gold));
+	--color-medal-silver: rgb(var(--medal-silver));
+	--color-medal-bronze: rgb(var(--medal-bronze));
+}
+
 @layer base {
 	* {
 		@apply border-border;
