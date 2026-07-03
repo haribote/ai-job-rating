@@ -2,6 +2,7 @@ import type {
 	RankingItem,
 	RankingResponse,
 } from "../../src/client/lib/useRanking";
+import { CATEGORY_KEYS, type CategoryKey } from "../../src/shared/categories";
 
 // @screenshot テスト専用のモックランキングデータ（#204）。
 //
@@ -11,6 +12,10 @@ import type {
 // - RankingCard は現状 PLACEHOLDER_SCORES（全軸 null）を常時使うため（#202 未実装）、ここで
 //   軸別スコアを持たせても レーダーの頂点には反映されない。よってレーダーは現状のプレースホルダ
 //   描画を確認する用途に留める（本 fixture のスコープ外は #202 マージ後の follow-up）。
+
+const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
+	CATEGORY_KEYS.map((key) => [key, null]),
+) as Record<CategoryKey, number | null>;
 
 function job(
 	overrides: Partial<RankingItem> & Pick<RankingItem, "jobId">,
@@ -24,6 +29,7 @@ function job(
 		total: overrides.total ?? null,
 		status: overrides.status ?? "ok",
 		rejectedBy: overrides.rejectedBy ?? null,
+		categoryScores: overrides.categoryScores ?? NEUTRAL_CATEGORY_SCORES,
 	};
 }
 
