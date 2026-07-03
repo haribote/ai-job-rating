@@ -166,6 +166,9 @@ describe("D1 スキーマ", () => {
 	});
 
 	it("criteria_config の不正な hard_filter を CHECK 制約で拒否する", async () => {
+		// #198 の seed migration により overtime は既定行を持つため、PRIMARY KEY 制約ではなく
+		// 本来検証したい CHECK 制約違反であることを確定させるために一度クリアする。
+		await env.DB.prepare("DELETE FROM criteria_config").run();
 		await expect(
 			env.DB.prepare(
 				"INSERT INTO criteria_config (criterion, hard_filter) VALUES ('overtime','bogus')",
