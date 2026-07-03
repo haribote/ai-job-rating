@@ -147,6 +147,8 @@ describe("D1 スキーマ", () => {
 	});
 
 	it("criteria_config は正規キーを主キーに重み・ハードフィルタを保持する（#20）", async () => {
+		// #198 の seed migration により annualSalary は既定行を持つため、上書き検証の前提として一度クリアする。
+		await env.DB.prepare("DELETE FROM criteria_config").run();
 		await env.DB.prepare(
 			"INSERT INTO criteria_config (criterion, desired_value, weight, hard_filter) VALUES ('annualSalary', ?, 5, 'required')",
 		)
