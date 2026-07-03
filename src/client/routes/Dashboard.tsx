@@ -37,7 +37,8 @@ export interface DashboardProps {
 // 初期ロード時に並べる Skeleton の安定キー。確定後のカード数の目安に合わせて数件出す。
 const LOADING_SKELETON_KEYS = ["s1", "s2", "s3"];
 
-// JobDetailResponse から一覧行（RankingItem）へ寄せる。company/title は契約上まだ null（#95）。
+// JobDetailResponse から一覧行（RankingItem）へ寄せる。company/title は詳細応答の companyName/jobTitle を
+// そのまま使う（#200）。確定ランキング再取得（onJobSettled 経由）を待たず楽観的カードにも実値を表示する。
 // 軸別スコアは詳細応答の breakdown から集約する（次の /api/ranking 再取得を待たず反映・#202）。
 // reputation は渡さない: サーバ側 toRankingItem（ranking-list.ts）も breakdown のみで集約する
 // （企業評判の合流は #202 のスコープ外・follow-up #181 の課題）。ここで reputation を混ぜると
@@ -46,8 +47,8 @@ function toRankingItem(detail: JobDetailResponse): RankingItem {
 	return {
 		jobId: detail.job.jobId,
 		sourceUrl: detail.job.sourceUrl,
-		company: null,
-		title: null,
+		company: detail.job.companyName,
+		title: detail.job.jobTitle,
 		total: detail.total,
 		status: detail.extraction.status,
 		rejectedBy: null,

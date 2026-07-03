@@ -39,9 +39,15 @@ function item(over: Partial<RankingItem> = {}): RankingItem {
 }
 
 // 詳細応答の最小ダミー。job.status だけがポーリングのフェーズ判定に効く。
+// names は #200 の楽観的差し替え（PendingJob）で companyName/jobTitle が伝播するかの検証に使う。
+// reputation は #202 の軸別スコア集約（reputation を混ぜない）検証に使う。
 function detail(
 	status: string,
-	over: Partial<JobDetailResponse> = {},
+	over: {
+		reputation?: JobDetailResponse["reputation"];
+		companyName?: string | null;
+		jobTitle?: string | null;
+	} = {},
 ): JobDetailResponse {
 	return {
 		job: {
@@ -50,8 +56,8 @@ function detail(
 			sourceType: "detail",
 			status,
 			fetchedAt: 0,
-			companyName: null,
-			jobTitle: null,
+			companyName: over.companyName ?? null,
+			jobTitle: over.jobTitle ?? null,
 		},
 		extraction: {
 			status: "ok",
@@ -62,7 +68,7 @@ function detail(
 		},
 		total: 0.8,
 		breakdown: [],
-		...over,
+		reputation: over.reputation,
 	};
 }
 
@@ -133,6 +139,27 @@ describe("Dashboard", () => {
 
 		expect(await screen.findByTestId("pending-skeleton")).toBeInTheDocument();
 		expect(await screen.findByTestId("pending-card")).toBeInTheDocument();
+	});
+
+	// #200: 投入直後の楽観的カードも、確定ランキング再取得を待たず company/title を表示する。
+	it("投入中の求人が scored になったら companyName/jobTitle をカードへ反映する", async () => {
+		const jobStatusFetcher = vi.fn().mockResolvedValue(
+			detail("scored", {
+				companyName: "株式会社サンプル",
+				jobTitle: "バックエンドエンジニア",
+			}),
+		);
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+			/>,
+		);
+
+		const card = await screen.findByTestId("pending-card");
+		expect(card).toHaveTextContent("バックエンドエンジニア");
 	});
 
 	it("投入中の求人が終端に達したら onJobSettled を一度だけ通知する", async () => {
