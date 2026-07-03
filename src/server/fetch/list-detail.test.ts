@@ -173,4 +173,44 @@ describe("classifyPage", () => {
 		const result = classifyPage(html, base);
 		expect(result.kind).toBe("detail");
 	});
+
+	// 認証必須マイページ等の常設ナビゲーションは、相互に無関係な単一セグメントの別ページへの
+	// リンクが複数並ぶ（親パスが "/" で共通の一覧構造を持たない）。これを詳細リンク数だけで
+	// 一覧と誤判定すると、認証下の詳細ページ全てが一覧扱いになってしまう（実サイト live 検証で発覚, #193）。
+	it("親パスを共有しないナビゲーションリンクが複数あっても detail と判定する", () => {
+		const detailBase = "https://mypage.example.com/recruits/100833";
+		const html = `
+			<nav>
+				<a href="/home">ホーム</a>
+				<a href="/documents">書類</a>
+				<a href="/todo">やることリスト</a>
+				<a href="/faq">よくある質問</a>
+			</nav>
+			<h1>ソフトウェアエンジニア募集</h1>
+		`;
+		const result = classifyPage(html, detailBase);
+		expect(result.kind).toBe("detail");
+	});
+
+	// 一覧ページ自身が常設ナビゲーションを併せ持っていても、親パスを共有する求人リンク群
+	// （同一 group）だけが detailUrls として抽出され、無関係なナビゲーションリンクは含まれない。
+	it("ナビゲーションと求人リンクが混在しても親パスを共有する求人リンクのみ抽出する", () => {
+		const listBase = "https://mypage.example.com/recruits/considering";
+		const html = `
+			<nav>
+				<a href="/home">ホーム</a>
+				<a href="/documents">書類</a>
+			</nav>
+			<a href="/recruits/100833">求人A</a>
+			<a href="/recruits/100834">求人B</a>
+		`;
+		const result = classifyPage(html, listBase);
+		expect(result.kind).toBe("list");
+		if (result.kind === "list") {
+			expect(result.detailUrls).toEqual([
+				"https://mypage.example.com/recruits/100833",
+				"https://mypage.example.com/recruits/100834",
+			]);
+		}
+	});
 });

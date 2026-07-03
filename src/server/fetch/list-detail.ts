@@ -99,15 +99,45 @@ export function extractDetailUrls(html: string, baseUrl: string): string[] {
 	return urls;
 }
 
+// 詳細リンクの「親パス」を返す（末尾セグメントを除いた部分）。認証必須マイページ等の常設
+// ナビゲーションは相互に無関係な単一セグメントの別ページ（親パスがルート "/"）を並べるだけで、
+// 一覧ページのように同じ親パスを共有する詳細リンク群（例: /recruits/1, /recruits/2）にはならない。
+// 親がルートのリンクは一覧構造の兄弟とみなせないためグループ化対象外（null）にする。
+function siblingGroupKey(url: string): string | null {
+	const { pathname } = new URL(url);
+	const trimmed = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+	const lastSlash = trimmed.lastIndexOf("/");
+	if (lastSlash <= 0) {
+		return null;
+	}
+	return trimmed.slice(0, lastSlash + 1);
+}
+
 // 一覧/詳細をヒューリスティックで判定する。
-// 同一オリジン詳細リンクが閾値以上なら一覧（その URL 群を返す）、未満なら詳細とみなす。
+// 同一オリジン詳細リンクのうち、親パスを共有する（＝一覧の兄弟リンクらしい）ものが
+// 閾値以上のグループがあれば一覧（そのグループの URL 群を返す）。無関係なナビゲーション
+// リンクが複数あるだけでは一覧と判定しない（#193 live 検証で発覚した誤判定の是正）。
 export function classifyPage(
 	html: string,
 	baseUrl: string,
 ): PageClassification {
 	const detailUrls = extractDetailUrls(html, baseUrl);
-	if (detailUrls.length >= LIST_THRESHOLD) {
-		return { kind: "list", detailUrls };
+	const groupSizes = new Map<string, number>();
+	const groupKeyOf = new Map<string, string>();
+	for (const url of detailUrls) {
+		const key = siblingGroupKey(url);
+		if (key === null) {
+			continue;
+		}
+		groupKeyOf.set(url, key);
+		groupSizes.set(key, (groupSizes.get(key) ?? 0) + 1);
+	}
+	const listUrls = detailUrls.filter((url) => {
+		const key = groupKeyOf.get(url);
+		return key !== undefined && (groupSizes.get(key) ?? 0) >= LIST_THRESHOLD;
+	});
+	if (listUrls.length > 0) {
+		return { kind: "list", detailUrls: listUrls };
 	}
 	return { kind: "detail" };
 }
