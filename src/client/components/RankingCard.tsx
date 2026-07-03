@@ -45,7 +45,8 @@ export function RankingCard({
 	testId = "ranking-card",
 	className,
 }: RankingCardProps): JSX.Element {
-	// company/title は契約上まだ null（#95）。暫定で sourceUrl をタイトル代替にする。
+	// 職種タイトル→会社名の順で優先表示し、抽出できなかった求人（両方 null）は
+	// sourceUrl へフォールバックする（#200）。
 	const heading = item.title ?? item.company ?? item.sourceUrl;
 
 	return (

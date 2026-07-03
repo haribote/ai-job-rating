@@ -12,6 +12,8 @@ function detail(status: string): JobDetailResponse {
 			sourceType: "detail",
 			status,
 			fetchedAt: 0,
+			companyName: null,
+			jobTitle: null,
 		},
 		extraction: {
 			status: "ok",

@@ -85,10 +85,12 @@ describe("buildExtractionJsonSchema", () => {
 		}
 	});
 
-	it("正規スキーマ外のキーを含まない（ラベル正規化の責務をコードに保つ）", () => {
+	it("正規スキーマ外は companyName/jobTitle（自由記述・#200）のみを含む（ラベル正規化の責務をコードに保つ）", () => {
 		const schema = buildExtractionJsonSchema();
 		const props = Object.keys(schema.properties);
-		expect(props.sort()).toEqual([...NORMALIZED_KEYS].sort());
+		expect(props.sort()).toEqual(
+			[...NORMALIZED_KEYS, "companyName", "jobTitle"].sort(),
+		);
 	});
 
 	// #88: 構造的に誤りやすいキーは「何を抜き出すか」を description で明示し曖昧さを潰す。
@@ -863,6 +865,59 @@ describe("extractJob", () => {
 		expect(typeof result.model).toBe("string");
 		expect(typeof result.extractedAt).toBe("string");
 	});
+
+	// #200: companyName/jobTitle は表示専用の自由記述。NORMALIZED_KEYS の正規化（rawToFieldValue）を
+	// 通さず素の文字列で保持し、NormalizedJob には一切含めない（抽出↔スコアリング分離・§5.3）。
+	it("companyName/jobTitle を自由記述として抽出し NormalizedJob には含めない", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				response: {
+					companyName: "株式会社サンプル",
+					jobTitle: "バックエンドエンジニア",
+				},
+			}),
+		};
+
+		const result = await extractJob(fakeAi, "求人本文");
+
+		expect(result.companyName).toBe("株式会社サンプル");
+		expect(result.jobTitle).toBe("バックエンドエンジニア");
+		// NormalizedJob 側のキー集合に companyName/jobTitle が紛れ込んでいないことを実行時にも確認。
+		expect(Object.keys(result.job)).not.toContain("companyName");
+		expect(Object.keys(result.job)).not.toContain("jobTitle");
+	});
+
+	it("companyName/jobTitle が未記載（-）や空文字なら null にする", async () => {
+		const fakeAi: AiRunner = {
+			run: async () => ({
+				response: { companyName: "-", jobTitle: "" },
+			}),
+		};
+
+		const result = await extractJob(fakeAi, "求人本文");
+
+		expect(result.companyName).toBeNull();
+		expect(result.jobTitle).toBeNull();
+	});
+
+	it("空本文・抽出失敗時も companyName/jobTitle は null", async () => {
+		const emptyResult = await extractJob(
+			{ run: async () => ({ response: {} }) },
+			"",
+		);
+		expect(emptyResult.companyName).toBeNull();
+		expect(emptyResult.jobTitle).toBeNull();
+
+		const failedAi: AiRunner = {
+			run: async () => {
+				throw new Error("invalid request");
+			},
+		};
+		const failedResult = await extractJob(failedAi, "本文", { backoffMs: 0 });
+		expect(failedResult.status).toBe("extraction_failed");
+		expect(failedResult.companyName).toBeNull();
+		expect(failedResult.jobTitle).toBeNull();
+	});
 });
 
 // 抽出↔スコアリングの正規化統合（#59）。抽出側の正規化が DEFAULT_SCORING_CONFIG の
@@ -941,6 +996,16 @@ describe("buildExtractionTool", () => {
 			expect(tool.parameters.properties[key]?.type).toBe("string");
 			expect(tool.parameters.required).toContain(key);
 		}
+	});
+
+	// #200: companyName/jobTitle は自由記述・開集合のため required に含めない
+	// （抽出できなくても全体を失敗させない）。
+	it("companyName/jobTitle は properties に持つが required には含めない", () => {
+		const tool = buildExtractionTool();
+		expect(tool.parameters.properties.companyName?.type).toBe("string");
+		expect(tool.parameters.properties.jobTitle?.type).toBe("string");
+		expect(tool.parameters.required).not.toContain("companyName");
+		expect(tool.parameters.required).not.toContain("jobTitle");
 	});
 });
 

@@ -229,6 +229,9 @@ export interface JobDetailMeta {
 	readonly sourceType: JobSourceType;
 	readonly status: JobStatus;
 	readonly fetchedAt: number;
+	// 会社名・職種タイトル（表示専用・#200）。extractions の並列カラム由来、抽出できなければ null。
+	readonly companyName: string | null;
+	readonly jobTitle: string | null;
 }
 
 // 詳細レスポンスの抽出メタ＋正規化済み求人。
@@ -310,7 +313,7 @@ export async function readJobDetail(
 	// 最新抽出（extracted_at 最大・同値は id 最大）を 1 件に畳む。
 	const extractionRow = await db
 		.prepare(
-			`SELECT structured_json, model, mechanism, extraction_status, extracted_at
+			`SELECT structured_json, model, mechanism, extraction_status, extracted_at, company_name, job_title
 			 FROM ${TABLE_NAMES.extractions}
 			 WHERE job_id = ?
 			 ORDER BY extracted_at DESC, id DESC
@@ -323,6 +326,8 @@ export async function readJobDetail(
 			mechanism: string;
 			extraction_status: ExtractionStatus;
 			extracted_at: number;
+			company_name: string | null;
+			job_title: string | null;
 		}>();
 	if (extractionRow === null) return null;
 	const structured = JSON.parse(extractionRow.structured_json) as NormalizedJob;
@@ -415,6 +420,8 @@ export async function readJobDetail(
 			sourceType: jobRow.source_type,
 			status: jobRow.status,
 			fetchedAt: jobRow.fetched_at,
+			companyName: extractionRow.company_name,
+			jobTitle: extractionRow.job_title,
 		},
 		extraction: {
 			status: extractionRow.extraction_status,

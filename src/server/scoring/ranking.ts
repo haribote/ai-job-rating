@@ -35,11 +35,14 @@ import {
 import type { ScoreBreakdownRow, ScoreResult, ScoringConfig } from "./score";
 
 // 1 求人の読み出し材料（jobs + 最新抽出）。status はハードフィルタ前処理に要る（failed→全 unknown）。
+// companyName/jobTitle は表示専用の並列カラム（#200）。NormalizedJob（job）とは別に持ち回す。
 interface JobMaterial {
 	readonly jobId: string;
 	readonly sourceUrl: string;
 	readonly job: NormalizedJob;
 	readonly status: ExtractionStatus;
+	readonly companyName: string | null;
+	readonly jobTitle: string | null;
 }
 
 // jobs と最新抽出を結合して読む。最新抽出は extracted_at 最大（同値は id 最大）で 1 件に畳む。
@@ -48,7 +51,7 @@ async function readJobsWithExtraction(
 ): Promise<Map<string, JobMaterial>> {
 	const { results } = await db
 		.prepare(
-			`SELECT j.id AS job_id, j.source_url AS source_url, e.structured_json AS structured_json, e.extraction_status AS extraction_status
+			`SELECT j.id AS job_id, j.source_url AS source_url, e.structured_json AS structured_json, e.extraction_status AS extraction_status, e.company_name AS company_name, e.job_title AS job_title
 			 FROM ${TABLE_NAMES.jobs} j
 			 JOIN ${TABLE_NAMES.extractions} e ON e.id = (
 			   SELECT i.id FROM ${TABLE_NAMES.extractions} i
@@ -62,6 +65,8 @@ async function readJobsWithExtraction(
 			source_url: string;
 			structured_json: string;
 			extraction_status: ExtractionStatus;
+			company_name: string | null;
+			job_title: string | null;
 		}>();
 	const map = new Map<string, JobMaterial>();
 	for (const r of results) {
@@ -70,6 +75,8 @@ async function readJobsWithExtraction(
 			sourceUrl: r.source_url,
 			job: JSON.parse(r.structured_json) as NormalizedJob,
 			status: r.extraction_status,
+			companyName: r.company_name,
+			jobTitle: r.job_title,
 		});
 	}
 	return map;
@@ -208,5 +215,7 @@ function toView(entry: {
 		entry.material.sourceUrl,
 		entry.material.job,
 		entry.material.status,
+		entry.material.companyName,
+		entry.material.jobTitle,
 	);
 }

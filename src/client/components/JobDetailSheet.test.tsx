@@ -81,6 +81,8 @@ function detail(over: Partial<JobDetailResponse> = {}): JobDetailResponse {
 			sourceType: "detail",
 			status: "extracted",
 			fetchedAt: 0,
+			companyName: null,
+			jobTitle: null,
 		},
 		extraction: {
 			status: "ok",

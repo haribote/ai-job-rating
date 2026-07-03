@@ -47,6 +47,9 @@ export interface JobDetailMeta {
 	readonly sourceType: string;
 	readonly status: string;
 	readonly fetchedAt: number;
+	// 会社名・職種タイトル（表示専用・#200）。抽出できなければ null。
+	readonly companyName: string | null;
+	readonly jobTitle: string | null;
 }
 
 // 企業評判寄与の信頼度（サーバ ReputationConfidence と同値・#37）。

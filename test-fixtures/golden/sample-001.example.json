@@ -1,10 +1,14 @@
 {
   "name": "sample-001",
-  "html": "<article><h1>バックエンドエンジニア（サンプル）</h1><dl><dt>年収</dt><dd>700万〜900万円</dd><dt>リモート</dt><dd>フルリモート可</dd><dt>年間休日</dt><dd>125日</dd><dt>残業</dt><dd>みなし残業20時間</dd></dl></article>",
+  "html": "<article><p>サンプル株式会社</p><h1>バックエンドエンジニア（サンプル）</h1><dl><dt>年収</dt><dd>700万〜900万円</dd><dt>リモート</dt><dd>フルリモート可</dd><dt>年間休日</dt><dd>125日</dd><dt>残業</dt><dd>みなし残業20時間</dd></dl></article>",
   "expected": {
     "annualSalary": { "kind": "numericRange", "min": 700, "max": 900, "raw": "700万〜900万円" },
     "remoteWork": { "kind": "categorical", "categories": ["full"], "raw": "フルリモート可" },
     "annualHolidays": { "kind": "numericRange", "min": 125, "max": 125, "raw": "125日" },
     "overtime": { "kind": "categorical", "categories": ["みなし残業20時間"], "raw": "みなし残業20時間" }
+  },
+  "expectedPlainText": {
+    "companyName": "サンプル株式会社",
+    "jobTitle": "バックエンドエンジニア"
   }
 }

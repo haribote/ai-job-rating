@@ -33,6 +33,9 @@ export interface RankedJobView {
 	readonly breakdown: readonly RankedBreakdownRow[];
 	// ハードフィルタ除外の理由（通過した求人は null）。
 	readonly rejectedBy: HardFilterResult["rejectedBy"];
+	// 会社名・職種タイトル（表示専用・#200）。抽出できなければ null（NormalizedJob 非経由）。
+	readonly companyName: string | null;
+	readonly jobTitle: string | null;
 }
 
 // 正規キーの値から表示用の生表記を取り出す。raw が無ければ空文字。
@@ -41,13 +44,16 @@ function rawOf(job: NormalizedJob, key: NormalizedKey): string {
 	return "raw" in value && typeof value.raw === "string" ? value.raw : "";
 }
 
-// RescoredJob（#20）+ 取得元 URL + 抽出済み求人 + 抽出状態 → 表示ビュー。
+// RescoredJob（#20）+ 取得元 URL + 抽出済み求人 + 抽出状態 + 会社名/職種タイトル（#200） → 表示ビュー。
 // score/included/weight は RescoredJob 由来（= 永続 scores と同値・決定的）、raw は抽出値。
+// companyName/jobTitle は extractions の並列カラム由来でスコアリングに影響しない（そのまま透過する）。
 export function rescoredToView(
 	rescored: RescoredJob,
 	sourceUrl: string,
 	job: NormalizedJob,
 	status: ExtractionStatus,
+	companyName: string | null,
+	jobTitle: string | null,
 ): RankedJobView {
 	return {
 		jobId: rescored.jobId,
@@ -63,11 +69,13 @@ export function rescoredToView(
 			raw: rawOf(job, row.key),
 		})),
 		rejectedBy: rescored.hardFilter.rejectedBy,
+		companyName,
+		jobTitle,
 	};
 }
 
 // ランキング一覧 1 行の JSON 契約（client が消費）。一覧は軽量に保ち、項目別内訳は詳細 API に委ねる。
-// company/title は抽出スキーマ未対応のため現状 null（後続フェーズで実値化）。
+// company/title は AI 抽出の自由記述（#200）。抽出できなければ null（client は sourceUrl へフォールバック）。
 export interface RankingItem {
 	readonly jobId: string;
 	readonly sourceUrl: string;
@@ -85,8 +93,8 @@ export function toRankingItem(view: RankedJobView): RankingItem {
 	return {
 		jobId: view.jobId,
 		sourceUrl: view.sourceUrl,
-		company: null,
-		title: null,
+		company: view.companyName,
+		title: view.jobTitle,
 		total: view.total,
 		status: view.status,
 		rejectedBy: view.rejectedBy,

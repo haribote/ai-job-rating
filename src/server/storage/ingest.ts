@@ -116,8 +116,8 @@ export async function ingestJob(
 	await deps.db
 		.prepare(
 			`INSERT INTO ${TABLE_NAMES.extractions}
-			 (id, job_id, structured_json, model, mechanism, extraction_status, extracted_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			 (id, job_id, structured_json, model, mechanism, extraction_status, extracted_at, company_name, job_title)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.bind(
 			newId(),
@@ -128,6 +128,9 @@ export async function ingestJob(
 			extraction.mechanism,
 			dbStatus,
 			ts,
+			// 表示専用の並列カラム（#200）。NormalizedJob（structured_json）とは別に保存する。
+			extraction.companyName,
+			extraction.jobTitle,
 		)
 		.run();
 
