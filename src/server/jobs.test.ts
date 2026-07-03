@@ -360,16 +360,26 @@ describe("ingestFromHtml", () => {
 });
 
 describe("readJobDetail", () => {
-	async function seed(jobId: string, job: NormalizedJob): Promise<void> {
+	async function seed(
+		jobId: string,
+		job: NormalizedJob,
+		names?: { companyName?: string | null; jobTitle?: string | null },
+	): Promise<void> {
 		await env.DB.prepare(
 			"INSERT INTO jobs (id, source_url, source_type, status, fetched_at) VALUES (?, ?, 'detail', 'scored', 100)",
 		)
 			.bind(jobId, `https://example.com/${jobId}`)
 			.run();
 		await env.DB.prepare(
-			`INSERT INTO ${TABLE_NAMES.extractions} (id, job_id, structured_json, model, mechanism, extraction_status, extracted_at) VALUES (?, ?, ?, 'm', 'json-mode', 'ok', 1000)`,
+			`INSERT INTO ${TABLE_NAMES.extractions} (id, job_id, structured_json, model, mechanism, extraction_status, extracted_at, company_name, job_title) VALUES (?, ?, ?, 'm', 'json-mode', 'ok', 1000, ?, ?)`,
 		)
-			.bind(`ext-${jobId}`, jobId, JSON.stringify(job))
+			.bind(
+				`ext-${jobId}`,
+				jobId,
+				JSON.stringify(job),
+				names?.companyName ?? null,
+				names?.jobTitle ?? null,
+			)
 			.run();
 		// 総合スコア＋年収サブスコアを書く。
 		await env.DB.prepare(
@@ -505,6 +515,25 @@ describe("readJobDetail", () => {
 		// 抽出値が無いキーは情報なし（中立・分母除外）。
 		const bonus = detail.breakdown.find((b) => b.key === "bonus");
 		expect(bonus).toMatchObject({ included: false, score: null, raw: "" });
+	});
+
+	// #200: companyName/jobTitle は表示専用（NormalizedJob 非経由）。extractions の並列カラムから読む。
+	it("jobs メタに companyName/jobTitle を含める", async () => {
+		await seed("j2", jobWith({}), {
+			companyName: "株式会社サンプル",
+			jobTitle: "バックエンドエンジニア",
+		});
+		const detail = await readJobDetail(env.DB, "j2", true);
+		expect(detail?.job).toMatchObject({
+			companyName: "株式会社サンプル",
+			jobTitle: "バックエンドエンジニア",
+		});
+	});
+
+	it("抽出できていなければ companyName/jobTitle は null", async () => {
+		await seed("j3", jobWith({}));
+		const detail = await readJobDetail(env.DB, "j3", true);
+		expect(detail?.job).toMatchObject({ companyName: null, jobTitle: null });
 	});
 });
 

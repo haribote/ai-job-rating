@@ -23,7 +23,7 @@ const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
 	CATEGORY_KEYS.map((key) => [key, null]),
 ) as Record<CategoryKey, number | null>;
 
-// ランキング 1 件分の最小ダミー。company/title は契約上まだ null（#95 申し送り）。
+// ランキング 1 件分の最小ダミー。company/title は既定 null（テスト対象外の場合はテストごとに上書き）。
 function item(over: Partial<RankingItem> = {}): RankingItem {
 	return {
 		jobId: "job-1",
@@ -50,6 +50,8 @@ function detail(
 			sourceType: "detail",
 			status,
 			fetchedAt: 0,
+			companyName: null,
+			jobTitle: null,
 		},
 		extraction: {
 			status: "ok",
