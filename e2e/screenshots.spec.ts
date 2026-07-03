@@ -81,8 +81,9 @@ test("@screenshot ダッシュボード（モック: スコア未算出）", asy
 test("@screenshot ダッシュボード（モック: 取得中）", async ({ page }) => {
 	await page.route("**/api/ranking", async (route) => {
 		// useRanking の loading 状態はフェッチそのものの状態のため、意図的に遅延させて
-		// ranking-loading（role="status"）が見えるタイミングを作る。
-		await new Promise((resolve) => setTimeout(resolve, 3000));
+		// ranking-loading（role="status"）が見えるタイミングを作る（expect は自動リトライするため
+		// 短い遅延でも安定して捕捉できる）。
+		await new Promise((resolve) => setTimeout(resolve, 1000));
 		await route.fulfill({ json: MOCK_RANKING_SCORED });
 	});
 
