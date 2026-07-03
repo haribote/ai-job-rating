@@ -72,6 +72,9 @@ export interface ExtractionRow {
 	readonly repaired: 0 | 1;
 	readonly schema_version: number;
 	readonly extracted_at: number;
+	// 会社名・職種タイトル（表示専用・スコアリング非依存）。抽出できなければ null（#200）。
+	readonly company_name: string | null;
+	readonly job_title: string | null;
 }
 
 // structured_json を parse した結果の意図する形（NormalizedJob と整合）。保存前の検証点。
