@@ -29,6 +29,25 @@
 - `categorical` は canonical トークン（例: remoteWork は `full`/`partial`/`onsite`）。表記揺れは採点時に `canonicalizeLabel` で吸収する。
 - 採点対象外のフィールドは `expected` に書かない（`unknown` 中立の原則）。
 
+### companyName/jobTitle（表示専用・非ブロック・#200）
+
+`companyName`/`jobTitle` は自由記述・開集合の表示専用フィールドで `NormalizedKey` ではない。よって
+`expected`（`Record<NormalizedKey, ...>`、`parseGoldenCase` が未知キーを reject する）には**書かない**。
+参考値を残したい場合は任意の top-level `expectedPlainText` に単純文字列で書く（`parseGoldenCase` は
+`name`/`html`/`expected` のみ読み、他キーは無視するため pass/fail 判定に一切影響しない）:
+
+```jsonc
+{
+  "name": "...",
+  "html": "...",
+  "expected": { /* 正規キーのみ */ },
+  "expectedPlainText": {
+    "companyName": "サンプル株式会社",
+    "jobTitle": "バックエンドエンジニア"
+  }
+}
+```
+
 ## live 実行（要 Workers AI / secrets）
 
 オフラインのユニットテスト（`golden.test.ts`）は採点・集計ロジックを fake 抽出器で決定的に検証する。実モデルでの精度計測は live 抽出が必要なため、driver から次の形で結線する:
