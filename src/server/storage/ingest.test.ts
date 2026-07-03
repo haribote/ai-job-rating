@@ -10,6 +10,17 @@ const okAi: AiRunner = {
 	run: async () => ({ response: { annualSalary: "700万〜900万" } }),
 };
 
+// companyName/jobTitle も併せて返す fake（#200 の永続化ラウンドトリップ検証用）。
+const okAiWithNames: AiRunner = {
+	run: async () => ({
+		response: {
+			annualSalary: "700万〜900万",
+			companyName: "株式会社サンプル",
+			jobTitle: "バックエンドエンジニア",
+		},
+	}),
+};
+
 // 非 transient エラーで抽出失敗（extraction_failed）を起こす fake。リトライ待ちを避けるため 400 を投げる。
 const failingAi: AiRunner = {
 	run: async () => {
@@ -89,6 +100,41 @@ describe("ingestJob（取込→永続化: jobs/extractions/R2/scores 結線・#2
 		// structured_json は NormalizedJob として parse でき、抽出値が反映される。
 		const job = JSON.parse(ext?.structured_json ?? "{}");
 		expect(job.annualSalary).toMatchObject({ kind: "numericRange" });
+	});
+
+	// #200: companyName/jobTitle は表示専用の並列カラム。NormalizedJob（structured_json）には含めず、
+	// extractions.company_name/job_title へ直接永続化する（抽出↔スコアリング分離・§5.3）。
+	it("extractions 行へ company_name/job_title を保存する", async () => {
+		await ingestJob(deps(okAiWithNames, ["job-1"]), {
+			html: "<html><body>年収 700万〜900万</body></html>",
+			sourceType: "detail",
+			sourceUrl: "https://example.com/j1",
+		});
+
+		const ext = await env.DB.prepare(
+			`SELECT company_name, job_title FROM ${TABLE_NAMES.extractions} WHERE job_id = ?`,
+		)
+			.bind("job-1")
+			.first<{ company_name: string | null; job_title: string | null }>();
+		expect(ext).toEqual({
+			company_name: "株式会社サンプル",
+			job_title: "バックエンドエンジニア",
+		});
+	});
+
+	it("companyName/jobTitle が抽出できなければ null で保存する", async () => {
+		await ingestJob(deps(okAi, ["job-1"]), {
+			html: "<html><body>年収 700万〜900万</body></html>",
+			sourceType: "detail",
+			sourceUrl: "https://example.com/j1",
+		});
+
+		const ext = await env.DB.prepare(
+			`SELECT company_name, job_title FROM ${TABLE_NAMES.extractions} WHERE job_id = ?`,
+		)
+			.bind("job-1")
+			.first<{ company_name: string | null; job_title: string | null }>();
+		expect(ext).toEqual({ company_name: null, job_title: null });
 	});
 
 	it("生 HTML を R2 に保存し jobs.raw_html_r2_key へ紐付ける", async () => {
