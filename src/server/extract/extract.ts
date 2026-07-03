@@ -63,6 +63,10 @@ export interface ExtractionResult {
 	readonly extractedAt: string;
 	// 抽出が成立したか。extraction_failed の全 unknown を中立スコアと誤認させないための区別。
 	readonly status: ExtractionStatus;
+	// 会社名・職種タイトル（表示専用）。抽出できなければ null（抽出とスコアリングの分離・§5.3。
+	// NormalizedKey には含めない＝スコアリングから構造的に到達不可能にする）。
+	readonly companyName: string | null;
+	readonly jobTitle: string | null;
 }
 
 // transient な upstream 障害のリトライ上限（初回 + リトライ）。Phase 0 では過剰にせず最小限に抑える。
@@ -104,6 +108,18 @@ const KIND_BY_KEY: Record<NormalizedKey, NormalizationKind> = {
 	skillMatch: "categorical",
 	companySize: "numericRange",
 	capital: "numericRange",
+};
+
+// 自由記述・開集合のプレーンテキストフィールド（#200）。NORMALIZED_KEYS とは独立に持ち、
+// NormalizedJob/ScoringConfig には一切乗せない（スコアリングから構造的に到達不可能にする・§5.3）。
+const PLAIN_TEXT_FIELDS = ["companyName", "jobTitle"] as const;
+type PlainTextFieldKey = (typeof PLAIN_TEXT_FIELDS)[number];
+
+const PLAIN_TEXT_DESCRIPTIONS: Record<PlainTextFieldKey, string> = {
+	companyName:
+		"求人票に記載の正式な企業名を原文の表記のまま返す。記載が無ければ『-』。",
+	jobTitle:
+		"求人の職種・ポジション名を原文の表記のまま返す。記載が無ければ『-』。",
 };
 
 // JSON Schema の最小形（Workers AI/OpenAI 互換）。json_schema にそのまま渡せる object 型のみ扱う。
@@ -192,6 +208,14 @@ export function buildExtractionJsonSchema(): ExtractionJsonSchema {
 		properties[key] = description
 			? { type: "string", description }
 			: { type: "string" };
+	}
+	// 自由記述・開集合フィールド（#200）。NORMALIZED_KEYS とは別枠で追加し、正規スキーマ
+	// （NormalizedJob/スコアリング）には一切乗せない（rawFieldsToNormalizedJob は NORMALIZED_KEYS のみ参照）。
+	for (const key of PLAIN_TEXT_FIELDS) {
+		properties[key] = {
+			type: "string",
+			description: PLAIN_TEXT_DESCRIPTIONS[key],
+		};
 	}
 	return { type: "object", properties };
 }
@@ -529,12 +553,15 @@ function allUnknownJob(): NormalizedJob {
 	return rawFieldsToNormalizedJob({});
 }
 
-// 任意のオブジェクトから「正規キー = 文字列」のペアだけを拾う（両機構の最終合流点）。
+// 任意のオブジェクトから、指定キー集合ぶんの「キー = 文字列」ペアだけを拾う（両機構の最終合流点）。
 // 想定外（非オブジェクト・非文字列値）は無視し、取れたキーのみ返す（落とさない）。
-function fieldsFromObject(obj: unknown): RawExtractionFields {
+function pickStringFields<K extends string>(
+	obj: unknown,
+	keys: readonly K[],
+): Partial<Record<K, string>> {
 	if (typeof obj !== "object" || obj === null) return {};
-	const fields: RawExtractionFields = {};
-	for (const key of NORMALIZED_KEYS) {
+	const fields: Partial<Record<K, string>> = {};
+	for (const key of keys) {
 		const value = (obj as Record<string, unknown>)[key];
 		if (typeof value === "string") {
 			fields[key] = value;
@@ -558,20 +585,23 @@ function collectMessageContents(output: unknown): unknown[] {
 	return contents;
 }
 
-// AiRunner の戻り値（JSON Mode）から生フィールドを安全に取り出す。
+// AiRunner の戻り値（JSON Mode）から指定キー集合ぶんの生フィールドを安全に取り出す。
 // 一次形は WAI native の { response: <object|string> }（§7.1）。フィールドが取れない場合は
 // OpenAI 互換 { choices: [{ message: { content } }] } へフォールバックする（#145・FC の機構差吸収と同様）。
-function extractRawFields(output: unknown): RawExtractionFields {
+function extractRawFields<K extends string>(
+	output: unknown,
+	keys: readonly K[],
+): Partial<Record<K, string>> {
 	if (typeof output !== "object" || output === null) return {};
 	const response = (output as { response?: unknown }).response;
 	if (response !== undefined && response !== null) {
 		const obj = typeof response === "string" ? safeParse(response) : response;
-		const fields = fieldsFromObject(obj);
+		const fields = pickStringFields(obj, keys);
 		if (Object.keys(fields).length > 0) return fields;
 	}
 	for (const content of collectMessageContents(output)) {
 		const obj = typeof content === "string" ? safeParse(content) : content;
-		const fields = fieldsFromObject(obj);
+		const fields = pickStringFields(obj, keys);
 		if (Object.keys(fields).length > 0) return fields;
 	}
 	return {};
@@ -623,9 +653,12 @@ function pushToolCalls(raw: unknown, into: ToolCall[]): void {
 	}
 }
 
-// FC（tool_calls）レスポンスから生フィールドを取り出す。想定外・該当無しは {}（落とさない）。
+// FC（tool_calls）レスポンスから指定キー集合ぶんの生フィールドを取り出す。想定外・該当無しは {}（落とさない）。
 // 目的のツール（EXTRACTION_TOOL_NAME）を優先し、無ければ先頭の有効な call を採る。
-function extractFcRawFields(output: unknown): RawExtractionFields {
+function extractFcRawFields<K extends string>(
+	output: unknown,
+	keys: readonly K[],
+): Partial<Record<K, string>> {
 	const calls = collectToolCalls(output);
 	const ordered = [
 		...calls.filter((c) => c.name === EXTRACTION_TOOL_NAME),
@@ -636,20 +669,41 @@ function extractFcRawFields(output: unknown): RawExtractionFields {
 			typeof call.arguments === "string"
 				? safeParse(call.arguments)
 				: call.arguments;
-		const fields = fieldsFromObject(obj);
+		const fields = pickStringFields(obj, keys);
 		if (Object.keys(fields).length > 0) return fields;
 	}
 	return {};
 }
 
-// 機構に応じてレスポンスを生フィールドへパースする（決定的）。両機構とも fieldsFromObject へ合流する。
-function parseExtractionOutput(
+// 機構に応じてレスポンスを、指定キー集合ぶんの生フィールドへパースする（決定的）。
+// 両機構とも pickStringFields へ合流する。NORMALIZED_KEYS 専用ではなく PLAIN_TEXT_FIELDS 等
+// 任意のキー集合を受け取れるようにし、正規化パイプラインと自由記述パイプラインで共有する。
+function parseExtractionOutput<K extends string>(
 	output: unknown,
 	mechanism: ExtractionMechanism,
-): RawExtractionFields {
+	keys: readonly K[],
+): Partial<Record<K, string>> {
 	return mechanism === "function-calling"
-		? extractFcRawFields(output)
-		: extractRawFields(output);
+		? extractFcRawFields(output, keys)
+		: extractRawFields(output, keys);
+}
+
+// AI の生出力から companyName/jobTitle を取り出す（決定的）。未記載・空は null（表示は sourceUrl へ
+// フォールバック）。NORMALIZED_KEYS の正規化パイプライン（rawToFieldValue 等）は一切通さない。
+function extractPlainTextFields(
+	output: unknown,
+	mechanism: ExtractionMechanism,
+): { companyName: string | null; jobTitle: string | null } {
+	const fields = parseExtractionOutput(output, mechanism, PLAIN_TEXT_FIELDS);
+	const clean = (raw: string | undefined): string | null => {
+		if (raw === undefined) return null;
+		const trimmed = raw.trim();
+		return isUnknownRaw(trimmed) ? null : trimmed;
+	};
+	return {
+		companyName: clean(fields.companyName),
+		jobTitle: clean(fields.jobTitle),
+	};
 }
 
 // JSON 文字列を安全に解釈する（壊れていれば null）。
@@ -717,6 +771,8 @@ export async function extractJob(
 			mechanism,
 			extractedAt,
 			status: "ok",
+			companyName: null,
+			jobTitle: null,
 		};
 	}
 
@@ -726,13 +782,15 @@ export async function extractJob(
 			const output = await ai.run(model, inputs);
 			// throw されない想定外レスポンス（スキーマ未充足等）は upstream 障害ではない。
 			// 全 unknown へ畳むが status は ok（リトライ対象外）。
-			const fields = parseExtractionOutput(output, mechanism);
+			const fields = parseExtractionOutput(output, mechanism, NORMALIZED_KEYS);
+			const plainText = extractPlainTextFields(output, mechanism);
 			return {
 				job: rawFieldsToNormalizedJob(fields),
 				model,
 				mechanism,
 				extractedAt,
 				status: "ok",
+				...plainText,
 			};
 		} catch (cause) {
 			const lastAttempt = attempt === MAX_EXTRACTION_ATTEMPTS;
@@ -750,6 +808,8 @@ export async function extractJob(
 	return {
 		job: allUnknownJob(),
 		model,
+		companyName: null,
+		jobTitle: null,
 		mechanism,
 		extractedAt,
 		status: "extraction_failed",
@@ -788,5 +848,8 @@ export async function extractJobFromHtml(
 			mainResult.status === "ok" || benefitsResult.status === "ok"
 				? "ok"
 				: "extraction_failed",
+		// companyName/jobTitle は主パスのみを使う（benefits パスは福利厚生セクションのみの抽出のため）。
+		companyName: mainResult.companyName,
+		jobTitle: mainResult.jobTitle,
 	};
 }
