@@ -1,27 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_KEYS } from "../../shared/categories";
-import { aggregateCategoryScores } from "./categoryScores";
-import type { BreakdownRow, JobReputation } from "./jobDetail";
+import { CATEGORY_KEYS } from "./categories";
+import {
+	aggregateCategoryScores,
+	type CategoryBreakdownRow,
+	type CategoryReputationContribution,
+} from "./categoryScores";
 
-// 評判寄与の最小ダミー。score / weight / confidence は試験ごとに上書きする。
-function reputation(over: Partial<JobReputation> = {}): JobReputation {
-	return { score: 0.8, weight: 3, confidence: "ok", sources: [], ...over };
+// 評判寄与の最小ダミー。score / weight は試験ごとに上書きする。
+function reputation(
+	over: Partial<CategoryReputationContribution> = {},
+): CategoryReputationContribution {
+	return { score: 0.8, weight: 3, ...over };
 }
 
 // 内訳 1 行の最小ダミー。included/score/weight は試験ごとに上書きする。
 function row(
-	over: Partial<BreakdownRow> & Pick<BreakdownRow, "key">,
-): BreakdownRow {
-	return {
-		kind: "numericRange",
-		weight: 1,
-		score: 0.5,
-		included: true,
-		raw: "",
-		hardFilter: "none",
-		desired: null,
-		...over,
-	};
+	over: Partial<CategoryBreakdownRow> & Pick<CategoryBreakdownRow, "key">,
+): CategoryBreakdownRow {
+	return { weight: 1, score: 0.5, included: true, ...over };
 }
 
 describe("aggregateCategoryScores（軸集約・決定的純関数）", () => {
@@ -88,7 +84,7 @@ describe("aggregateCategoryScores（企業評判の company 軸合流・#117）"
 				row({ key: "companySize", weight: 1, score: 0.4 }),
 				row({ key: "capital", weight: 1, score: 0.6 }),
 			],
-			reputation({ score: null, confidence: "none" }),
+			reputation({ score: null }),
 		);
 		expect(result.company).toBeCloseTo((0.4 + 0.6) / 2, 10);
 	});

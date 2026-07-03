@@ -1,12 +1,32 @@
 import { render, screen, within } from "@testing-library/react";
 import { Trophy } from "lucide-react";
+import { cloneElement, isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
 import type { RankingItem } from "../lib/useRanking";
 import {
 	formatScore,
 	RankingCard,
 	type RankingCardAccent,
 } from "./RankingCard";
+
+// jsdom では ResponsiveContainer の実測サイズが 0 になり中身が描画されない（ScoreRadar.test.tsx と同じ事情）。
+// 固定サイズを注入して、item.categoryScores が実際に軸へ反映されることを検証可能にする。
+vi.mock("recharts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("recharts")>();
+	return {
+		...actual,
+		ResponsiveContainer: ({ children }: { children: React.ReactNode }) =>
+			isValidElement<{ width?: number; height?: number }>(children)
+				? cloneElement(children, { width: 480, height: 480 })
+				: children,
+	};
+});
+
+// 全軸 unknown（null・中立）の既定軸別スコア。
+const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
+	CATEGORY_KEYS.map((key) => [key, null]),
+) as Record<CategoryKey, number | null>;
 
 // ランキング 1 件分の最小ダミー。company/title は契約上まだ null（#95 申し送り）。
 function item(over: Partial<RankingItem> = {}): RankingItem {
@@ -18,6 +38,7 @@ function item(over: Partial<RankingItem> = {}): RankingItem {
 		total: 0.8,
 		status: "ok",
 		rejectedBy: null,
+		categoryScores: NEUTRAL_CATEGORY_SCORES,
 		...over,
 	};
 }
@@ -96,5 +117,22 @@ describe("RankingCard", () => {
 	it("チャート（ScoreRadar）をカードへ埋め込む", () => {
 		render(<RankingCard item={item()} rank={4} onSelect={vi.fn()} />);
 		expect(screen.getByTestId("card-radar")).toBeInTheDocument();
+	});
+
+	it("item.categoryScores を ScoreRadar へ実配線する（プレースホルダに固定しない・#202）", () => {
+		const { container } = render(
+			<RankingCard
+				item={item({
+					categoryScores: { ...NEUTRAL_CATEGORY_SCORES, compensation: 0.8 },
+				})}
+				rank={1}
+				onSelect={vi.fn()}
+			/>,
+		);
+		// 実データを持つ軸（compensation）は data-unknown=false、それ以外は中立 true のまま。
+		const known = container.querySelector('text[data-unknown="false"]');
+		const unknown = container.querySelectorAll('text[data-unknown="true"]');
+		expect(known).not.toBeNull();
+		expect(unknown.length).toBe(CATEGORY_KEYS.length - 1);
 	});
 });

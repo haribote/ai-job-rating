@@ -7,6 +7,8 @@
 //   「情報なし・分母除外」として表現し unknown 中立を見える化する（§5.2）。
 // - 表示用 HTML は持たない（JSON 契約・#95）。整形・ラベル付与は client 側の責務。
 
+import type { CategoryKey } from "../shared/categories";
+import { aggregateCategoryScores } from "../shared/categoryScores";
 import type { NormalizedJob, NormalizedKey } from "../shared/job-schema";
 import type { HardFilterResult, RescoredJob } from "./scoring/rescore-core";
 import type { ScoreResult } from "./scoring/score";
@@ -74,6 +76,8 @@ export interface RankingItem {
 	readonly total: number | null;
 	readonly status: ExtractionStatus;
 	readonly rejectedBy: HardFilterResult["rejectedBy"];
+	// レーダー表示用の軸別スコア（#202）。breakdown から集約するため一覧行の追加 DB I/O は不要。
+	readonly categoryScores: Record<CategoryKey, number | null>;
 }
 
 // 表示ビュー → ランキング JSON 行へ縮約する（決定的・純関数）。
@@ -86,5 +90,6 @@ export function toRankingItem(view: RankedJobView): RankingItem {
 		total: view.total,
 		status: view.status,
 		rejectedBy: view.rejectedBy,
+		categoryScores: aggregateCategoryScores(view.breakdown),
 	};
 }

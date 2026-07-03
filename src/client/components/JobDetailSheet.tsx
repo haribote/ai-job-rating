@@ -9,7 +9,7 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
-import { aggregateCategoryScores } from "../lib/categoryScores";
+import { aggregateCategoryScores } from "../../shared/categoryScores";
 import {
 	fetchJobDetail,
 	type JobDetailFetcher,

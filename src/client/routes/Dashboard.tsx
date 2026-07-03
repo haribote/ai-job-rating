@@ -1,4 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from "react";
+import { aggregateCategoryScores } from "../../shared/categoryScores";
 import { JobDetailSheet } from "../components/JobDetailSheet";
 import { RankingCard } from "../components/RankingCard";
 import { type MedalRank, RankingPodium } from "../components/RankingPodium";
@@ -37,6 +38,7 @@ export interface DashboardProps {
 const LOADING_SKELETON_KEYS = ["s1", "s2", "s3"];
 
 // JobDetailResponse から一覧行（RankingItem）へ寄せる。company/title は契約上まだ null（#95）。
+// 軸別スコアは詳細応答の breakdown/reputation から集約する（次の /api/ranking 再取得を待たず反映・#202）。
 function toRankingItem(detail: JobDetailResponse): RankingItem {
 	return {
 		jobId: detail.job.jobId,
@@ -46,6 +48,10 @@ function toRankingItem(detail: JobDetailResponse): RankingItem {
 		total: detail.total,
 		status: detail.extraction.status,
 		rejectedBy: null,
+		categoryScores: aggregateCategoryScores(
+			detail.breakdown,
+			detail.reputation,
+		),
 	};
 }
 

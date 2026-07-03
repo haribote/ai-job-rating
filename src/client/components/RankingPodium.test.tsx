@@ -1,7 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
 import type { RankingItem } from "../lib/useRanking";
 import { podiumAccent, RankingPodium } from "./RankingPodium";
+
+// 全軸 unknown（null・中立）の既定軸別スコア。
+const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
+	CATEGORY_KEYS.map((key) => [key, null]),
+) as Record<CategoryKey, number | null>;
 
 function item(over: Partial<RankingItem> = {}): RankingItem {
 	return {
@@ -12,6 +18,7 @@ function item(over: Partial<RankingItem> = {}): RankingItem {
 		total: 0.8,
 		status: "ok",
 		rejectedBy: null,
+		categoryScores: NEUTRAL_CATEGORY_SCORES,
 		...over,
 	};
 }

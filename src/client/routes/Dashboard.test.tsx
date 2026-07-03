@@ -1,8 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
 import type { JobDetailResponse } from "../lib/jobDetail";
 import type { RankingItem, RankingResponse } from "../lib/useRanking";
 import { Dashboard } from "./Dashboard";
+
+// 全軸 unknown（null・中立）の既定軸別スコア。
+const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
+	CATEGORY_KEYS.map((key) => [key, null]),
+) as Record<CategoryKey, number | null>;
 
 // ランキング 1 件分の最小ダミー。company/title は契約上まだ null（#95 申し送り）。
 function item(over: Partial<RankingItem> = {}): RankingItem {
@@ -14,6 +20,7 @@ function item(over: Partial<RankingItem> = {}): RankingItem {
 		total: 0.8,
 		status: "ok",
 		rejectedBy: null,
+		categoryScores: NEUTRAL_CATEGORY_SCORES,
 		...over,
 	};
 }
