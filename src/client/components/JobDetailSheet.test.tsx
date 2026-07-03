@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
 import type {
 	NormalizedFieldValue,
 	NormalizedJob,
@@ -9,6 +10,11 @@ import { NORMALIZED_KEYS } from "../../shared/job-schema";
 import type { BreakdownRow, JobDetailResponse } from "../lib/jobDetail";
 import type { RankingItem } from "../lib/useRanking";
 import { JobDetailSheet } from "./JobDetailSheet";
+
+// 全軸 unknown（null・中立）の既定軸別スコア。
+const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
+	CATEGORY_KEYS.map((key) => [key, null]),
+) as Record<CategoryKey, number | null>;
 
 // jsdom では ResponsiveContainer の実測サイズが 0 で中身が描画されない。固定サイズを注入する。
 vi.mock("recharts", async (importOriginal) => {
@@ -31,6 +37,7 @@ function item(over: Partial<RankingItem> = {}): RankingItem {
 		total: 0.8,
 		status: "ok",
 		rejectedBy: null,
+		categoryScores: NEUTRAL_CATEGORY_SCORES,
 		...over,
 	};
 }

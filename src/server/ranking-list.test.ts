@@ -65,7 +65,7 @@ describe("rescoredToView", () => {
 });
 
 describe("toRankingItem", () => {
-	it("一覧行へ縮約する（company/title は現状 null・内訳は持たない）", () => {
+	it("一覧行へ縮約する（company/title は現状 null・軸別スコアは breakdown から集約する）", () => {
 		const view = rescoredToView(
 			rescored,
 			"https://example.com/1",
@@ -80,6 +80,25 @@ describe("toRankingItem", () => {
 			total: 0.8,
 			status: "ok",
 			rejectedBy: null,
+			categoryScores: {
+				compensation: 0.8,
+				integrity: null,
+				flexibility: null,
+				role: null,
+				company: null,
+			},
 		});
+	});
+
+	it("軸別スコアは決定的（同一 view から同一 categoryScores）", () => {
+		const view = rescoredToView(
+			rescored,
+			"https://example.com/1",
+			jobWith({}),
+			"ok",
+		);
+		expect(toRankingItem(view).categoryScores).toEqual(
+			toRankingItem(view).categoryScores,
+		);
 	});
 });

@@ -1,4 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from "react";
+import { aggregateCategoryScores } from "../../shared/categoryScores";
 import { JobDetailSheet } from "../components/JobDetailSheet";
 import { RankingCard } from "../components/RankingCard";
 import { type MedalRank, RankingPodium } from "../components/RankingPodium";
@@ -37,6 +38,10 @@ export interface DashboardProps {
 const LOADING_SKELETON_KEYS = ["s1", "s2", "s3"];
 
 // JobDetailResponse から一覧行（RankingItem）へ寄せる。company/title は契約上まだ null（#95）。
+// 軸別スコアは詳細応答の breakdown から集約する（次の /api/ranking 再取得を待たず反映・#202）。
+// reputation は渡さない: サーバ側 toRankingItem（ranking-list.ts）も breakdown のみで集約する
+// （企業評判の合流は #202 のスコープ外・follow-up #181 の課題）。ここで reputation を混ぜると
+// 楽観カード→再取得後の確定カードで company 軸の値が変化なしに見た目だけ変わってしまう。
 function toRankingItem(detail: JobDetailResponse): RankingItem {
 	return {
 		jobId: detail.job.jobId,
@@ -46,6 +51,7 @@ function toRankingItem(detail: JobDetailResponse): RankingItem {
 		total: detail.total,
 		status: detail.extraction.status,
 		rejectedBy: null,
+		categoryScores: aggregateCategoryScores(detail.breakdown),
 	};
 }
 

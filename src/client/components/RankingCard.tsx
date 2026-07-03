@@ -1,7 +1,6 @@
 import type { JSX, ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
 import type { RankingItem } from "../lib/useRanking";
 import { ScoreRadar } from "./ScoreRadar";
 
@@ -12,13 +11,7 @@ import { ScoreRadar } from "./ScoreRadar";
 //   共有できるよう、強調差分（枠色・アイコン）だけを accent prop に切り出した純表示部品にする。
 // - 受け入れ条件の核: スコア／チャートの文字色は順位非依存で統一し、順位差は accent（枠色＋lucide アイコン）
 //   のみで表す。よってスコア色クラスは accent と無関係にここで固定する（順位で分岐しない）。
-// - 軸スコアは GET /api/ranking の RankingItem にまだ無い（total のみ）。全軸 unknown（中立）で
-//   ScoreRadar を描画し、実データ配線は API 拡張時の follow-up とする（#110 申し送り）。
-
-// RankingItem は軸スコアを持たないため、全カテゴリ unknown（null・中立）でレーダーを描く。
-const PLACEHOLDER_SCORES = Object.fromEntries(
-	CATEGORY_KEYS.map((key) => [key, null]),
-) as Record<CategoryKey, number | null>;
+// - 軸スコアは GET /api/ranking の RankingItem.categoryScores を表示する（#202 で配線済み）。
 
 // ベスト3強調の差分。枠色クラスと lucide アイコン、a11y 用の順位ラベルだけを受け取る。
 export interface RankingCardAccent {
@@ -94,7 +87,7 @@ export function RankingCard({
 						</span>
 					</div>
 					<div data-testid="card-radar" className="ml-auto w-28 shrink-0">
-						<ScoreRadar scores={PLACEHOLDER_SCORES} />
+						<ScoreRadar scores={item.categoryScores} />
 					</div>
 				</CardContent>
 			</Card>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CategoryKey } from "../../shared/categories";
 import type { NormalizedKey } from "../../shared/job-schema";
 import type { ExtractionStatus } from "../../shared/submit-job";
 import { apiGet } from "./api";
@@ -27,6 +28,8 @@ export interface RankingItem {
 		readonly criterion: NormalizedKey;
 		readonly filter: "required" | "exclude";
 	} | null;
+	// レーダー表示用の軸別スコア（#202）。unknown 中立の軸は null。
+	readonly categoryScores: Record<CategoryKey, number | null>;
 }
 
 // GET /api/ranking の応答（通過分 jobs ＋ ハードフィルタ除外分 excluded）。

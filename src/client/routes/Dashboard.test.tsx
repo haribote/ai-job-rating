@@ -1,8 +1,27 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { cloneElement, isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
 import type { JobDetailResponse } from "../lib/jobDetail";
 import type { RankingItem, RankingResponse } from "../lib/useRanking";
 import { Dashboard } from "./Dashboard";
+
+// jsdom では ResponsiveContainer の実測サイズが 0 で中身が描画されない（ScoreRadar.test.tsx と同じ事情）。
+vi.mock("recharts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("recharts")>();
+	return {
+		...actual,
+		ResponsiveContainer: ({ children }: { children: React.ReactNode }) =>
+			isValidElement<{ width?: number; height?: number }>(children)
+				? cloneElement(children, { width: 480, height: 480 })
+				: children,
+	};
+});
+
+// 全軸 unknown（null・中立）の既定軸別スコア。
+const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
+	CATEGORY_KEYS.map((key) => [key, null]),
+) as Record<CategoryKey, number | null>;
 
 // ランキング 1 件分の最小ダミー。company/title は契約上まだ null（#95 申し送り）。
 function item(over: Partial<RankingItem> = {}): RankingItem {
@@ -14,12 +33,16 @@ function item(over: Partial<RankingItem> = {}): RankingItem {
 		total: 0.8,
 		status: "ok",
 		rejectedBy: null,
+		categoryScores: NEUTRAL_CATEGORY_SCORES,
 		...over,
 	};
 }
 
 // 詳細応答の最小ダミー。job.status だけがポーリングのフェーズ判定に効く。
-function detail(status: string): JobDetailResponse {
+function detail(
+	status: string,
+	over: Partial<JobDetailResponse> = {},
+): JobDetailResponse {
 	return {
 		job: {
 			jobId: "job-x",
@@ -37,6 +60,7 @@ function detail(status: string): JobDetailResponse {
 		},
 		total: 0.8,
 		breakdown: [],
+		...over,
 	};
 }
 
@@ -142,5 +166,28 @@ describe("Dashboard", () => {
 		fireEvent.click(card);
 
 		expect(await screen.findByTestId("job-detail-sheet")).toBeInTheDocument();
+	});
+
+	it("投入中カードの軸別スコアは breakdown のみで集約する（reputation を混ぜない・#202）", async () => {
+		// reputation はサーバ側 toRankingItem（ranking-list.ts）が渡さないものと同じ形にする。
+		// ここで混ぜると、再取得後の確定カードで company 軸の値が変化なしに見た目だけ変わる。
+		const jobStatusFetcher = vi.fn().mockResolvedValue(
+			detail("scored", {
+				reputation: { score: 0.9, weight: 3, confidence: "ok", sources: [] },
+			}),
+		);
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+			/>,
+		);
+
+		const card = await screen.findByTestId("pending-card");
+		// breakdown が空なので全軸 unknown（中立）のまま。reputation があっても company 軸は動かない。
+		const unknownAxes = card.querySelectorAll('text[data-unknown="true"]');
+		expect(unknownAxes.length).toBe(CATEGORY_KEYS.length);
 	});
 });
