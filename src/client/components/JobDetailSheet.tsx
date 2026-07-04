@@ -169,6 +169,18 @@ export function JobDetailSheet({
 							<span className="text-muted-foreground">
 								機構: {successDetail.extraction.mechanism}
 							</span>
+							{/* 貼り付け取込は sourceUrl が合成値（paste:<id>）で外部URLでないため出さない。 */}
+							{!successDetail.job.sourceUrl.startsWith("paste:") && (
+								<a
+									href={successDetail.job.sourceUrl}
+									target="_blank"
+									rel="noreferrer"
+									data-testid="source-url-link"
+									className="text-muted-foreground underline"
+								>
+									元の求人ページ
+								</a>
+							)}
 						</div>
 
 						<ScoreRadar
