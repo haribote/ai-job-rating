@@ -2,7 +2,7 @@ import { Medal, Trophy } from "lucide-react";
 import type { JSX } from "react";
 import { cn } from "@/lib/utils";
 import type { RankingItem } from "../lib/useRanking";
-import { RankingCard } from "./RankingCard";
+import { RankingCard, type RankingCardSize } from "./RankingCard";
 
 // ベスト3強調カード（設計書 §4.3 / 実装計画 Task 16 / #109）。1〜3位を trophy/medal lucide と
 // 金銀銅の枠色で強調する。
@@ -48,6 +48,17 @@ export function podiumAccent(rank: MedalRank): PodiumAccent {
 	return PODIUM_ACCENTS[rank];
 }
 
+// レイアウト区分（#201）。1位=hero（ヒーローカード）、2/3位=podium、4位以下=grid（3列）。
+export type RankRegion = "hero" | "podium" | "grid";
+
+// 順位 → レイアウト区分の決定的マッピング。Dashboard のグリッド分割と RankingPodium のサイズ選択の
+// 単一ソース（#205 受け入れ: 決定的な順位→レイアウトのマッピング）。
+export function rankRegion(rank: number): RankRegion {
+	if (rank === 1) return "hero";
+	if (rank === 2 || rank === 3) return "podium";
+	return "grid";
+}
+
 const ICON_BY_NAME = { trophy: Trophy, medal: Medal } as const;
 
 export interface RankingPodiumProps {
@@ -63,6 +74,7 @@ export function RankingPodium({
 }: RankingPodiumProps): JSX.Element {
 	const accent = podiumAccent(rank);
 	const Icon = ICON_BY_NAME[accent.iconName];
+	const size: RankingCardSize = rankRegion(rank) === "hero" ? "hero" : "podium";
 
 	return (
 		<RankingCard
@@ -70,6 +82,7 @@ export function RankingPodium({
 			rank={rank}
 			onSelect={onSelect}
 			testId="ranking-podium"
+			size={size}
 			accent={{
 				icon: (
 					<Icon className={cn("size-5", accent.iconClassName)} aria-hidden />

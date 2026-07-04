@@ -135,4 +135,28 @@ describe("RankingCard", () => {
 		expect(known).not.toBeNull();
 		expect(unknown.length).toBe(CATEGORY_KEYS.length - 1);
 	});
+
+	it("size 未指定は既定（4位以下相当）のサイズになる", () => {
+		render(<RankingCard item={item()} rank={5} onSelect={vi.fn()} />);
+		expect(screen.getByTestId("card-score").className).toContain("text-2xl");
+	});
+
+	it("size 指定でスコア・レーダーの表示サイズが変わる（順位や accent とは独立）", () => {
+		const hero = render(
+			<RankingCard item={item()} rank={1} onSelect={vi.fn()} size="hero" />,
+		);
+		const heroScore = within(hero.container).getByTestId("card-score");
+		const heroRadar = within(hero.container).getByTestId("card-radar");
+		expect(heroScore.className).toContain("text-4xl");
+		expect(heroRadar.className).not.toContain("w-28");
+
+		const podium = render(
+			<RankingCard item={item()} rank={2} onSelect={vi.fn()} size="podium" />,
+		);
+		const podiumScore = within(podium.container).getByTestId("card-score");
+		expect(podiumScore.className).toContain("text-3xl");
+		// スコア文字色は size に依らず統一（順位非依存の既存契約を維持）。
+		expect(podiumScore.className).toContain("text-foreground");
+		expect(heroScore.className).toContain("text-foreground");
+	});
 });

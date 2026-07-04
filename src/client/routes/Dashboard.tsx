@@ -146,28 +146,47 @@ export function Dashboard({
 			)}
 
 			{ranking.status === "success" && (
-				<ol className="flex flex-col gap-3">
-					{ranking.jobs.map((job, index) => {
-						const rank = index + 1;
-						return (
-							<li key={job.jobId}>
-								{rank <= 3 ? (
+				<>
+					{ranking.jobs.length > 0 && (
+						<ol
+							data-testid="ranking-hero-region"
+							className="grid grid-cols-1 gap-3 md:grid-cols-2"
+						>
+							<li className="md:row-span-2">
+								<RankingPodium
+									item={ranking.jobs[0]}
+									rank={1}
+									onSelect={() => setSelected(ranking.jobs[0])}
+								/>
+							</li>
+							{ranking.jobs.slice(1, 3).map((job, index) => (
+								<li key={job.jobId}>
 									<RankingPodium
 										item={job}
-										rank={rank as MedalRank}
+										rank={(index + 2) as MedalRank}
 										onSelect={() => setSelected(job)}
 									/>
-								) : (
+								</li>
+							))}
+						</ol>
+					)}
+					{ranking.jobs.length > 3 && (
+						<ol
+							data-testid="ranking-grid-region"
+							className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+						>
+							{ranking.jobs.slice(3).map((job, index) => (
+								<li key={job.jobId}>
 									<RankingCard
 										item={job}
-										rank={rank}
+										rank={index + 4}
 										onSelect={() => setSelected(job)}
 									/>
-								)}
-							</li>
-						);
-					})}
-				</ol>
+								</li>
+							))}
+						</ol>
+					)}
+				</>
 			)}
 
 			{pendingJobIds.length > 0 && (
