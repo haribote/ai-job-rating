@@ -19,6 +19,7 @@ import {
 } from "../lib/jobDetail";
 import type { RankingItem } from "../lib/useRanking";
 import { BreakdownTable } from "./BreakdownTable";
+import { RadarAxisLegend } from "./RadarAxisLegend";
 import { formatScore, SCORE_UNAVAILABLE_NOTE } from "./RankingCard";
 import { ScoreRadar } from "./ScoreRadar";
 
@@ -173,6 +174,9 @@ export function JobDetailSheet({
 							)}
 							className="max-w-xs"
 						/>
+						{/* レーダーの軸は番号（1〜5）表示のため、単体の詳細ドロワーでも番号↔カテゴリ名の
+						対応を引けるよう凡例を併設する（Dashboard と同じ RadarAxisLegend・#203）。 */}
+						<RadarAxisLegend />
 
 						<BreakdownTable
 							rows={successDetail.breakdown}

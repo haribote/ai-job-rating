@@ -110,6 +110,20 @@ describe("JobDetailSheet（詳細ドロワーの中身）", () => {
 		expect(await screen.findByTestId("breakdown-table")).toBeInTheDocument();
 	});
 
+	// #203: レーダーの軸は番号（1〜5）表示のため、単体の詳細ドロワーでも番号→カテゴリ名の
+	// 対応が引けるよう凡例を併設する（Dashboard 同様、番号↔カテゴリ対応は単一ソースで不変）。
+	it("レーダーの軸番号↔カテゴリ名の凡例を併設する", async () => {
+		render(
+			<JobDetailSheet
+				job={item()}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () => detail()}
+			/>,
+		);
+		expect(await screen.findByTestId("radar-axis-legend")).toBeInTheDocument();
+	});
+
 	// #199: 一覧カード（RankingCard の score-unavailable-note）と同じ条件・文言で明示する。
 	it("total===null のときは「スコア未算出」を明示する（一覧カードと同じ文言）", async () => {
 		render(
