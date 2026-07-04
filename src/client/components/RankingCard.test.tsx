@@ -124,6 +124,28 @@ describe("RankingCard", () => {
 		expect(screen.getByTestId("card-radar")).toBeInTheDocument();
 	});
 
+	it("hero/podium（1〜3位）はレーダー→スコアの順で縦並びに表示する", () => {
+		render(
+			<RankingCard item={item()} rank={1} onSelect={vi.fn()} size="hero" />,
+		);
+		const radar = screen.getByTestId("card-radar");
+		const score = screen.getByTestId("card-score");
+		expect(
+			radar.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(radar.parentElement?.className).toContain("flex-col");
+	});
+
+	it("既定（4位以下）はレーダー→スコアの順のまま横並びを維持する", () => {
+		render(<RankingCard item={item()} rank={5} onSelect={vi.fn()} />);
+		const radar = screen.getByTestId("card-radar");
+		const score = screen.getByTestId("card-score");
+		expect(
+			radar.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(radar.parentElement?.className).not.toContain("flex-col");
+	});
+
 	it("item.categoryScores を ScoreRadar へ実配線する（プレースホルダに固定しない・#202）", () => {
 		const { container } = render(
 			<RankingCard

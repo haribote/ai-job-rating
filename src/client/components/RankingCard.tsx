@@ -25,6 +25,9 @@ export type RankingCardSize = "hero" | "podium" | "default";
 
 interface RankingCardSizeStyle {
 	readonly cardClassName: string;
+	// レーダー→スコアの並び方向。hero/podium（1〜3位）は縦並び、既定（4位以下）は横並び。
+	readonly contentClassName: string;
+	readonly scoreWrapperClassName: string;
 	readonly titleClassName: string;
 	readonly scoreClassName: string;
 	readonly radarClassName: string;
@@ -35,21 +38,27 @@ interface RankingCardSizeStyle {
 const CARD_SIZE_STYLES: Record<RankingCardSize, RankingCardSizeStyle> = {
 	hero: {
 		cardClassName: "md:aspect-square",
+		contentClassName: "flex-col",
+		scoreWrapperClassName: "flex flex-col items-center",
 		titleClassName: "truncate text-xl",
 		scoreClassName: "text-4xl font-bold tabular-nums text-foreground",
-		radarClassName: "ml-auto w-44 shrink-0",
+		radarClassName: "w-44 shrink-0",
 	},
 	podium: {
 		cardClassName: "",
+		contentClassName: "flex-col",
+		scoreWrapperClassName: "flex flex-col items-center",
 		titleClassName: "truncate text-lg",
 		scoreClassName: "text-3xl font-bold tabular-nums text-foreground",
-		radarClassName: "ml-auto w-32 shrink-0",
+		radarClassName: "w-32 shrink-0",
 	},
 	default: {
 		cardClassName: "",
+		contentClassName: "flex-row",
+		scoreWrapperClassName: "ml-auto flex flex-col",
 		titleClassName: "truncate text-base",
 		scoreClassName: "text-2xl font-bold tabular-nums text-foreground",
-		radarClassName: "ml-auto w-28 shrink-0",
+		radarClassName: "w-28 shrink-0",
 	},
 };
 
@@ -121,15 +130,20 @@ export function RankingCard({
 					) : null}
 					<CardTitle className={sizeStyle.titleClassName}>{heading}</CardTitle>
 				</CardHeader>
-				<CardContent className="flex items-center gap-4 p-4 pt-0">
-					<div className="flex flex-col">
+				<CardContent
+					className={cn(
+						"flex items-center gap-4 p-4 pt-0",
+						sizeStyle.contentClassName,
+					)}
+				>
+					<div data-testid="card-radar" className={sizeStyle.radarClassName}>
+						<ScoreRadar scores={item.categoryScores} />
+					</div>
+					<div className={sizeStyle.scoreWrapperClassName}>
 						<span className="text-xs text-muted-foreground">総合スコア</span>
 						<span data-testid="card-score" className={sizeStyle.scoreClassName}>
 							{formatScore(item.total)}
 						</span>
-					</div>
-					<div data-testid="card-radar" className={sizeStyle.radarClassName}>
-						<ScoreRadar scores={item.categoryScores} />
 					</div>
 				</CardContent>
 			</Card>
