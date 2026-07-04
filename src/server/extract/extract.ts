@@ -16,6 +16,7 @@ import {
 	type NormalizedFieldValue,
 	type NormalizedJob,
 	type NormalizedKey,
+	splitSkillTokens,
 } from "../../shared/job-schema";
 import {
 	BENEFIT_SIGNAL_KEYS,
@@ -527,6 +528,16 @@ function rawToFieldValue(
 	// closed categorical（flexWork）は canonical に寄らない値を unknown 中立にする（生表記を残さない）。
 	if (canonical === null && CLOSED_CATEGORICAL_KEYS.has(key)) {
 		return { kind: "unknown", raw: value };
+	}
+	// skillMatch は使用技術を1文字列に羅列するため、個別スキルへ分割して categories に格納する
+	// （keyword 突合が集合一致で成立する形へ正規化・#105）。分割は決定的・冪等（既に個別なら素通り）。
+	if (key === "skillMatch") {
+		const tokens = splitSkillTokens(value);
+		return {
+			kind: "categorical",
+			categories: tokens.length > 0 ? tokens : [canonical ?? value],
+			raw: value,
+		};
 	}
 	// open categorical はマッピングに無い値も生表記を 1 カテゴリとして残す（情報を捨てない）。
 	return {

@@ -38,6 +38,15 @@ describe("aggregateCategoryScores（軸集約・決定的純関数）", () => {
 		expect(result.compensation).toBeCloseTo(0.7, 10);
 	});
 
+	it("企業軸は companySize/capital を加重平均する", () => {
+		// company = companySize(w2,0.9) + capital(w2,0.5) → (2*0.9 + 2*0.5)/4 = 0.7
+		const result = aggregateCategoryScores([
+			row({ key: "companySize", weight: 2, score: 0.9 }),
+			row({ key: "capital", weight: 2, score: 0.5 }),
+		]);
+		expect(result.company).toBeCloseTo(0.7, 10);
+	});
+
 	it("unknown 中立（included=false）は分母から除外する", () => {
 		// bonus を中立にすると compensation は annualSalary のみで決まる。
 		const result = aggregateCategoryScores([

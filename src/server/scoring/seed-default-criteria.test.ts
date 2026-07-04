@@ -48,4 +48,18 @@ describe("既定スコアリング設定の seed migration", () => {
 		expect(salary).toMatchObject({ weight: 5, hardFilter: "none" });
 		expect(salary?.desired).toEqual({ desired: 700, floor: 300 });
 	});
+
+	// 企業軸（companySize/capital）も seed 済みで、抽出済みの企業規模から実値スコアが出る（#企業軸）。
+	it("seed 後は企業規模・資本金が既定スコア項目として採点される", async () => {
+		const rows = await readCriteriaConfig(env.DB);
+		const built = buildScoringConfig(rows);
+		expect(built.items.companySize).toBeDefined();
+		expect(built.items.capital).toBeDefined();
+		const job = jobWith({
+			companySize: { kind: "numericRange", min: 1000, max: 1000 },
+		});
+		const result = scoreJob(job, built);
+		const size = result.breakdown.find((b) => b.key === "companySize");
+		expect(size?.score).not.toBeNull();
+	});
 });
