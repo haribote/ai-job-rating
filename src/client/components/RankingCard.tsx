@@ -145,6 +145,17 @@ export function RankingCard({
 						<span data-testid="card-score" className={sizeStyle.scoreClassName}>
 							{formatScore(item.total)}
 						</span>
+						{item.total === null && (
+							// unknown は中立（§5.2）: 0 点ではなく「未算出」と明示する。ready なのに
+							// スコアが出ない＝設定不足（重み・希望値未設定等）のヒントを添える。
+							<span
+								role="status"
+								data-testid="score-unavailable-note"
+								className="text-xs text-muted-foreground"
+							>
+								スコア未算出（設定を確認）
+							</span>
+						)}
 					</div>
 				</CardContent>
 			</Card>

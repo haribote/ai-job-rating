@@ -58,6 +58,31 @@ describe("formatScore", () => {
 	});
 });
 
+describe("RankingCard（ready + total===null: スコア未算出・#199）", () => {
+	it("total===null を 0.00 と混同せず「スコア未算出」を明示する", () => {
+		render(
+			<RankingCard item={item({ total: null })} rank={5} onSelect={vi.fn()} />,
+		);
+
+		expect(screen.getByTestId("card-score")).toHaveTextContent("—");
+		expect(screen.getByTestId("card-score")).not.toHaveTextContent("0.00");
+		const note = screen.getByTestId("score-unavailable-note");
+		expect(note).toHaveTextContent("スコア未算出");
+		// a11y: 状態を role で読み上げ可能に。
+		expect(note).toHaveAttribute("role", "status");
+	});
+
+	it("スコアがある（total!==null）ときは未算出ノートを出さない", () => {
+		render(
+			<RankingCard item={item({ total: 0.8 })} rank={5} onSelect={vi.fn()} />,
+		);
+
+		expect(
+			screen.queryByTestId("score-unavailable-note"),
+		).not.toBeInTheDocument();
+	});
+});
+
 describe("RankingCard", () => {
 	it("通常カードはスコアと選択導線を持ち、強調差分（枠色・アイコン）を付けない", () => {
 		const onSelect = vi.fn();
