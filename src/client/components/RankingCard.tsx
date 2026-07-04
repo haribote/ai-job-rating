@@ -17,6 +17,8 @@ import { ScoreRadar } from "./ScoreRadar";
 export interface RankingCardAccent {
 	readonly icon: ReactNode;
 	readonly borderClassName: string;
+	// 枠色と同系色の薄いグラデーション背景（任意）。
+	readonly backgroundClassName?: string;
 	readonly rankLabel: string;
 }
 
@@ -115,6 +117,7 @@ export function RankingCard({
 					sizeStyle.cardClassName,
 					// 順位差は枠色のみで表す（accent 指定時だけ太枠＋メダル色）。
 					accent && cn("border-2", accent.borderClassName),
+					accent?.backgroundClassName,
 				)}
 			>
 				<CardHeader className="flex-row items-center gap-3 space-y-0 p-4">

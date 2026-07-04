@@ -15,9 +15,12 @@ import { RankingCard, type RankingCardSize } from "./RankingCard";
 export type MedalRank = 1 | 2 | 3;
 
 // 順位 → 強調差分の決定的マッピング。枠色・アイコン色はメダル色トークン、iconName は lucide の種別。
+// backgroundClassName は枠色と同系色の薄い（15%）グラデーション tint。text-foreground とのコントラストは
+// 白背景に対する低不透明度合成のため十分に確保される（design-tokens.ts の色値で試算済み・#201）。
 export interface PodiumAccent {
 	readonly borderClassName: string;
 	readonly iconClassName: string;
+	readonly backgroundClassName: string;
 	readonly iconName: "trophy" | "medal";
 	readonly rankLabel: string;
 }
@@ -26,18 +29,21 @@ const PODIUM_ACCENTS: Record<MedalRank, PodiumAccent> = {
 	1: {
 		borderClassName: "border-medal-gold",
 		iconClassName: "text-medal-gold",
+		backgroundClassName: "bg-gradient-to-b from-transparent to-medal-gold/15",
 		iconName: "trophy",
 		rankLabel: "1位",
 	},
 	2: {
 		borderClassName: "border-medal-silver",
 		iconClassName: "text-medal-silver",
+		backgroundClassName: "bg-gradient-to-b from-transparent to-medal-silver/15",
 		iconName: "medal",
 		rankLabel: "2位",
 	},
 	3: {
 		borderClassName: "border-medal-bronze",
 		iconClassName: "text-medal-bronze",
+		backgroundClassName: "bg-gradient-to-b from-transparent to-medal-bronze/15",
 		iconName: "medal",
 		rankLabel: "3位",
 	},
@@ -88,6 +94,7 @@ export function RankingPodium({
 					<Icon className={cn("size-5", accent.iconClassName)} aria-hidden />
 				),
 				borderClassName: accent.borderClassName,
+				backgroundClassName: accent.backgroundClassName,
 				rankLabel: accent.rankLabel,
 			}}
 		/>
