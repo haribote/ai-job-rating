@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { cn } from "@/lib/utils";
 import type { RankingItem } from "../lib/useRanking";
 import { RankingCard, type RankingCardSize } from "./RankingCard";
+import type { RadarAccentColor } from "./ScoreRadar";
 
 // ベスト3強調カード（設計書 §4.3 / 実装計画 Task 16 / #109）。1〜3位を trophy/medal lucide と
 // 金銀銅の枠色で強調する。
@@ -23,6 +24,8 @@ export interface PodiumAccent {
 	readonly backgroundClassName: string;
 	readonly iconName: "trophy" | "medal";
 	readonly rankLabel: string;
+	// レーダーチャートの色を枠色（金銀銅）に馴染ませるための accent 色（あしらい調整）。
+	readonly radarColor: RadarAccentColor;
 }
 
 const PODIUM_ACCENTS: Record<MedalRank, PodiumAccent> = {
@@ -32,6 +35,7 @@ const PODIUM_ACCENTS: Record<MedalRank, PodiumAccent> = {
 		backgroundClassName: "bg-gradient-to-b from-transparent to-medal-gold/15",
 		iconName: "trophy",
 		rankLabel: "1位",
+		radarColor: "medal-gold",
 	},
 	2: {
 		borderClassName: "border-medal-silver",
@@ -39,6 +43,7 @@ const PODIUM_ACCENTS: Record<MedalRank, PodiumAccent> = {
 		backgroundClassName: "bg-gradient-to-b from-transparent to-medal-silver/15",
 		iconName: "medal",
 		rankLabel: "2位",
+		radarColor: "medal-silver",
 	},
 	3: {
 		borderClassName: "border-medal-bronze",
@@ -46,12 +51,24 @@ const PODIUM_ACCENTS: Record<MedalRank, PodiumAccent> = {
 		backgroundClassName: "bg-gradient-to-b from-transparent to-medal-bronze/15",
 		iconName: "medal",
 		rankLabel: "3位",
+		radarColor: "medal-bronze",
 	},
 };
 
 // 順位（1〜3）→ 強調差分を引く（決定的）。
 export function podiumAccent(rank: MedalRank): PodiumAccent {
 	return PODIUM_ACCENTS[rank];
+}
+
+// 順位 → レーダー accent 色（決定的）。1〜3位以外（4位以下・投入中カード等）は undefined
+// （ScoreRadar の既定色のまま）。JobDetailSheet からも同じマッピングを再利用する単一ソース。
+export function radarAccentColorForRank(
+	rank: number,
+): RadarAccentColor | undefined {
+	if (rank !== 1 && rank !== 2 && rank !== 3) {
+		return undefined;
+	}
+	return PODIUM_ACCENTS[rank].radarColor;
 }
 
 // レイアウト区分（#201）。1位=hero（ヒーローカード）、2/3位=podium、4位以下=grid（3列）。
@@ -95,6 +112,7 @@ export function RankingPodium({
 				),
 				borderClassName: accent.borderClassName,
 				backgroundClassName: accent.backgroundClassName,
+				radarColor: accent.radarColor,
 				rankLabel: accent.rankLabel,
 			}}
 		/>

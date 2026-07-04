@@ -124,6 +124,42 @@ describe("JobDetailSheet（詳細ドロワーの中身）", () => {
 		expect(await screen.findByTestId("radar-axis-legend")).toBeInTheDocument();
 	});
 
+	it("rank が1〜3位のときレーダー色を順位色（金銀銅）へ合わせる", async () => {
+		// Sheet は Radix の Portal で document.body 直下に描画されるため container ではなく document から探す。
+		render(
+			<JobDetailSheet
+				job={item()}
+				rank={2}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () => detail()}
+			/>,
+		);
+		await screen.findByTestId("breakdown-table");
+		// Radix の scroll-lock 等、他の <style> も document に挿入されるため --color-score を持つものに絞る。
+		const style = [...document.querySelectorAll("style")].find((s) =>
+			s.innerHTML.includes("--color-score"),
+		);
+		expect(style?.innerHTML).toContain("rgb(var(--medal-silver))");
+	});
+
+	it("rank 未指定（4位以下相当）はレーダー色を既定（chart-1）のまま変えない", async () => {
+		render(
+			<JobDetailSheet
+				job={item()}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () => detail()}
+			/>,
+		);
+		await screen.findByTestId("breakdown-table");
+		// Radix の scroll-lock 等、他の <style> も document に挿入されるため --color-score を持つものに絞る。
+		const style = [...document.querySelectorAll("style")].find((s) =>
+			s.innerHTML.includes("--color-score"),
+		);
+		expect(style?.innerHTML).toContain("rgb(var(--chart-1))");
+	});
+
 	// #199: 一覧カード（RankingCard の score-unavailable-note）と同じ条件・文言で明示する。
 	it("total===null のときは「スコア未算出」を明示する（一覧カードと同じ文言）", async () => {
 		render(

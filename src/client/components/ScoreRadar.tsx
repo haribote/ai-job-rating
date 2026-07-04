@@ -35,6 +35,20 @@ export const SCORE_RADAR_CONFIG: ChartConfig = {
 	[SERIES_KEY]: { label: "スコア", color: "rgb(var(--chart-1))" },
 };
 
+// 1〜3位のみ枠色（RankingPodium の金銀銅）にレーダー色を合わせるための accent 色。
+// design-tokens の medalColorMap が --medal-gold 等を :root へ既に生成しているため新規トークンは不要。
+export type RadarAccentColor = "medal-gold" | "medal-silver" | "medal-bronze";
+
+// accentColor 指定時はその順位色、未指定時は既定の SCORE_RADAR_CONFIG（chart-1）を返す（決定的）。
+function radarConfigFor(accentColor?: RadarAccentColor): ChartConfig {
+	if (accentColor === undefined) {
+		return SCORE_RADAR_CONFIG;
+	}
+	return {
+		[SERIES_KEY]: { label: "スコア", color: `rgb(var(--${accentColor}))` },
+	};
+}
+
 // レーダー 1 軸ぶんの整形済みデータ。
 export interface RadarDatum {
 	readonly key: CategoryKey;
@@ -108,11 +122,14 @@ function makeAxisTick(tickInfoByLabel: Map<string, AxisTickInfo>) {
 export interface ScoreRadarProps {
 	// 軸ごとのスコア（0..1）。値なしは null（中立）。
 	scores: Record<CategoryKey, number | null>;
+	// 1〜3位のみ指定。未指定（4位以下）は既定の単一アクセント色（chart-1）のまま。
+	accentColor?: RadarAccentColor;
 	className?: string;
 }
 
 export function ScoreRadar({
 	scores,
+	accentColor,
 	className,
 }: ScoreRadarProps): JSX.Element {
 	const data = buildRadarData(scores);
@@ -125,16 +142,27 @@ export function ScoreRadar({
 
 	return (
 		<ChartContainer
-			config={SCORE_RADAR_CONFIG}
+			config={radarConfigFor(accentColor)}
 			className={cn("mx-auto aspect-square", className)}
 		>
 			<RadarChart data={data} outerRadius="70%">
 				<PolarGrid className="stroke-border" />
-				<PolarAngleAxis dataKey="label" tick={makeAxisTick(tickInfoByLabel)} />
+				<PolarAngleAxis
+					dataKey="label"
+					tick={makeAxisTick(tickInfoByLabel)}
+					// 既定の tickLine（頂点から8px外へ伸びる目盛り線）と axisLine（PolarGrid の外周と
+					// 重複する五角形の輪郭）がラベルに刺さって見えるため消す（あしらい調整）。
+					axisLine={false}
+					tickLine={false}
+				/>
 				<PolarRadiusAxis
 					domain={[0, SCORE_MAX]}
 					tick={false}
 					axisLine={false}
+					// allowDecimals 未指定だと [0,1] の2点しか nice tick が出ず中間グリッドが実質無くなる。
+					// 10%刻み（11点）の同心グリッドにする（あしらい調整）。
+					tickCount={11}
+					allowDecimals={true}
 				/>
 				<Radar
 					dataKey="value"

@@ -127,8 +127,12 @@ export function Dashboard({
 	onJobSettled,
 }: DashboardProps): JSX.Element {
 	const ranking = useRanking(rankingFetcher);
-	// 選択中の求人。null なら詳細ドロワーは閉じる。
-	const [selected, setSelected] = useState<RankingItem | null>(null);
+	// 選択中の求人と表示順位。null なら詳細ドロワーは閉じる。
+	// rank は詳細ドロワーのレーダー色を枠色（1〜3位）に合わせるために保持する（あしらい調整）。
+	const [selected, setSelected] = useState<{
+		item: RankingItem;
+		rank: number;
+	} | null>(null);
 
 	// 投入中カードは確定ランキングの末尾へ続けて並べる（再ランキングまでの暫定位置）。
 	const rankedCount = ranking.status === "success" ? ranking.jobs.length : 0;
@@ -168,7 +172,9 @@ export function Dashboard({
 								<RankingPodium
 									item={ranking.jobs[0]}
 									rank={1}
-									onSelect={() => setSelected(ranking.jobs[0])}
+									onSelect={() =>
+										setSelected({ item: ranking.jobs[0], rank: 1 })
+									}
 								/>
 							</li>
 							{ranking.jobs.slice(1, 3).map((job, index) => (
@@ -176,7 +182,7 @@ export function Dashboard({
 									<RankingPodium
 										item={job}
 										rank={(index + 2) as MedalRank}
-										onSelect={() => setSelected(job)}
+										onSelect={() => setSelected({ item: job, rank: index + 2 })}
 									/>
 								</li>
 							))}
@@ -192,7 +198,7 @@ export function Dashboard({
 									<RankingCard
 										item={job}
 										rank={index + 4}
-										onSelect={() => setSelected(job)}
+										onSelect={() => setSelected({ item: job, rank: index + 4 })}
 									/>
 								</li>
 							))}
@@ -214,7 +220,9 @@ export function Dashboard({
 								rank={rankedCount + index + 1}
 								fetcher={jobStatusFetcher}
 								intervalMs={jobStatusIntervalMs}
-								onSelect={setSelected}
+								onSelect={(item) =>
+									setSelected({ item, rank: rankedCount + index + 1 })
+								}
 								onSettled={onJobSettled}
 							/>
 						</li>
@@ -223,7 +231,8 @@ export function Dashboard({
 			)}
 
 			<JobDetailSheet
-				job={selected}
+				job={selected?.item ?? null}
+				rank={selected?.rank ?? null}
 				open={selected !== null}
 				onOpenChange={(open) => {
 					// 閉じる操作（オーバーレイ／Esc／閉じるボタン）で選択を解除する。

@@ -97,4 +97,19 @@ describe("ScoreRadar（描画）", () => {
 			CATEGORY_LABELS.compensation,
 		);
 	});
+
+	it("accentColor 未指定は既定の単一アクセント色（chart-1）のまま", () => {
+		const { container } = render(<ScoreRadar scores={fullScores} />);
+		const style = container.querySelector("style");
+		expect(style?.innerHTML).toContain("rgb(var(--chart-1))");
+	});
+
+	it("accentColor 指定時はレーダー色を順位色（金銀銅）へ切り替える", () => {
+		const { container } = render(
+			<ScoreRadar scores={fullScores} accentColor="medal-silver" />,
+		);
+		const style = container.querySelector("style");
+		expect(style?.innerHTML).toContain("rgb(var(--medal-silver))");
+		expect(style?.innerHTML).not.toContain("rgb(var(--chart-1))");
+	});
 });
