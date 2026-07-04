@@ -48,6 +48,7 @@ const goldAccent: RankingCardAccent = {
 	icon: <Trophy aria-hidden />,
 	borderClassName: "border-medal-gold",
 	rankLabel: "1位",
+	radarColor: "medal-gold",
 };
 
 describe("formatScore", () => {
@@ -147,6 +148,27 @@ describe("RankingCard", () => {
 	it("チャート（ScoreRadar）をカードへ埋め込む", () => {
 		render(<RankingCard item={item()} rank={4} onSelect={vi.fn()} />);
 		expect(screen.getByTestId("card-radar")).toBeInTheDocument();
+	});
+
+	it("accent.radarColor をレーダー色へ配線し枠色（金銀銅）に馴染ませる", () => {
+		const { container } = render(
+			<RankingCard
+				item={item()}
+				rank={1}
+				onSelect={vi.fn()}
+				accent={goldAccent}
+			/>,
+		);
+		const style = container.querySelector("style");
+		expect(style?.innerHTML).toContain("rgb(var(--medal-gold))");
+	});
+
+	it("accent 未指定（4位以下）はレーダー色を既定（chart-1）のまま変えない", () => {
+		const { container } = render(
+			<RankingCard item={item()} rank={5} onSelect={vi.fn()} />,
+		);
+		const style = container.querySelector("style");
+		expect(style?.innerHTML).toContain("rgb(var(--chart-1))");
 	});
 
 	it("hero/podium（1〜3位）はレーダー→スコアの順で縦並びに表示する", () => {

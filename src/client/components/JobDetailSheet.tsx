@@ -21,6 +21,7 @@ import type { RankingItem } from "../lib/useRanking";
 import { BreakdownTable } from "./BreakdownTable";
 import { RadarAxisLegend } from "./RadarAxisLegend";
 import { formatScore, SCORE_UNAVAILABLE_NOTE } from "./RankingCard";
+import { radarAccentColorForRank } from "./RankingPodium";
 import { ScoreRadar } from "./ScoreRadar";
 
 // 求人詳細の右ドロワー（設計書 §4.4 / 実装計画 Task 18 / #111）。
@@ -48,6 +49,8 @@ type ReextractState = "idle" | "running" | "done" | "error";
 export interface JobDetailSheetProps {
 	// 選択中の求人（未選択は null）。
 	job: RankingItem | null;
+	// 選択中の求人の表示順位（未選択は null）。1〜3位はレーダー色を枠色に合わせる（あしらい調整）。
+	rank?: number | null;
 	// ドロワーの開閉。
 	open: boolean;
 	// 開閉変更（オーバーレイ／閉じるボタン／Esc を含む）。
@@ -63,6 +66,7 @@ export interface JobDetailSheetProps {
 
 export function JobDetailSheet({
 	job,
+	rank = null,
 	open,
 	onOpenChange,
 	detailFetcher = fetchJobDetail,
@@ -172,6 +176,9 @@ export function JobDetailSheet({
 								successDetail.breakdown,
 								successDetail.reputation,
 							)}
+							accentColor={
+								rank !== null ? radarAccentColorForRank(rank) : undefined
+							}
 							className="max-w-xs"
 						/>
 						{/* レーダーの軸は番号（1〜5）表示のため、単体の詳細ドロワーでも番号↔カテゴリ名の

@@ -4,15 +4,16 @@ import { cn } from "@/lib/utils";
 import { formatScore } from "../lib/formatScore";
 import type { RankingItem } from "../lib/useRanking";
 import { CategoryScoreTable } from "./CategoryScoreTable";
-import { ScoreRadar } from "./ScoreRadar";
+import { type RadarAccentColor, ScoreRadar } from "./ScoreRadar";
 
 // ランキング 1 件のカード（設計書 §4.3 / 実装計画 Task 16 / #109）。
 //
 // なぜこの構造か:
 // - 通常カード（4位以降）とベスト3強調（RankingPodium）が同一の本体（順位・タイトル・スコア・レーダー）を
 //   共有できるよう、強調差分（枠色・アイコン）だけを accent prop に切り出した純表示部品にする。
-// - 受け入れ条件の核: スコア／チャートの文字色は順位非依存で統一し、順位差は accent（枠色＋lucide アイコン）
-//   のみで表す。よってスコア色クラスは accent と無関係にここで固定する（順位で分岐しない）。
+// - 受け入れ条件の核: スコアの文字色は順位非依存で統一し、順位差は accent（枠色＋lucide アイコン）のみで
+//   表す。よってスコア色クラスは accent と無関係にここで固定する（順位で分岐しない）。一方でレーダー
+//   チャートの色は、あしらいとして 1〜3 位のみ枠色（金銀銅）に合わせる（radarColor・あしらい調整）。
 // - 軸スコアは GET /api/ranking の RankingItem.categoryScores を表示する（#202 で配線済み）。
 
 // ベスト3強調の差分。枠色クラスと lucide アイコン、a11y 用の順位ラベルだけを受け取る。
@@ -22,6 +23,8 @@ export interface RankingCardAccent {
 	// 枠色と同系色の薄いグラデーション背景（任意）。
 	readonly backgroundClassName?: string;
 	readonly rankLabel: string;
+	// レーダーチャートの色を枠色に合わせる accent 色（あしらい調整）。
+	readonly radarColor: RadarAccentColor;
 }
 
 // 表示スケール（#201）。1位=hero, 2/3位=podium, 4位以下=既定。accent（枠色・アイコン）とは独立の軸。
@@ -141,7 +144,10 @@ export function RankingCard({
 					className={cn("flex gap-4 p-4 pt-0", sizeStyle.contentClassName)}
 				>
 					<div data-testid="card-radar" className={sizeStyle.radarClassName}>
-						<ScoreRadar scores={item.categoryScores} />
+						<ScoreRadar
+							scores={item.categoryScores}
+							accentColor={accent?.radarColor}
+						/>
 					</div>
 					<div className={sizeStyle.scoreWrapperClassName}>
 						<span className="text-xs text-muted-foreground">総合スコア</span>

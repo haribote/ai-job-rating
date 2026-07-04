@@ -2,7 +2,12 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
 import type { RankingItem } from "../lib/useRanking";
-import { podiumAccent, RankingPodium, rankRegion } from "./RankingPodium";
+import {
+	podiumAccent,
+	RankingPodium,
+	radarAccentColorForRank,
+	rankRegion,
+} from "./RankingPodium";
 
 // 全軸 unknown（null・中立）の既定軸別スコア。
 const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
@@ -31,6 +36,7 @@ describe("podiumAccent", () => {
 			backgroundClassName: "bg-gradient-to-b from-transparent to-medal-gold/15",
 			iconName: "trophy",
 			rankLabel: "1位",
+			radarColor: "medal-gold",
 		});
 		expect(podiumAccent(2)).toEqual({
 			borderClassName: "border-medal-silver",
@@ -39,6 +45,7 @@ describe("podiumAccent", () => {
 				"bg-gradient-to-b from-transparent to-medal-silver/15",
 			iconName: "medal",
 			rankLabel: "2位",
+			radarColor: "medal-silver",
 		});
 		expect(podiumAccent(3)).toEqual({
 			borderClassName: "border-medal-bronze",
@@ -47,7 +54,21 @@ describe("podiumAccent", () => {
 				"bg-gradient-to-b from-transparent to-medal-bronze/15",
 			iconName: "medal",
 			rankLabel: "3位",
+			radarColor: "medal-bronze",
 		});
+	});
+});
+
+describe("radarAccentColorForRank", () => {
+	it("1〜3位はレーダー accent 色（金銀銅）を返す", () => {
+		expect(radarAccentColorForRank(1)).toBe("medal-gold");
+		expect(radarAccentColorForRank(2)).toBe("medal-silver");
+		expect(radarAccentColorForRank(3)).toBe("medal-bronze");
+	});
+
+	it("4位以下は undefined（レーダーの既定色のまま）", () => {
+		expect(radarAccentColorForRank(4)).toBeUndefined();
+		expect(radarAccentColorForRank(10)).toBeUndefined();
 	});
 });
 
