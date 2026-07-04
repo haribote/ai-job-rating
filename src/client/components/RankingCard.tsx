@@ -38,7 +38,7 @@ interface RankingCardSizeStyle {
 const CARD_SIZE_STYLES: Record<RankingCardSize, RankingCardSizeStyle> = {
 	hero: {
 		cardClassName: "md:aspect-square",
-		contentClassName: "flex-col",
+		contentClassName: "flex-1 flex-col items-center justify-center",
 		scoreWrapperClassName: "flex flex-col items-center",
 		titleClassName: "truncate text-xl",
 		scoreClassName: "text-4xl font-bold tabular-nums text-foreground",
@@ -46,7 +46,7 @@ const CARD_SIZE_STYLES: Record<RankingCardSize, RankingCardSizeStyle> = {
 	},
 	podium: {
 		cardClassName: "",
-		contentClassName: "flex-col",
+		contentClassName: "flex-1 flex-col items-center justify-center",
 		scoreWrapperClassName: "flex flex-col items-center",
 		titleClassName: "truncate text-lg",
 		scoreClassName: "text-3xl font-bold tabular-nums text-foreground",
@@ -54,8 +54,8 @@ const CARD_SIZE_STYLES: Record<RankingCardSize, RankingCardSizeStyle> = {
 	},
 	default: {
 		cardClassName: "",
-		contentClassName: "flex-row",
-		scoreWrapperClassName: "ml-auto flex flex-col",
+		contentClassName: "flex-1 flex-row items-center justify-around",
+		scoreWrapperClassName: "flex flex-col",
 		titleClassName: "truncate text-base",
 		scoreClassName: "text-2xl font-bold tabular-nums text-foreground",
 		radarClassName: "w-28 shrink-0",
@@ -111,7 +111,7 @@ export function RankingCard({
 		>
 			<Card
 				className={cn(
-					"h-full transition-colors hover:bg-accent",
+					"flex h-full flex-col transition-colors hover:bg-accent",
 					sizeStyle.cardClassName,
 					// 順位差は枠色のみで表す（accent 指定時だけ太枠＋メダル色）。
 					accent && cn("border-2", accent.borderClassName),
@@ -130,11 +130,9 @@ export function RankingCard({
 					) : null}
 					<CardTitle className={sizeStyle.titleClassName}>{heading}</CardTitle>
 				</CardHeader>
+				{/* flex-1: Card の残り高さを埋め、hero/podium の縦位置中央寄せ・既定の space-around を成立させる。 */}
 				<CardContent
-					className={cn(
-						"flex items-center gap-4 p-4 pt-0",
-						sizeStyle.contentClassName,
-					)}
+					className={cn("flex gap-4 p-4 pt-0", sizeStyle.contentClassName)}
 				>
 					<div data-testid="card-radar" className={sizeStyle.radarClassName}>
 						<ScoreRadar scores={item.categoryScores} />

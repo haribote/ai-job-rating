@@ -134,6 +134,8 @@ describe("RankingCard", () => {
 			radar.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 		expect(radar.parentElement?.className).toContain("flex-col");
+		// 縦位置を中央に寄せる。
+		expect(radar.parentElement?.className).toContain("justify-center");
 	});
 
 	it("既定（4位以下）はレーダー→スコアの順のまま横並びを維持する", () => {
@@ -144,6 +146,8 @@ describe("RankingCard", () => {
 			radar.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 		expect(radar.parentElement?.className).not.toContain("flex-col");
+		// 横方向は space-around で配置する。
+		expect(radar.parentElement?.className).toContain("justify-around");
 	});
 
 	it("item.categoryScores を ScoreRadar へ実配線する（プレースホルダに固定しない・#202）", () => {
