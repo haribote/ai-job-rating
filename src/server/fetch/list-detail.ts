@@ -99,15 +99,27 @@ export function extractDetailUrls(html: string, baseUrl: string): string[] {
 	return urls;
 }
 
+// 末尾セグメントが求人IDらしい（数字を 1 つ以上含む）か。数値ID求人（/recruits/104829,
+// /jobs/eng-123 等）と、数字を含まない導線タブ・スラッグ（/recruits/screening 等）を区別し、
+// 後者を兄弟グループから外すために使う。「全桁数字」でなく「数字を含む」で判定する。
+function looksLikeRecordSlug(segment: string): boolean {
+	return /\d/.test(segment);
+}
+
 // 詳細リンクの「親パス」を返す（末尾セグメントを除いた部分）。認証必須マイページ等の常設
 // ナビゲーションは相互に無関係な単一セグメントの別ページ（親パスがルート "/"）を並べるだけで、
 // 一覧ページのように同じ親パスを共有する詳細リンク群（例: /recruits/1, /recruits/2）にはならない。
 // 親がルートのリンクは一覧構造の兄弟とみなせないためグループ化対象外（null）にする。
+// さらに、親パスは一致するが末尾が数字を含まない導線タブ（/recruits/screening 等）も、求人詳細
+// （/recruits/<数値ID>）と紛れて誤ってキュー投入されるため兄弟から除外する（null, #222）。
 function siblingGroupKey(url: string): string | null {
 	const { pathname } = new URL(url);
 	const trimmed = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
 	const lastSlash = trimmed.lastIndexOf("/");
 	if (lastSlash <= 0) {
+		return null;
+	}
+	if (!looksLikeRecordSlug(trimmed.slice(lastSlash + 1))) {
 		return null;
 	}
 	return trimmed.slice(0, lastSlash + 1);

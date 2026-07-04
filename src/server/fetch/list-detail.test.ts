@@ -213,4 +213,55 @@ describe("classifyPage", () => {
 			]);
 		}
 	});
+
+	// マイページの一覧は求人詳細（/recruits/<数値ID>）と導線タブ（/recruits/screening 等）が
+	// 同じ親パス /recruits/ を共有する。数字を含まないスラッグのタブ導線は求人ではない（実データで
+	// company_name=プラットフォーム名・job_title=null になった, #222）ため兄弟から除外し、求人リンクのみ返す。
+	it("求人リンクと数字なしスラッグの導線タブが混在してもタブ導線を除外する", () => {
+		const listBase = "https://mypage.example.com/recruits/considering";
+		const html = `
+			<a href="/recruits/104829">求人A</a>
+			<a href="/recruits/104830">求人B</a>
+			<a href="/recruits/screening">スクリーニング</a>
+			<a href="/recruits/suggested">おすすめ</a>
+			<a href="/recruits/excluded">除外</a>
+		`;
+		const result = classifyPage(html, listBase);
+		expect(result.kind).toBe("list");
+		if (result.kind === "list") {
+			expect(result.detailUrls).toEqual([
+				"https://mypage.example.com/recruits/104829",
+				"https://mypage.example.com/recruits/104830",
+			]);
+		}
+	});
+
+	// 数字を含まないスラッグの兄弟群だけなら求人一覧ではないので detail と判定する（#222）
+	it("数字なしスラッグの兄弟群だけなら detail と判定する", () => {
+		const detailBase = "https://mypage.example.com/recruits/104829";
+		const html = `
+			<a href="/recruits/screening">スクリーニング</a>
+			<a href="/recruits/suggested">おすすめ</a>
+		`;
+		const result = classifyPage(html, detailBase);
+		expect(result.kind).toBe("detail");
+	});
+
+	// 求人IDらしさは「全桁数字」ではなく「数字を1つ以上含む」で判定する。
+	// 英字混じりのスラッグ ID（例 eng-123）も求人として兄弟に残す（#222）。
+	it("英字混じりでも数字を含むスラッグは求人として list に残す", () => {
+		const base = "https://example.com/jobs";
+		const html = `
+			<a href="/jobs/eng-123">A</a>
+			<a href="/jobs/eng-124">B</a>
+		`;
+		const result = classifyPage(html, base);
+		expect(result.kind).toBe("list");
+		if (result.kind === "list") {
+			expect(result.detailUrls).toEqual([
+				"https://example.com/jobs/eng-123",
+				"https://example.com/jobs/eng-124",
+			]);
+		}
+	});
 });
