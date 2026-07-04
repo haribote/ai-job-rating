@@ -91,7 +91,7 @@ interface AxisTickInfo {
 }
 
 // 軸目盛りラベル。狭枠でのラベル重なりを避けるため番号（CATEGORY_AXIS_NUMBERS）を描画し、
-// 番号→軸名の対応は凡例（RadarAxisLegend）に委ねる（#203）。unknown 軸は中立（muted・破線下線）で
+// 番号→軸名の対応は凡例（RadarAxisLegend）に委ねる（#203）。unknown 軸は中立（muted）で
 // 表示し、data-unknown でマークする。軸名は <title> に残し、視覚的に消えた軸名を a11y でも引ける。
 function makeAxisTick(tickInfoByLabel: Map<string, AxisTickInfo>) {
 	return function AxisTick({ x, y, textAnchor, payload }: AxisTickProps) {
@@ -107,9 +107,7 @@ function makeAxisTick(tickInfoByLabel: Map<string, AxisTickInfo>) {
 				data-unknown={unknown}
 				className={cn(
 					"text-xs",
-					unknown
-						? "fill-muted-foreground [text-decoration:underline_dashed]"
-						: "fill-foreground",
+					unknown ? "fill-muted-foreground" : "fill-foreground",
 				)}
 			>
 				<title>{label}</title>
@@ -160,8 +158,8 @@ export function ScoreRadar({
 					tick={false}
 					axisLine={false}
 					// allowDecimals 未指定だと [0,1] の2点しか nice tick が出ず中間グリッドが実質無くなる。
-					// 10%刻み（11点）の同心グリッドにする（あしらい調整）。
-					tickCount={11}
+					// 20%刻み（6点）の同心グリッドにする（あしらい調整）。
+					tickCount={6}
 					allowDecimals={true}
 				/>
 				<Radar

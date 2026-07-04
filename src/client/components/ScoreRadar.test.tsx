@@ -88,6 +88,14 @@ describe("ScoreRadar（描画）", () => {
 		expect(roleTick).toHaveAttribute("data-unknown", "false");
 	});
 
+	it("unknown 軸の目盛りに下線装飾を付けない（#223）", () => {
+		render(<ScoreRadar scores={{ ...fullScores, company: null }} />);
+		const companyTick = screen.getByText(String(CATEGORY_AXIS_NUMBERS.company));
+		expect(companyTick.getAttribute("class") ?? "").not.toMatch(
+			/underline|text-decoration/,
+		);
+	});
+
 	it("番号目盛りの title に軸名（CATEGORY_LABELS）を残す（a11y フォロー）", () => {
 		render(<ScoreRadar scores={fullScores} />);
 		const compensationTick = screen.getByText(
