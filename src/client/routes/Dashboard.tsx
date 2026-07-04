@@ -1,11 +1,12 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { aggregateCategoryScores } from "../../shared/categoryScores";
 import { JobDetailSheet } from "../components/JobDetailSheet";
+import { JobPhaseBadge } from "../components/JobPhaseBadge";
 import { RankingCard } from "../components/RankingCard";
 import { type MedalRank, RankingPodium } from "../components/RankingPodium";
 import { ScoreSkeleton } from "../components/ScoreSkeleton";
 import type { JobDetailFetcher, JobDetailResponse } from "../lib/jobDetail";
-import { useJobStatus } from "../lib/useJobStatus";
+import { isPendingPhase, useJobStatus } from "../lib/useJobStatus";
 import {
 	type RankingFetcher,
 	type RankingItem,
@@ -81,14 +82,24 @@ function PendingJob({
 
 	useEffect(() => {
 		// 終端に達したら親へ通知（pending から外す／再ランキングの契機）。
-		if (phase !== "extracting" && !settledRef.current) {
+		if (!isPendingPhase(phase) && !settledRef.current) {
 			settledRef.current = true;
 			onSettled?.(jobId);
 		}
 	}, [phase, jobId, onSettled]);
 
-	if (phase === "extracting" || detail === null) {
-		return <ScoreSkeleton testId="pending-skeleton" />;
+	if (isPendingPhase(phase) || detail === null) {
+		// detail が null（未取得・初回ポーリング前）のときは phase も必ず fetching（useJobStatus の
+		// 不変条件）。バッジは isPendingPhase を満たすときだけ意味のある文言を持つ。
+		return (
+			<div className="relative">
+				<JobPhaseBadge
+					phase={isPendingPhase(phase) ? phase : "fetching"}
+					className="absolute left-4 top-4 z-10"
+				/>
+				<ScoreSkeleton testId="pending-skeleton" />
+			</div>
+		);
 	}
 	if (phase === "failed") {
 		return (

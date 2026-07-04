@@ -110,6 +110,38 @@ describe("JobDetailSheet（詳細ドロワーの中身）", () => {
 		expect(await screen.findByTestId("breakdown-table")).toBeInTheDocument();
 	});
 
+	// #199: 一覧カード（RankingCard の score-unavailable-note）と同じ条件・文言で明示する。
+	it("total===null のときは「スコア未算出」を明示する（一覧カードと同じ文言）", async () => {
+		render(
+			<JobDetailSheet
+				job={item({ total: null })}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () => detail({ total: null })}
+			/>,
+		);
+
+		const note = await screen.findByTestId("detail-score-unavailable-note");
+		expect(note).toHaveTextContent("スコア未算出");
+		expect(note).toHaveAttribute("role", "status");
+	});
+
+	it("total がある（null でない）ときは未算出ノートを出さない", async () => {
+		render(
+			<JobDetailSheet
+				job={item()}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () => detail()}
+			/>,
+		);
+
+		await screen.findByTestId("breakdown-table");
+		expect(
+			screen.queryByTestId("detail-score-unavailable-note"),
+		).not.toBeInTheDocument();
+	});
+
 	it("アクションは「再抽出」「評判取得」の 2 つ", async () => {
 		render(
 			<JobDetailSheet

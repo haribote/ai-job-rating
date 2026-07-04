@@ -47,6 +47,7 @@ function detail(
 		reputation?: JobDetailResponse["reputation"];
 		companyName?: string | null;
 		jobTitle?: string | null;
+		total?: number | null;
 	} = {},
 ): JobDetailResponse {
 	return {
@@ -66,7 +67,8 @@ function detail(
 			extractedAt: 0,
 			structured: {} as never,
 		},
-		total: 0.8,
+		// null は「意図的な未算出」なので ?? では畳まない（undefined のときだけ既定 0.8）。
+		total: over.total === undefined ? 0.8 : over.total,
 		breakdown: [],
 		reputation: over.reputation,
 	};
@@ -160,6 +162,77 @@ describe("Dashboard", () => {
 
 		expect(await screen.findByTestId("pending-skeleton")).toBeInTheDocument();
 		expect(await screen.findByTestId("pending-card")).toBeInTheDocument();
+	});
+
+	// #199: fetched（取得中）/extracted（採点中）を判別可能なバッジで明示する。
+	it("投入直後（fetched）は「取得中」バッジを role=status で表示する", async () => {
+		const jobStatusFetcher = vi.fn().mockResolvedValue(detail("fetched"));
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+			/>,
+		);
+
+		expect(await screen.findByTestId("pending-skeleton")).toBeInTheDocument();
+		const badge = screen.getByTestId("job-phase-badge");
+		expect(badge).toHaveTextContent("取得中");
+		expect(badge).toHaveAttribute("role", "status");
+	});
+
+	it("抽出済み・採点前（extracted）は「採点中」バッジを role=status で表示する", async () => {
+		const jobStatusFetcher = vi.fn().mockResolvedValue(detail("extracted"));
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+			/>,
+		);
+
+		expect(await screen.findByTestId("pending-skeleton")).toBeInTheDocument();
+		await screen.findByText("採点中");
+		const badge = screen.getByTestId("job-phase-badge");
+		expect(badge).toHaveTextContent("採点中");
+		expect(badge).toHaveAttribute("role", "status");
+	});
+
+	// #199: ready かつ total===null（設定不足等でスコア未算出）を「—」だけでなく明示する。
+	it("投入中の求人が scored かつ total===null なら「スコア未算出」を明示する", async () => {
+		const jobStatusFetcher = vi
+			.fn()
+			.mockResolvedValue(detail("scored", { total: null }));
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+				pendingJobIds={["job-x"]}
+				jobStatusFetcher={jobStatusFetcher}
+				jobStatusIntervalMs={5}
+			/>,
+		);
+
+		const card = await screen.findByTestId("pending-card");
+		expect(within(card).getByTestId("card-score")).toHaveTextContent("—");
+		expect(
+			within(card).getByTestId("score-unavailable-note"),
+		).toHaveTextContent("スコア未算出");
+	});
+
+	// #199: 確定ランキング本体（PendingJob 経由でない通常カード）でも同様に明示する。
+	it("確定ランキングの通常カードが total===null のとき「スコア未算出」を明示する", async () => {
+		const jobs = ["a", "b", "c", "d"].map((id) =>
+			item({ jobId: id, total: id === "d" ? null : 0.8 }),
+		);
+		render(<Dashboard rankingFetcher={async () => ({ jobs, excluded: [] })} />);
+
+		const gridRegion = await screen.findByTestId("ranking-grid-region");
+		const card = within(gridRegion).getByTestId("ranking-card");
+		expect(
+			within(card).getByTestId("score-unavailable-note"),
+		).toHaveTextContent("スコア未算出");
 	});
 
 	// #200: 投入直後の楽観的カードも、確定ランキング再取得を待たず company/title を表示する。

@@ -90,6 +90,10 @@ export function formatScore(total: number | null): string {
 	return total === null ? "—" : total.toFixed(2);
 }
 
+// ready なのに total===null（設定不足等でスコア未算出）のときのヒント文言（#199）。
+// JobDetailSheet も同じ条件・同じ文言を表示するため、ここを単一ソースにして重複させない。
+export const SCORE_UNAVAILABLE_NOTE = "スコア未算出（設定を確認）";
+
 export function RankingCard({
 	item,
 	rank,
@@ -145,6 +149,17 @@ export function RankingCard({
 						<span data-testid="card-score" className={sizeStyle.scoreClassName}>
 							{formatScore(item.total)}
 						</span>
+						{item.total === null && (
+							// unknown は中立（§5.2）: 0 点ではなく「未算出」と明示する。ready なのに
+							// スコアが出ない＝設定不足（重み・希望値未設定等）のヒントを添える。
+							<span
+								role="status"
+								data-testid="score-unavailable-note"
+								className="text-xs text-muted-foreground"
+							>
+								{SCORE_UNAVAILABLE_NOTE}
+							</span>
+						)}
 					</div>
 				</CardContent>
 			</Card>
