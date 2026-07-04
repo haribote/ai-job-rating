@@ -215,4 +215,27 @@ describe("RankingCard", () => {
 		expect(podiumScore.className).toContain("text-foreground");
 		expect(heroScore.className).toContain("text-foreground");
 	});
+
+	it("hero サイズのときだけカテゴリ別スコアテーブルを表示する（#203 方針転換）", () => {
+		render(
+			<RankingCard item={item()} rank={1} onSelect={vi.fn()} size="hero" />,
+		);
+		expect(screen.getByTestId("category-score-table")).toBeInTheDocument();
+	});
+
+	it("podium/default サイズではカテゴリ別スコアテーブルを表示しない", () => {
+		const podium = render(
+			<RankingCard item={item()} rank={2} onSelect={vi.fn()} size="podium" />,
+		);
+		expect(
+			within(podium.container).queryByTestId("category-score-table"),
+		).not.toBeInTheDocument();
+
+		const defaultSize = render(
+			<RankingCard item={item()} rank={5} onSelect={vi.fn()} />,
+		);
+		expect(
+			within(defaultSize.container).queryByTestId("category-score-table"),
+		).not.toBeInTheDocument();
+	});
 });

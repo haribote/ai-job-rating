@@ -159,6 +159,14 @@ export function RankingCard({
 								{SCORE_UNAVAILABLE_NOTE}
 							</span>
 						)}
+						{size === "hero" && (
+							// 独立した凡例欄は設けず、1位カードのテーブルが番号→カテゴリ名の
+							// 対応表を兼ねる（2位以下は引き続き番号のみの軸ラベル・#203 方針転換）。
+							<CategoryScoreTable
+								scores={item.categoryScores}
+								className="mt-2"
+							/>
+						)}
 					</div>
 				</CardContent>
 			</Card>
