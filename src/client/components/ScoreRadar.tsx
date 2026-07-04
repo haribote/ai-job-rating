@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import { cn } from "@/lib/utils";
 import {
+	CATEGORY_AXIS_NUMBERS,
 	CATEGORY_KEYS,
 	CATEGORY_LABELS,
 	type CategoryKey,
@@ -69,11 +70,20 @@ interface AxisTickProps {
 
 type SvgTextAnchor = React.SVGProps<SVGTextElement>["textAnchor"];
 
-// 軸目盛りラベル。unknown 軸は中立（muted・破線下線）で表示し、data-unknown でマークする。
-function makeAxisTick(unknownByLabel: Map<string, boolean>) {
+// 軸目盛りの表示に必要な補助情報。label（PolarAngleAxis の dataKey）から引く。
+interface AxisTickInfo {
+	readonly number: number;
+	readonly unknown: boolean;
+}
+
+// 軸目盛りラベル。狭枠でのラベル重なりを避けるため番号（CATEGORY_AXIS_NUMBERS）を描画し、
+// 番号→軸名の対応は凡例（RadarAxisLegend）に委ねる（#203）。unknown 軸は中立（muted・破線下線）で
+// 表示し、data-unknown でマークする。軸名は <title> に残し、視覚的に消えた軸名を a11y でも引ける。
+function makeAxisTick(tickInfoByLabel: Map<string, AxisTickInfo>) {
 	return function AxisTick({ x, y, textAnchor, payload }: AxisTickProps) {
 		const label = String(payload?.value ?? "");
-		const unknown = unknownByLabel.get(label) ?? false;
+		const info = tickInfoByLabel.get(label);
+		const unknown = info?.unknown ?? false;
 		return (
 			<text
 				x={x}
@@ -88,7 +98,8 @@ function makeAxisTick(unknownByLabel: Map<string, boolean>) {
 						: "fill-foreground",
 				)}
 			>
-				{label}
+				<title>{label}</title>
+				{info?.number ?? ""}
 			</text>
 		);
 	};
@@ -105,7 +116,12 @@ export function ScoreRadar({
 	className,
 }: ScoreRadarProps): JSX.Element {
 	const data = buildRadarData(scores);
-	const unknownByLabel = new Map(data.map((d) => [d.label, d.unknown]));
+	const tickInfoByLabel = new Map<string, AxisTickInfo>(
+		data.map((d) => [
+			d.label,
+			{ number: CATEGORY_AXIS_NUMBERS[d.key], unknown: d.unknown },
+		]),
+	);
 
 	return (
 		<ChartContainer
@@ -114,7 +130,7 @@ export function ScoreRadar({
 		>
 			<RadarChart data={data} outerRadius="70%">
 				<PolarGrid className="stroke-border" />
-				<PolarAngleAxis dataKey="label" tick={makeAxisTick(unknownByLabel)} />
+				<PolarAngleAxis dataKey="label" tick={makeAxisTick(tickInfoByLabel)} />
 				<PolarRadiusAxis
 					domain={[0, SCORE_MAX]}
 					tick={false}

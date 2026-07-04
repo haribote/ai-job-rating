@@ -9,9 +9,9 @@ import { CATEGORY_KEYS, type CategoryKey } from "../../src/shared/categories";
 // なぜ存在するか:
 // - 取得〜AI抽出パイプラインや実データを回さずに、ダッシュボードのレイアウト（ベスト3ヒーロー＋
 //   4位以下グリッド）を Playwright の page.route() で intercept した /api/ranking 応答から視覚確認する。
-// - RankingCard は現状 PLACEHOLDER_SCORES（全軸 null）を常時使うため（#202 未実装）、ここで
-//   軸別スコアを持たせても レーダーの頂点には反映されない。よってレーダーは現状のプレースホルダ
-//   描画を確認する用途に留める（本 fixture のスコープ外は #202 マージ後の follow-up）。
+// - RankingCard は item.categoryScores をそのままレーダーへ渡し実データを描画する（#202 merge 済み）。
+//   MOCK_RANKING_SCORED は known/unknown 混在の categoryScores を一部ジョブへ付与し、レーダーの
+//   サイズ比例・軸番号化・凡例（#203）を意味のあるスコアで目視確認できるようにする。
 
 const NEUTRAL_CATEGORY_SCORES = Object.fromEntries(
 	CATEGORY_KEYS.map((key) => [key, null]),
@@ -41,24 +41,56 @@ export const MOCK_RANKING_SCORED: RankingResponse = {
 			company: "株式会社サンプルテック",
 			title: "バックエンドエンジニア（Go/Kubernetes）",
 			total: 87.5,
+			// hero（1位）: known/unknown混在でレーダーの重なり解消・サイズ比例を目視確認する（#203）。
+			categoryScores: {
+				compensation: 0.9,
+				integrity: 0.7,
+				flexibility: null,
+				role: 0.85,
+				company: 0.6,
+			},
 		}),
 		job({
 			jobId: "mock-scored-2",
 			company: "合同会社フィクションワークス",
 			title: "フロントエンドエンジニア（React/TypeScript）",
 			total: 82.1,
+			// podium（2位）。
+			categoryScores: {
+				compensation: 0.7,
+				integrity: null,
+				flexibility: 0.8,
+				role: 0.75,
+				company: 0.5,
+			},
 		}),
 		job({
 			jobId: "mock-scored-3",
 			company: "架空商事株式会社",
 			title: "SRE / インフラエンジニア",
 			total: 76.4,
+			// podium（3位）。
+			categoryScores: {
+				compensation: 0.6,
+				integrity: 0.65,
+				flexibility: 0.5,
+				role: null,
+				company: 0.4,
+			},
 		}),
 		job({
 			jobId: "mock-scored-4",
 			company: "テストデータ株式会社",
 			title: "データエンジニア",
 			total: 68.9,
+			// default（4位以下グリッド）。
+			categoryScores: {
+				compensation: 0.5,
+				integrity: 0.55,
+				flexibility: null,
+				role: 0.6,
+				company: null,
+			},
 		}),
 		job({
 			jobId: "mock-scored-5",

@@ -1,7 +1,9 @@
 import type { JSX, ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { formatScore } from "../lib/formatScore";
 import type { RankingItem } from "../lib/useRanking";
+import { CategoryScoreTable } from "./CategoryScoreTable";
 import { ScoreRadar } from "./ScoreRadar";
 
 // ランキング 1 件のカード（設計書 §4.3 / 実装計画 Task 16 / #109）。
@@ -85,10 +87,7 @@ export interface RankingCardProps {
 	readonly className?: string;
 }
 
-// スコアの表示整形（決定的）。未スコア（null）は中立記号、それ以外は小数2桁。
-export function formatScore(total: number | null): string {
-	return total === null ? "—" : total.toFixed(2);
-}
+export { formatScore };
 
 // ready なのに total===null（設定不足等でスコア未算出）のときのヒント文言（#199）。
 // JobDetailSheet も同じ条件・同じ文言を表示するため、ここを単一ソースにして重複させない。
@@ -159,6 +158,14 @@ export function RankingCard({
 							>
 								{SCORE_UNAVAILABLE_NOTE}
 							</span>
+						)}
+						{size === "hero" && (
+							// 独立した凡例欄は設けず、1位カードのテーブルが番号→カテゴリ名の
+							// 対応表を兼ねる（2位以下は引き続き番号のみの軸ラベル・#203 方針転換）。
+							<CategoryScoreTable
+								scores={item.categoryScores}
+								className="mt-2"
+							/>
 						)}
 					</div>
 				</CardContent>

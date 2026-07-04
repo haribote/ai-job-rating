@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	CATEGORY_AXIS_NUMBERS,
 	CATEGORY_KEYS,
 	CATEGORY_LABELS,
 	CATEGORY_OF,
@@ -62,5 +63,26 @@ describe("5軸カテゴリ", () => {
 		expect(CATEGORY_OF.remoteWork).toBe("flexibility");
 		expect(CATEGORY_OF.skillMatch).toBe("role");
 		expect(CATEGORY_OF.capital).toBe("company");
+	});
+});
+
+// レーダー軸ラベルの番号化（#203）。番号→カテゴリ名は凡例が単一ソースの CATEGORY_LABELS を参照する。
+describe("CATEGORY_AXIS_NUMBERS（軸の番号割り当て・決定的）", () => {
+	it("CATEGORY_KEYS の順序どおり 1 始まりで過不足なく割り当てる", () => {
+		CATEGORY_KEYS.forEach((key, index) => {
+			expect(CATEGORY_AXIS_NUMBERS[key]).toBe(index + 1);
+		});
+		expect(Object.keys(CATEGORY_AXIS_NUMBERS).sort()).toEqual(
+			[...CATEGORY_KEYS].sort(),
+		);
+	});
+
+	it("番号は 1..5 の範囲で重複しない", () => {
+		const numbers = CATEGORY_KEYS.map((key) => CATEGORY_AXIS_NUMBERS[key]);
+		expect(new Set(numbers).size).toBe(CATEGORY_KEYS.length);
+		for (const n of numbers) {
+			expect(n).toBeGreaterThanOrEqual(1);
+			expect(n).toBeLessThanOrEqual(CATEGORY_KEYS.length);
+		}
 	});
 });

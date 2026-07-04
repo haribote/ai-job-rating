@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
+	CATEGORY_AXIS_NUMBERS,
 	CATEGORY_KEYS,
 	CATEGORY_LABELS,
 	type CategoryKey,
@@ -69,19 +70,31 @@ describe("SCORE_RADAR_CONFIG（単一アクセント）", () => {
 });
 
 describe("ScoreRadar（描画）", () => {
-	it("5 軸すべてのラベルを描画する", () => {
+	it("軸ラベルは番号（1〜5）で描画する（狭枠での重なり回避・#203）", () => {
 		render(<ScoreRadar scores={fullScores} />);
 		for (const key of CATEGORY_KEYS) {
-			expect(screen.getByText(CATEGORY_LABELS[key])).toBeInTheDocument();
+			expect(
+				screen.getByText(String(CATEGORY_AXIS_NUMBERS[key])),
+			).toBeInTheDocument();
 		}
 	});
 
 	it("データ無し軸の目盛りを中立表示（data-unknown）でマークする", () => {
 		render(<ScoreRadar scores={{ ...fullScores, company: null }} />);
-		const companyTick = screen.getByText(CATEGORY_LABELS.company);
+		const companyTick = screen.getByText(String(CATEGORY_AXIS_NUMBERS.company));
 		expect(companyTick).toHaveAttribute("data-unknown", "true");
 		// 既知軸は中立マークを付けない。
-		const roleTick = screen.getByText(CATEGORY_LABELS.role);
+		const roleTick = screen.getByText(String(CATEGORY_AXIS_NUMBERS.role));
 		expect(roleTick).toHaveAttribute("data-unknown", "false");
+	});
+
+	it("番号目盛りの title に軸名（CATEGORY_LABELS）を残す（a11y フォロー）", () => {
+		render(<ScoreRadar scores={fullScores} />);
+		const compensationTick = screen.getByText(
+			String(CATEGORY_AXIS_NUMBERS.compensation),
+		);
+		expect(compensationTick.querySelector("title")).toHaveTextContent(
+			CATEGORY_LABELS.compensation,
+		);
 	});
 });

@@ -291,6 +291,17 @@ describe("Dashboard", () => {
 		expect(await screen.findByTestId("job-detail-sheet")).toBeInTheDocument();
 	});
 
+	// #203 方針転換: 独立した凡例欄は廃止し、1位カードのカテゴリ別スコアテーブル
+	// （CategoryScoreTable）が番号→カテゴリ名の対応を兼ねる。Dashboard は
+	// RadarAxisLegend を一切描画しない（JobDetailSheet は対象外・現状維持）。
+	it("凡例（RadarAxisLegend）を描画しない", async () => {
+		const jobs = ["a", "b"].map((id) => item({ jobId: id }));
+		render(<Dashboard rankingFetcher={async () => ({ jobs, excluded: [] })} />);
+
+		await screen.findByTestId("ranking-hero-region");
+		expect(screen.queryByTestId("radar-axis-legend")).not.toBeInTheDocument();
+	});
+
 	it("投入中カードの軸別スコアは breakdown のみで集約する（reputation を混ぜない・#202）", async () => {
 		// reputation はサーバ側 toRankingItem（ranking-list.ts）が渡さないものと同じ形にする。
 		// ここで混ぜると、再取得後の確定カードで company 軸の値が変化なしに見た目だけ変わる。
