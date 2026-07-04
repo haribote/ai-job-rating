@@ -38,11 +38,13 @@ import {
 } from "./reputation/url-html";
 import {
 	createClaudeReputationClient,
-	DEFAULT_WEB_SEARCH_SOURCE,
-	fetchReputationSnapshot,
 	resolveReputationMaxAgeSeconds,
 	resolveReputationModel,
 } from "./reputation/web-search";
+import {
+	runCompanyWebSearch,
+	triggerJobReputationWebSearch,
+} from "./reputation/web-search-trigger";
 import { parseReputationSourceInput } from "./reputation-config";
 import { readRanking } from "./scoring/ranking";
 import { getCompanyById } from "./storage/companies-store";
@@ -452,45 +454,71 @@ app.post("/api/companies/:id/reputation", async (c) => {
 	const company = await getCompanyById(c.env.DB, companyId);
 	if (company === null) return c.json({ error: "company not found" }, 404);
 
-	// 有効な取得元のうち web_search 経路のみを対象にする（priority 昇順は store が保証）。
-	// 取得元未設定でも web_search は §7.2 の主軸のため既定 source 名で単体成立させる。
-	const enabled = await listReputationSources(c.env.DB, { enabledOnly: true });
-	const webSearchSources = enabled.filter(
-		(s) => s.fetch_method === "web_search",
-	);
-	const sourceNames =
-		webSearchSources.length > 0
-			? webSearchSources.map((s) => s.name)
-			: [DEFAULT_WEB_SEARCH_SOURCE];
-
 	const client = createClaudeReputationClient({
 		apiKey,
 		model: resolveReputationModel(c.env.REPUTATION_MODEL),
 	});
-	const maxAgeSeconds = resolveReputationMaxAgeSeconds(
-		c.env.REPUTATION_MAX_AGE_SECONDS,
+	const snapshots = await runCompanyWebSearch(
+		{
+			db: c.env.DB,
+			client,
+			maxAgeSeconds: resolveReputationMaxAgeSeconds(
+				c.env.REPUTATION_MAX_AGE_SECONDS,
+			),
+		},
+		company,
 	);
 
-	const snapshots = [];
-	for (const source of sourceNames) {
-		const result = await fetchReputationSnapshot(
-			{ db: c.env.DB, client, maxAgeSeconds },
-			{
-				companyId,
-				companyName: company.name,
-				houjinBangou: company.houjin_bangou,
-				source,
-			},
-		);
-		snapshots.push({
-			source,
-			cached: result.cached,
-			fetched: result.fetched,
-			snapshot: result.snapshot,
-		});
+	return c.json({ status: "ok", companyId, snapshots }, 200);
+});
+
+// 評判: 求人起点の web_search 取得トリガー (#117)。UI「評判取得」ボタンの実配線。求人の抽出企業名から
+// company を seed（upsert + 紐付け）し、web_search で評判 snapshot を保存する。コア層
+// POST /api/companies/:id/reputation との差は「companies.id ではなく jobs.id を入力に取る」点で、
+// 取得ロジック自体は runCompanyWebSearch に共通化している（§9 責務分離・DRY）。
+// - APIキー未設定は中立: 取得せず 200 { status:"skipped" }（company ルートと同挙動・unknown 中立）。
+// - 求人不在は 404、企業名が名寄せ不能（抽出 unknown 等）は 400（company 単位で保存できないため）。
+app.post("/api/jobs/:id/reputation", async (c) => {
+	const apiKey = c.env.ANTHROPIC_API_KEY;
+	if (
+		apiKey === undefined ||
+		!resolveReputationApiKeyConfig(apiKey).apiKeyConfigured
+	) {
+		return c.json({ status: "skipped", reason: "api-key-not-configured" }, 200);
 	}
 
-	return c.json({ status: "ok", companyId, snapshots }, 200);
+	const result = await triggerJobReputationWebSearch(
+		{
+			db: c.env.DB,
+			client: createClaudeReputationClient({
+				apiKey,
+				model: resolveReputationModel(c.env.REPUTATION_MODEL),
+			}),
+			corporateClient: resolveCorporateNumberClient(c.env),
+			maxAgeSeconds: resolveReputationMaxAgeSeconds(
+				c.env.REPUTATION_MAX_AGE_SECONDS,
+			),
+		},
+		c.req.param("id"),
+	);
+	switch (result.kind) {
+		case "job-not-found":
+			return c.json({ error: "job not found" }, 404);
+		case "company-unresolved":
+			return c.json(
+				{ error: "company could not be resolved", reason: "companyName" },
+				400,
+			);
+		default:
+			return c.json(
+				{
+					status: "ok",
+					companyId: result.companyId,
+					snapshots: result.snapshots,
+				},
+				200,
+			);
+	}
 });
 
 // 抽出モデルの live golden 横並び評価（#106・dev 限定）。本番安全のため EXTRACTION_EVAL==="1" のときだけ

@@ -17,6 +17,10 @@ import {
 	type ReextractAction,
 	reextractJob,
 } from "../lib/jobDetail";
+import {
+	type JobReputationTriggerResponse,
+	triggerJobReputation,
+} from "../lib/reputation";
 import type { RankingItem } from "../lib/useRanking";
 import { BreakdownTable } from "./BreakdownTable";
 import { RadarAxisLegend } from "./RadarAxisLegend";
@@ -60,8 +64,10 @@ export interface JobDetailSheetProps {
 	// 再抽出関数（既定は POST /api/jobs/:id/reextract）。テストはフェイクを注入する。
 	reextract?: ReextractAction;
 	// 企業評判の前提（ANTHROPIC_API_KEY 等）が満たされているか。
-	// 未設定（既定 false）は実行ボタン無効＋設定への案内文（実 API 配線は評判 issue 群の follow-up）。
+	// 未設定（既定 false）は実行ボタン無効＋設定への案内文。
 	reputationAvailable?: boolean;
+	// 評判取得関数（既定は POST /api/jobs/:id/reputation）。テストはフェイクを注入する。
+	triggerReputation?: (jobId: string) => Promise<JobReputationTriggerResponse>;
 }
 
 export function JobDetailSheet({
@@ -72,9 +78,13 @@ export function JobDetailSheet({
 	detailFetcher = fetchJobDetail,
 	reextract = reextractJob,
 	reputationAvailable = false,
+	triggerReputation = triggerJobReputation,
 }: JobDetailSheetProps): JSX.Element {
 	const [detail, setDetail] = useState<DetailState>({ status: "idle" });
 	const [reextractState, setReextractState] = useState<ReextractState>("idle");
+	// 評判取得の状態機械（再抽出と同じ非同期パターン）。
+	const [reputationState, setReputationState] =
+		useState<ReextractState>("idle");
 
 	const jobId = job?.jobId ?? null;
 
@@ -83,6 +93,7 @@ export function JobDetailSheet({
 		if (!open || jobId === null) {
 			setDetail({ status: "idle" });
 			setReextractState("idle");
+			setReputationState("idle");
 			return;
 		}
 		let active = true;
@@ -108,6 +119,14 @@ export function JobDetailSheet({
 		reextract(jobId)
 			.then(() => setReextractState("done"))
 			.catch(() => setReextractState("error"));
+	}
+
+	function onReputationClick(): void {
+		if (jobId === null) return;
+		setReputationState("running");
+		triggerReputation(jobId)
+			.then(() => setReputationState("done"))
+			.catch(() => setReputationState("error"));
 	}
 
 	const successDetail = detail.status === "success" ? detail.detail : null;
@@ -219,10 +238,15 @@ export function JobDetailSheet({
 						<Button
 							type="button"
 							variant="secondary"
-							disabled={!reputationAvailable}
+							onClick={onReputationClick}
+							disabled={
+								!reputationAvailable ||
+								reputationState === "running" ||
+								jobId === null
+							}
 							data-testid="reputation-button"
 						>
-							評判取得
+							{reputationState === "running" ? "評判取得中..." : "評判取得"}
 						</Button>
 					</div>
 
@@ -237,6 +261,20 @@ export function JobDetailSheet({
 					{reextractState === "error" && (
 						<p role="alert" className="text-sm">
 							再抽出の開始に失敗しました。
+						</p>
+					)}
+
+					{reputationState === "done" && (
+						<p
+							data-testid="reputation-done"
+							className="text-sm text-muted-foreground"
+						>
+							企業評判を取得しました。再度開くとスコアに反映されます。
+						</p>
+					)}
+					{reputationState === "error" && (
+						<p role="alert" className="text-sm">
+							企業評判の取得に失敗しました。
 						</p>
 					)}
 
