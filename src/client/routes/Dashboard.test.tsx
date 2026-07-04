@@ -103,6 +103,8 @@ describe("Dashboard", () => {
 
 		const heroRegion = await screen.findByTestId("ranking-hero-region");
 		expect(within(heroRegion).getAllByTestId("ranking-podium")).toHaveLength(3);
+		// 2・3位の行を明示的に等分（1位の高さの約50%ずつ）にする決定的な行分割。
+		expect(heroRegion.className).toContain("md:grid-rows-2");
 
 		const gridRegion = screen.getByTestId("ranking-grid-region");
 		expect(within(gridRegion).getAllByTestId("ranking-card")).toHaveLength(2);

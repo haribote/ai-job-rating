@@ -150,7 +150,8 @@ export function Dashboard({
 					{ranking.jobs.length > 0 && (
 						<ol
 							data-testid="ranking-hero-region"
-							className="grid grid-cols-1 gap-3 md:grid-cols-2"
+							// md:grid-rows-2: 2・3位の行を明示的に等分し、1位の高さの約50%ずつにする（#201）。
+							className="grid grid-cols-1 gap-3 md:grid-cols-2 md:grid-rows-2"
 						>
 							<li className="md:row-span-2">
 								<RankingPodium

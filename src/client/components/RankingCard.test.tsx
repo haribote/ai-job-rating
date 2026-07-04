@@ -71,6 +71,11 @@ describe("RankingCard", () => {
 		// 通常カードは枠色・アイコン無し。
 		expect(screen.queryByTestId("podium-icon")).not.toBeInTheDocument();
 		expect(container.querySelector('[class*="border-medal"]')).toBeNull();
+		// grid セルの高さいっぱいに広がる（親 li のストレッチに追従し、2/3位の高さ揃えを成立させる）。
+		expect(card.className).toContain("h-full");
+		expect(container.querySelector('[class*="border"]')?.className).toContain(
+			"h-full",
+		);
 
 		card.click();
 		expect(onSelect).toHaveBeenCalledOnce();

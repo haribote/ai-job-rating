@@ -98,11 +98,11 @@ export function RankingCard({
 			type="button"
 			data-testid={testId}
 			onClick={onSelect}
-			className={cn("block w-full text-left", className)}
+			className={cn("block h-full w-full text-left", className)}
 		>
 			<Card
 				className={cn(
-					"transition-colors hover:bg-accent",
+					"h-full transition-colors hover:bg-accent",
 					sizeStyle.cardClassName,
 					// 順位差は枠色のみで表す（accent 指定時だけ太枠＋メダル色）。
 					accent && cn("border-2", accent.borderClassName),
