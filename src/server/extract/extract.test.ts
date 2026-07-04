@@ -288,6 +288,24 @@ describe("rawFieldsToNormalizedJob", () => {
 		expect(job.remoteWork.kind).toBe("categorical");
 	});
 
+	// skillMatch は羅列文字列を個別スキルへ分割して categories に格納する（突合可能な形へ正規化・§5.2）。
+	it("skillMatch の羅列文字列を個別スキルへ分割する", () => {
+		const job = rawFieldsToNormalizedJob({
+			skillMatch: "TypeScript, React、Go / AWS",
+		});
+		expect(job.skillMatch.kind).toBe("categorical");
+		if (job.skillMatch.kind === "categorical") {
+			expect(job.skillMatch.categories).toEqual([
+				"TypeScript",
+				"React",
+				"Go",
+				"AWS",
+			]);
+			// raw は原文のまま保持する（表示・再正規化用）。
+			expect(job.skillMatch.raw).toBe("TypeScript, React、Go / AWS");
+		}
+	});
+
 	// gap1: 年収・月給は単位を万円へ正規化する（scoring の希望値が万円前提のため、§5.2）。
 	it("円表記の年収を万円へ正規化する（900万円→900）", () => {
 		const job = rawFieldsToNormalizedJob({ annualSalary: "9,000,000円" });
@@ -551,19 +569,16 @@ describe("rawFieldsToNormalizedJob", () => {
 		}
 	});
 
-	// 開集合キー（skillMatch）は canonical 化せず生表記を 1 カテゴリ保持する（情報を捨てない）。
-	it("開集合キー（skillMatch）は生表記を 1 カテゴリ保持する", () => {
-		const cases: ReadonlyArray<readonly [NormalizedKey, string]> = [
-			["skillMatch", "TypeScript, React, Go, AWS"],
-		];
-		for (const [key, raw] of cases) {
-			const job = rawFieldsToNormalizedJob({ [key]: raw });
-			const value = job[key];
-			expect(value.kind).toBe("categorical");
-			if (value.kind === "categorical") {
-				expect(value.categories).toEqual([raw]);
-				expect(value.raw).toBe(raw);
-			}
+	// 開集合キー（skillMatch）は羅列を個別スキルへ分割しつつ、各トークンは canonical 化せず
+	// 生表記のまま保持する（マッピングに無い値も捨てない）。raw は原文を保つ。
+	it("開集合キー（skillMatch）は分割後も各トークンを生表記のまま保持する", () => {
+		const raw = "TypeScript, React, Go, AWS";
+		const job = rawFieldsToNormalizedJob({ skillMatch: raw });
+		const value = job.skillMatch;
+		expect(value.kind).toBe("categorical");
+		if (value.kind === "categorical") {
+			expect(value.categories).toEqual(["TypeScript", "React", "Go", "AWS"]);
+			expect(value.raw).toBe(raw);
 		}
 	});
 

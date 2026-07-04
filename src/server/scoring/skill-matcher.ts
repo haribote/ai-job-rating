@@ -7,15 +7,19 @@
 // - 純粋関数（同一 jobSkills・同一 keywords → 同一値、§8）。DB・AI 呼び出しは持たない。
 // - 必須/歓迎の区別はしない。ヒット率は「ユーザー keyword のうち求人に出現した割合」で測る。
 
-import { canonicalizeLabel } from "../../shared/job-schema";
+import { canonicalizeLabel, splitSkillTokens } from "../../shared/job-schema";
 
 // スキル名・keyword を比較用に正規化して一意集合へ寄せる（大小/全半角/装飾記号の揺れを吸収）。
-// ラベル正規化はラベルキー突合と同じ canonicalizeLabel を共有する（§5.2 単一方針）。
+// 各要素はまず splitSkillTokens で羅列区切りを分割してから canonicalizeLabel する。これにより
+// 抽出が1塊で保存した既存データ（再取得なし）も、keyword を1フィールドにカンマ入力した場合も、
+// 対称に個別スキルとして突合できる。ラベル正規化は突合と同じ canonicalizeLabel を共有する（§5.2）。
 function toSkillSet(skills: readonly string[]): ReadonlySet<string> {
 	const set = new Set<string>();
 	for (const s of skills) {
-		const key = canonicalizeLabel(s);
-		if (key !== "") set.add(key);
+		for (const token of splitSkillTokens(s)) {
+			const key = canonicalizeLabel(token);
+			if (key !== "") set.add(key);
+		}
 	}
 	return set;
 }

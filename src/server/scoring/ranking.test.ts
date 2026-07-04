@@ -221,4 +221,38 @@ describe("GET /api/ranking（スコア順一覧の JSON ルート）", () => {
 		expect(body.jobs).toEqual([]);
 		expect(body.excluded).toEqual([]);
 	});
+
+	// スクショ回帰: 仕事・スキル軸（既存の1塊 categories データ）と企業軸（companySize）が
+	// unknown（—）や 0.00 に落ちず、実値スコアとして categoryScores に載ることを HTTP 経路で検証する。
+	it("仕事・スキル軸と企業軸が実値スコアとして返る", async () => {
+		await seed(
+			"j1",
+			jobWith({
+				// 抽出が分割せず保存した既存データを模した1塊 categories。読み取り側で分割して突合する。
+				skillMatch: {
+					kind: "categorical",
+					categories: ["TypeScript, React, Go"],
+					raw: "TypeScript, React, Go",
+				},
+				companySize: { kind: "numericRange", min: 1000, max: 1000 },
+			}),
+		);
+		await setCriterion("skillMatch", 4, { keywords: ["react"] });
+		await setCriterion("companySize", 2, { desired: 1000, floor: 50 });
+		await rescoreAll(env.DB);
+
+		const res = await app.request("/api/ranking", {}, env);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			jobs: {
+				jobId: string;
+				categoryScores: { role: number | null; company: number | null };
+			}[];
+		};
+		const item = body.jobs.find((j) => j.jobId === "j1");
+		// role: keyword "react" が1塊から分割・突合されヒット → 100% = 1（0.00 でも — でもない）。
+		expect(item?.categoryScores.role).toBe(1);
+		// company: companySize=1000 が desired=1000 に到達 → 1（— でない）。
+		expect(item?.categoryScores.company).not.toBeNull();
+	});
 });

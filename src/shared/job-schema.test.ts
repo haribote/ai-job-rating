@@ -7,6 +7,7 @@ import {
 	type NormalizedFieldValue,
 	type NormalizedJob,
 	normalizeLabel,
+	splitSkillTokens,
 } from "./job-schema";
 
 // 正規キー一覧はスコアリングの単一ソース。重複なく全カテゴリを網羅する。
@@ -22,6 +23,49 @@ describe("NORMALIZED_KEYS", () => {
 		expect(NORMALIZED_KEYS).toContain("remoteWork");
 		expect(NORMALIZED_KEYS).toContain("skillMatch");
 		expect(NORMALIZED_KEYS).toContain("capital");
+	});
+});
+
+// スキル羅列文字列 → 個別スキルトークン列（#skillMatch 突合の前処理）。
+// なぜ: AI は使用技術を1文字列に羅列するため、リスト区切りで分割してから突合する（複合語の空白は保持）。
+describe("splitSkillTokens", () => {
+	it("カンマ・読点・スラッシュ・中黒・セミコロン・縦棒・改行で分割する", () => {
+		expect(splitSkillTokens("Go, TypeScript、React / Vue・Angular")).toEqual([
+			"Go",
+			"TypeScript",
+			"React",
+			"Vue",
+			"Angular",
+		]);
+		expect(splitSkillTokens("Go; Rust | Java\nKotlin")).toEqual([
+			"Go",
+			"Rust",
+			"Java",
+			"Kotlin",
+		]);
+	});
+
+	it("トークン内の空白は保持する（複合語を壊さない）", () => {
+		expect(splitSkillTokens("Ruby on Rails, Amazon Web Services")).toEqual([
+			"Ruby on Rails",
+			"Amazon Web Services",
+		]);
+	});
+
+	it("各断片を trim し空要素は除去する（連続区切り・末尾区切り）", () => {
+		expect(splitSkillTokens("  Go ,, TypeScript ,／, ")).toEqual([
+			"Go",
+			"TypeScript",
+		]);
+	});
+
+	it("区切りが無ければ単一トークン（既存の個別値は素通り）", () => {
+		expect(splitSkillTokens("TypeScript")).toEqual(["TypeScript"]);
+	});
+
+	it("空文字・空白のみは空配列（決定的）", () => {
+		expect(splitSkillTokens("")).toEqual([]);
+		expect(splitSkillTokens("   ")).toEqual([]);
 	});
 });
 

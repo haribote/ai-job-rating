@@ -166,6 +166,19 @@ export function canonicalizeLabel(label: string): string {
 		.replace(/[\s　・:：()（）[\]【】/／]/g, ""); // 区切り・装飾記号を除去
 }
 
+// スキル羅列文字列を個別スキルトークンへ分割する（skillMatch 突合の前処理）。
+// なぜ: AI は使用技術を1文字列に羅列する（"Go, TypeScript / React" 等）ため、リスト区切りで
+// 分割してから canonicalizeLabel で突合しないと集合一致でヒットしない。空白では分割せず
+// 複合語（"Ruby on Rails" 等）を保持する（トークン内の空白除去は canonicalizeLabel に委ねる）。
+const SKILL_TOKEN_DELIMITERS = /[,、，/／・;；|\n\r]+/;
+
+export function splitSkillTokens(raw: string): string[] {
+	return raw
+		.split(SKILL_TOKEN_DELIMITERS)
+		.map((s) => s.trim())
+		.filter((s) => s !== "");
+}
+
 // サイト依存ラベル（揺れ）→ 正規キーの対応表。
 // 値は canonicalizeLabel 適用後のキーで引けるよう、登録時に正規化する。
 const LABEL_ALIASES: ReadonlyArray<readonly [string, NormalizedKey]> = [

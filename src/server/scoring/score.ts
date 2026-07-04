@@ -324,5 +324,21 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 		// スキル適合は求人スキル集合 × ユーザー keyword の決定的ヒット率（#105）。
 		// 必須/歓迎の区別はしない。既定の keyword は空（意見なし=中立）でフォーク先・設定UIが埋める。
 		skillMatch: { weight: 4, kind: "keywordMatch", keywords: [] },
+		// 企業: 規模・資本金は大きいほど良いを既定にする（安定性の代理指標）。値は暫定で Settings で調整可。
+		// 抽出済みの companySize/capital を採点へ接続し、企業軸が unknown（—）に落ちないようにする。
+		companySize: {
+			weight: 2,
+			kind: "numericRange",
+			direction: "higherBetter",
+			desired: 1000,
+			floor: 50,
+		},
+		capital: {
+			weight: 2,
+			kind: "numericRange",
+			direction: "higherBetter",
+			desired: 10000,
+			floor: 1000,
+		},
 	},
 };

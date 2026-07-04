@@ -49,4 +49,16 @@ describe("matchSkills（求人スキル × keyword の決定的ヒット率・0.
 			matchSkills(["go", "rust"], ["go", "ts"]),
 		);
 	});
+
+	// 求人スキルが1塊の羅列文字列（抽出が分割せず保存した既存データ）でも、
+	// リスト区切りで分割してから突合するので個別 keyword がヒットする（回帰防止）。
+	it("1塊の羅列文字列を区切りで分割して突合する", () => {
+		expect(matchSkills(["TypeScript, React, Go"], ["react"])).toBe(100);
+		expect(matchSkills(["Go・TypeScript・AWS"], ["go", "aws"])).toBe(100);
+	});
+
+	// keyword 側を1フィールドにカンマ入力しても各語で突合する（対称）。
+	it("カンマ区切りの keyword 文字列も各語に分割して突合する", () => {
+		expect(matchSkills(["go", "typescript"], ["go, typescript"])).toBe(100);
+	});
 });
