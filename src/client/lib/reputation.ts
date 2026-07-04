@@ -144,6 +144,23 @@ export async function overrideReputationManually(
 	return res.snapshot;
 }
 
+// POST /api/jobs/:id/reputation の応答（サーバ web-search-trigger と整合）。
+// status="skipped" は APIキー未設定（中立・取得せず）。ok は取得/キャッシュ済みで snapshots を伴う。
+export interface JobReputationTriggerResponse {
+	readonly status: "ok" | "skipped";
+	readonly reason?: string;
+	readonly companyId?: string;
+}
+
+// 求人起点で企業評判の web_search 取得を起動する（#117）。求人の抽出企業名から company を seed し取得する。
+// 詳細ドロワーの「評判取得」ボタンが消費する。取得結果はスコアへ反映され、再オープンで表示に効く。
+export async function triggerJobReputation(
+	jobId: string,
+	post: ApiClient["post"] = apiPost,
+): Promise<JobReputationTriggerResponse> {
+	return post<JobReputationTriggerResponse>(`/jobs/${jobId}/reputation`, {});
+}
+
 // 評判ページの URL/HTML を投入し AI 抽出して保存する。保存後の snapshot を返す。
 export async function ingestReputationFromUrlHtml(
 	jobId: string,

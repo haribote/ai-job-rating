@@ -304,6 +304,23 @@ describe("JobDetailSheet（詳細ドロワーの中身）", () => {
 		expect(await screen.findByTestId("reextract-done")).toBeInTheDocument();
 	});
 
+	it("評判取得ボタンで POST /jobs/:id/reputation を当該 jobId で呼ぶ", async () => {
+		const triggerReputation = vi.fn(async () => ({ status: "ok" as const }));
+		render(
+			<JobDetailSheet
+				job={item({ jobId: "abc" })}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () => detail()}
+				reputationAvailable={true}
+				triggerReputation={triggerReputation}
+			/>,
+		);
+		fireEvent.click(screen.getByTestId("reputation-button"));
+		expect(triggerReputation).toHaveBeenCalledWith("abc");
+		expect(await screen.findByTestId("reputation-done")).toBeInTheDocument();
+	});
+
 	it("取得失敗時はエラーを表示する", async () => {
 		render(
 			<JobDetailSheet

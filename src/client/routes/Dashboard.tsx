@@ -6,6 +6,10 @@ import { RankingCard } from "../components/RankingCard";
 import { type MedalRank, RankingPodium } from "../components/RankingPodium";
 import { ScoreSkeleton } from "../components/ScoreSkeleton";
 import type { JobDetailFetcher, JobDetailResponse } from "../lib/jobDetail";
+import {
+	fetchReputationApiKeyConfig,
+	type ReputationApiKeyConfig,
+} from "../lib/reputation";
 import { isPendingPhase, useJobStatus } from "../lib/useJobStatus";
 import {
 	type RankingFetcher,
@@ -33,6 +37,8 @@ export interface DashboardProps {
 	jobStatusIntervalMs?: number;
 	// 求人が終端（ready/failed）に達したときの通知（親が pending から外す／再ランキングする契機）。
 	onJobSettled?: (jobId: string) => void;
+	// 評判 APIキーの構成状態取得（既定は GET /api/reputation/config）。テストはフェイクを注入する。
+	reputationConfigFetcher?: () => Promise<ReputationApiKeyConfig>;
 }
 
 // 初期ロード時に並べる Skeleton の安定キー。確定後のカード数の目安に合わせて数件出す。
@@ -125,6 +131,7 @@ export function Dashboard({
 	jobStatusFetcher,
 	jobStatusIntervalMs,
 	onJobSettled,
+	reputationConfigFetcher = fetchReputationApiKeyConfig,
 }: DashboardProps): JSX.Element {
 	const ranking = useRanking(rankingFetcher);
 	// 選択中の求人と表示順位。null なら詳細ドロワーは閉じる。
@@ -133,6 +140,22 @@ export function Dashboard({
 		item: RankingItem;
 		rank: number;
 	} | null>(null);
+	// 評判取得の前提（ANTHROPIC_API_KEY 設定済みか）。取得失敗時は false 据え置き（ボタン無効・案内表示）。
+	const [reputationAvailable, setReputationAvailable] = useState(false);
+
+	useEffect(() => {
+		let active = true;
+		reputationConfigFetcher()
+			.then((config) => {
+				if (active) setReputationAvailable(config.apiKeyConfigured);
+			})
+			.catch(() => {
+				if (active) setReputationAvailable(false);
+			});
+		return () => {
+			active = false;
+		};
+	}, [reputationConfigFetcher]);
 
 	// 投入中カードは確定ランキングの末尾へ続けて並べる（再ランキングまでの暫定位置）。
 	const rankedCount = ranking.status === "success" ? ranking.jobs.length : 0;
@@ -233,6 +256,7 @@ export function Dashboard({
 			<JobDetailSheet
 				job={selected?.item ?? null}
 				rank={selected?.rank ?? null}
+				reputationAvailable={reputationAvailable}
 				open={selected !== null}
 				onOpenChange={(open) => {
 					// 閉じる操作（オーバーレイ／Esc／閉じるボタン）で選択を解除する。

@@ -145,6 +145,34 @@ describe("Dashboard", () => {
 		expect(await screen.findByRole("alert")).toBeInTheDocument();
 	});
 
+	it("評判APIキー設定済みならドロワーの評判取得ボタンを有効化する（誤案内を出さない）", async () => {
+		const jobs = [item({ jobId: "a", sourceUrl: "https://example.com/a" })];
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs, excluded: [] })}
+				reputationConfigFetcher={async () => ({ apiKeyConfigured: true })}
+			/>,
+		);
+		fireEvent.click(await screen.findByTestId("ranking-podium"));
+		await screen.findByTestId("job-detail-sheet");
+		expect(await screen.findByTestId("reputation-button")).toBeEnabled();
+		expect(screen.queryByTestId("reputation-hint")).not.toBeInTheDocument();
+	});
+
+	it("評判APIキー未設定ならドロワーの評判取得ボタンを無効化し案内文を出す", async () => {
+		const jobs = [item({ jobId: "a", sourceUrl: "https://example.com/a" })];
+		render(
+			<Dashboard
+				rankingFetcher={async () => ({ jobs, excluded: [] })}
+				reputationConfigFetcher={async () => ({ apiKeyConfigured: false })}
+			/>,
+		);
+		fireEvent.click(await screen.findByTestId("ranking-podium"));
+		await screen.findByTestId("job-detail-sheet");
+		expect(await screen.findByTestId("reputation-button")).toBeDisabled();
+		expect(screen.getByTestId("reputation-hint")).toBeInTheDocument();
+	});
+
 	it("投入中の求人は Skeleton を出し、scored で楽観的にカードへ差し替える", async () => {
 		// 1 回目は抽出中（extracted）→ Skeleton、2 回目で scored → カードへ。
 		const jobStatusFetcher = vi
