@@ -291,6 +291,63 @@ describe("Dashboard", () => {
 		expect(await screen.findByTestId("job-detail-sheet")).toBeInTheDocument();
 	});
 
+	// #203: 軸番号↔カテゴリ名の凡例はダッシュボード単位で1箇所のみ。レーダーが1件以上表示される
+	// 状態（確定ランキングに1件以上 or 投入中カードが1件以上）でのみ出す。
+	describe("軸凡例（RadarAxisLegend）の表示条件（#203）", () => {
+		it("取得中（ローディング）は凡例を表示しない", () => {
+			render(
+				<Dashboard
+					rankingFetcher={() => new Promise<RankingResponse>(() => {})}
+				/>,
+			);
+			expect(screen.queryByTestId("radar-axis-legend")).not.toBeInTheDocument();
+		});
+
+		it("取得失敗時は凡例を表示しない", async () => {
+			render(
+				<Dashboard
+					rankingFetcher={async () => {
+						throw new Error("boom");
+					}}
+				/>,
+			);
+			await screen.findByRole("alert");
+			expect(screen.queryByTestId("radar-axis-legend")).not.toBeInTheDocument();
+		});
+
+		it("確定ランキングが0件・投入中も無いときは凡例を表示しない", async () => {
+			render(
+				<Dashboard rankingFetcher={async () => ({ jobs: [], excluded: [] })} />,
+			);
+			await screen.findByTestId("dashboard-view");
+			expect(screen.queryByTestId("radar-axis-legend")).not.toBeInTheDocument();
+		});
+
+		it("確定ランキングが1件以上あるときは凡例を1回だけ表示する", async () => {
+			const jobs = ["a", "b"].map((id) => item({ jobId: id }));
+			render(
+				<Dashboard rankingFetcher={async () => ({ jobs, excluded: [] })} />,
+			);
+
+			expect(await screen.findAllByTestId("radar-axis-legend")).toHaveLength(1);
+		});
+
+		it("確定ランキングは0件でも投入中カードが1件以上あれば凡例を表示する", async () => {
+			const jobStatusFetcher = vi.fn().mockResolvedValue(detail("scored"));
+			render(
+				<Dashboard
+					rankingFetcher={async () => ({ jobs: [], excluded: [] })}
+					pendingJobIds={["job-x"]}
+					jobStatusFetcher={jobStatusFetcher}
+					jobStatusIntervalMs={5}
+				/>,
+			);
+
+			await screen.findByTestId("pending-card");
+			expect(screen.getAllByTestId("radar-axis-legend")).toHaveLength(1);
+		});
+	});
+
 	it("投入中カードの軸別スコアは breakdown のみで集約する（reputation を混ぜない・#202）", async () => {
 		// reputation はサーバ側 toRankingItem（ranking-list.ts）が渡さないものと同じ形にする。
 		// ここで混ぜると、再取得後の確定カードで company 軸の値が変化なしに見た目だけ変わる。

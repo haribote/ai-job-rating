@@ -2,6 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { aggregateCategoryScores } from "../../shared/categoryScores";
 import { JobDetailSheet } from "../components/JobDetailSheet";
 import { JobPhaseBadge } from "../components/JobPhaseBadge";
+import { RadarAxisLegend } from "../components/RadarAxisLegend";
 import { RankingCard } from "../components/RankingCard";
 import { type MedalRank, RankingPodium } from "../components/RankingPodium";
 import { ScoreSkeleton } from "../components/ScoreSkeleton";
@@ -132,10 +133,15 @@ export function Dashboard({
 
 	// 投入中カードは確定ランキングの末尾へ続けて並べる（再ランキングまでの暫定位置）。
 	const rankedCount = ranking.status === "success" ? ranking.jobs.length : 0;
+	// 軸凡例（RadarAxisLegend）はダッシュボード単位で1箇所のみ。番号↔カテゴリ名の対応は
+	// CATEGORY_KEYS 順で全カード共通・不変のため、レーダーが1件以上表示される状態でのみ出す
+	// （確定ランキングに1件以上 or 投入中カードが1件以上・#203）。
+	const hasAnyRadarCard = rankedCount > 0 || pendingJobIds.length > 0;
 
 	return (
 		<section data-testid="dashboard-view" className="p-4">
 			<h2 className="sr-only">ランキング</h2>
+			{hasAnyRadarCard && <RadarAxisLegend className="mb-3" />}
 
 			{ranking.status === "loading" && (
 				<ol

@@ -55,6 +55,14 @@ export const CATEGORY_LABELS: Record<CategoryKey, string> = {
 	company: "企業",
 };
 
+// 軸 → レーダー目盛り番号（1始まり・CATEGORY_KEYS 順で決定的に導出）。
+// レーダーの軸ラベルは狭枠で重なるため番号に置換し、凡例（RadarAxisLegend）で
+// 番号 → CATEGORY_LABELS の対応を示す（#203）。
+export const CATEGORY_AXIS_NUMBERS: Record<CategoryKey, number> =
+	Object.fromEntries(
+		CATEGORY_KEYS.map((key, index) => [key, index + 1]),
+	) as Record<CategoryKey, number>;
+
 // 軸 → 所属する正規キー一覧（CATEGORY_OF から決定的に導出・NORMALIZED_KEYS 順）。
 // レーダー/内訳が「軸ごとの項目」を引くための逆引き。CATEGORY_OF を単一ソースに保つため導出する。
 export const KEYS_BY_CATEGORY: Record<CategoryKey, readonly NormalizedKey[]> =
