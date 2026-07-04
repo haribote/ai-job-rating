@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { JobPhase } from "../lib/useJobStatus";
+import type { PendingJobPhase } from "../lib/useJobStatus";
 
 // 取得中・採点中バッジ（#199）。
 //
@@ -9,9 +9,8 @@ import type { JobPhase } from "../lib/useJobStatus";
 // - Skeleton（ScoreSkeleton）は装飾専用（aria-hidden）で状態を読み上げないため、
 //   「処理中なのか」をユーザーが判別できるよう文言＋role="status" の実体をここへ集約する。
 // - fetching/scoring の文言マッピングは決定的なので純関数（pendingPhaseLabel）へ切り出し単体テスト可能にする。
-
-// 終端でないフェーズ（deriveJobPhase の isPendingPhase と同じ集合）だけを受け取る。
-export type PendingJobPhase = Extract<JobPhase, "fetching" | "scoring">;
+// - 受け取るフェーズの型（PendingJobPhase）は useJobStatus の isPendingPhase と単一ソースを共有する
+//   （ここで独自に Extract し直すと将来フェーズが増えたときに定義がずれる）。
 
 // フェーズ → 表示文言の決定的マッピング。
 const PENDING_PHASE_LABELS: Record<PendingJobPhase, string> = {

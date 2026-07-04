@@ -90,6 +90,10 @@ export function formatScore(total: number | null): string {
 	return total === null ? "—" : total.toFixed(2);
 }
 
+// ready なのに total===null（設定不足等でスコア未算出）のときのヒント文言（#199）。
+// JobDetailSheet も同じ条件・同じ文言を表示するため、ここを単一ソースにして重複させない。
+export const SCORE_UNAVAILABLE_NOTE = "スコア未算出（設定を確認）";
+
 export function RankingCard({
 	item,
 	rank,
@@ -153,7 +157,7 @@ export function RankingCard({
 								data-testid="score-unavailable-note"
 								className="text-xs text-muted-foreground"
 							>
-								スコア未算出（設定を確認）
+								{SCORE_UNAVAILABLE_NOTE}
 							</span>
 						)}
 					</div>

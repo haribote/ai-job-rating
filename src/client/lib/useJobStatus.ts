@@ -20,10 +20,12 @@ import {
 // failed: 取得/抽出が恒久失敗。
 export type JobPhase = "fetching" | "scoring" | "ready" | "failed";
 
+// pending（未終端）なフェーズの集合。isPendingPhase の型ガードと単一ソースを共有する
+// （JobPhaseBadge 等の consumer が別々に定義して定義がずれるのを防ぐ）。
+export type PendingJobPhase = Extract<JobPhase, "fetching" | "scoring">;
+
 // pending（未終端）なフェーズか。終端（ready/failed）はポーリング停止・Skeleton 非表示の判定に使う。
-export function isPendingPhase(
-	phase: JobPhase,
-): phase is "fetching" | "scoring" {
+export function isPendingPhase(phase: JobPhase): phase is PendingJobPhase {
 	return phase === "fetching" || phase === "scoring";
 }
 
@@ -77,7 +79,11 @@ export function useJobStatus(
 		// アンマウント後／jobId 変更後の setState・再ポーリングを防ぐガード。
 		let active = true;
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		setState({ phase: "fetching", detail: null });
+		// 直近の確定状態（#199: 取得中/採点中を細分した結果、transient エラーで単純に
+		// "fetching" へ戻すと採点中→取得中のようにフェーズが後退して見える。エラーは
+		// 直前の状態を保って再試行するだけにし、既に進んだフェーズを後退させない）。
+		let lastState: JobStatusState = { phase: "fetching", detail: null };
+		setState(lastState);
 
 		const poll = async (): Promise<void> => {
 			let next: JobStatusState;
@@ -85,10 +91,11 @@ export function useJobStatus(
 				const detail = await fetcher(jobId);
 				next = { phase: deriveJobPhase(detail.job.status), detail };
 			} catch {
-				// 未永続（404）・transient はまだ取得中とみなし再試行する。
-				next = { phase: "fetching", detail: null };
+				// 未永続（404）・transient は直前の状態を保ったまま再試行する。
+				next = lastState;
 			}
 			if (!active) return;
+			lastState = next;
 			setState(next);
 			// 終端（ready/failed）に達したらポーリングを止める。
 			if (isPendingPhase(next.phase)) {

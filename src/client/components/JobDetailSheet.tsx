@@ -19,6 +19,7 @@ import {
 } from "../lib/jobDetail";
 import type { RankingItem } from "../lib/useRanking";
 import { BreakdownTable } from "./BreakdownTable";
+import { formatScore, SCORE_UNAVAILABLE_NOTE } from "./RankingCard";
 import { ScoreRadar } from "./ScoreRadar";
 
 // 求人詳細の右ドロワー（設計書 §4.4 / 実装計画 Task 18 / #111）。
@@ -144,10 +145,18 @@ export function JobDetailSheet({
 								状態: {successDetail.extraction.status}
 							</Badge>
 							<span className="text-muted-foreground">
-								総合スコア:{" "}
-								{successDetail.total === null
-									? "—"
-									: successDetail.total.toFixed(2)}
+								総合スコア: {formatScore(successDetail.total)}
+								{successDetail.total === null && (
+									// ready なのに未算出（設定不足等）を一覧カードと同じ文言・条件で明示する
+									// （#199: RankingCard の score-unavailable-note と単一ソース）。
+									<span
+										role="status"
+										data-testid="detail-score-unavailable-note"
+										className="ml-1"
+									>
+										・{SCORE_UNAVAILABLE_NOTE}
+									</span>
+								)}
 							</span>
 							<span className="text-muted-foreground">
 								モデル: {successDetail.extraction.model}
