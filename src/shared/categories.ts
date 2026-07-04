@@ -56,8 +56,9 @@ export const CATEGORY_LABELS: Record<CategoryKey, string> = {
 };
 
 // 軸 → レーダー目盛り番号（1始まり・CATEGORY_KEYS 順で決定的に導出）。
-// レーダーの軸ラベルは狭枠で重なるため番号に置換し、凡例（RadarAxisLegend）で
-// 番号 → CATEGORY_LABELS の対応を示す（#203）。
+// レーダーの軸ラベルは狭枠で重なるため番号に置換する。番号 → CATEGORY_LABELS の対応は、
+// JobDetailSheet では凡例（RadarAxisLegend）、ダッシュボードでは1位カードの
+// カテゴリ別スコアテーブル（CategoryScoreTable）で示す（#203 方針転換）。
 export const CATEGORY_AXIS_NUMBERS: Record<CategoryKey, number> =
 	Object.fromEntries(
 		CATEGORY_KEYS.map((key, index) => [key, index + 1]),
