@@ -8,7 +8,10 @@
 // - 表示用 HTML は持たない（JSON 契約・#95）。整形・ラベル付与は client 側の責務。
 
 import type { CategoryKey } from "../shared/categories";
-import { aggregateCategoryScores } from "../shared/categoryScores";
+import {
+	aggregateCategoryScores,
+	type CategoryReputationContribution,
+} from "../shared/categoryScores";
 import type { NormalizedJob, NormalizedKey } from "../shared/job-schema";
 import type { HardFilterResult, RescoredJob } from "./scoring/rescore-core";
 import type { ScoreResult } from "./scoring/score";
@@ -36,6 +39,9 @@ export interface RankedJobView {
 	// 会社名・職種タイトル（表示専用・#200）。抽出できなければ null（NormalizedJob 非経由）。
 	readonly companyName: string | null;
 	readonly jobTitle: string | null;
+	// 企業評判の company 軸への寄与（#181）。company 未紐付け・評判未取得・キー未設定は null（中立除外）。
+	// total は rescored.score.total に read-time で合流済み（呼び出し側 readRanking が担う）。radar 集約にはここを渡す。
+	readonly reputation: CategoryReputationContribution | null;
 }
 
 // 正規キーの値から表示用の生表記を取り出す。raw が無ければ空文字。
@@ -54,6 +60,7 @@ export function rescoredToView(
 	status: ExtractionStatus,
 	companyName: string | null,
 	jobTitle: string | null,
+	reputation: CategoryReputationContribution | null = null,
 ): RankedJobView {
 	return {
 		jobId: rescored.jobId,
@@ -71,6 +78,7 @@ export function rescoredToView(
 		rejectedBy: rescored.hardFilter.rejectedBy,
 		companyName,
 		jobTitle,
+		reputation,
 	};
 }
 
@@ -98,6 +106,7 @@ export function toRankingItem(view: RankedJobView): RankingItem {
 		total: view.total,
 		status: view.status,
 		rejectedBy: view.rejectedBy,
-		categoryScores: aggregateCategoryScores(view.breakdown),
+		// company 軸 radar に企業評判を合流する（#181）。reputation=null（未紐付け・未取得）は中立除外。
+		categoryScores: aggregateCategoryScores(view.breakdown, view.reputation),
 	};
 }

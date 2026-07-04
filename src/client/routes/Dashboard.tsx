@@ -47,9 +47,8 @@ const LOADING_SKELETON_KEYS = ["s1", "s2", "s3"];
 // JobDetailResponse から一覧行（RankingItem）へ寄せる。company/title は詳細応答の companyName/jobTitle を
 // そのまま使う（#200）。確定ランキング再取得（onJobSettled 経由）を待たず楽観的カードにも実値を表示する。
 // 軸別スコアは詳細応答の breakdown から集約する（次の /api/ranking 再取得を待たず反映・#202）。
-// reputation は渡さない: サーバ側 toRankingItem（ranking-list.ts）も breakdown のみで集約する
-// （企業評判の合流は #202 のスコープ外・follow-up #181 の課題）。ここで reputation を混ぜると
-// 楽観カード→再取得後の確定カードで company 軸の値が変化なしに見た目だけ変わってしまう。
+// 企業評判も詳細応答の reputation から company 軸へ合流させる（#181）。detail.total も評判合流済み
+// （サーバ readJobDetail が read-time 合流）のため、楽観カードと確定カードで company 軸/total が整合する。
 function toRankingItem(detail: JobDetailResponse): RankingItem {
 	return {
 		jobId: detail.job.jobId,
@@ -59,7 +58,10 @@ function toRankingItem(detail: JobDetailResponse): RankingItem {
 		total: detail.total,
 		status: detail.extraction.status,
 		rejectedBy: null,
-		categoryScores: aggregateCategoryScores(detail.breakdown),
+		categoryScores: aggregateCategoryScores(
+			detail.breakdown,
+			detail.reputation,
+		),
 	};
 }
 
