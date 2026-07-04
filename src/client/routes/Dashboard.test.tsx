@@ -330,9 +330,9 @@ describe("Dashboard", () => {
 		expect(screen.queryByTestId("radar-axis-legend")).not.toBeInTheDocument();
 	});
 
-	it("投入中カードの軸別スコアは breakdown のみで集約する（reputation を混ぜない・#202）", async () => {
-		// reputation はサーバ側 toRankingItem（ranking-list.ts）が渡さないものと同じ形にする。
-		// ここで混ぜると、再取得後の確定カードで company 軸の値が変化なしに見た目だけ変わる。
+	it("投入中カードの company 軸に企業評判を合流する（#181）", async () => {
+		// #181 で方針転換: 楽観カードも詳細応答の reputation を company 軸へ合流する。detail.total も
+		// サーバ側 readJobDetail で評判合流済みのため、再取得後の確定カードと company 軸/total が整合する。
 		const jobStatusFetcher = vi.fn().mockResolvedValue(
 			detail("scored", {
 				reputation: { score: 0.9, weight: 3, confidence: "ok", sources: [] },
@@ -348,8 +348,8 @@ describe("Dashboard", () => {
 		);
 
 		const card = await screen.findByTestId("pending-card");
-		// breakdown が空なので全軸 unknown（中立）のまま。reputation があっても company 軸は動かない。
+		// breakdown は空だが reputation(0.9) が company 軸を埋める → unknown 軸は company を除く 4 つ。
 		const unknownAxes = card.querySelectorAll('text[data-unknown="true"]');
-		expect(unknownAxes.length).toBe(CATEGORY_KEYS.length);
+		expect(unknownAxes.length).toBe(CATEGORY_KEYS.length - 1);
 	});
 });

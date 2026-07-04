@@ -59,7 +59,9 @@ async function setCriterion(
 
 beforeEach(async () => {
 	await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+	await env.DB.prepare("DELETE FROM reputation_snapshots").run();
 	await env.DB.prepare("DELETE FROM jobs").run();
+	await env.DB.prepare("DELETE FROM companies").run();
 	await env.DB.prepare("DELETE FROM criteria_config").run();
 	await env.DB.prepare("DELETE FROM scores").run();
 });
@@ -91,7 +93,7 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 		await setCriterion("annualSalary", 5, { desired: 800, floor: 300 });
 		await rescoreAll(env.DB);
 
-		const { ranked, excluded } = await readRanking(env.DB);
+		const { ranked, excluded } = await readRanking(env.DB, false);
 		expect(ranked.map((v) => v.jobId)).toEqual(["high", "low"]);
 		expect(excluded).toHaveLength(0);
 		// 内訳に raw 値が載る。
@@ -106,7 +108,7 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 		await setCriterion("annualSalary", 5, { desired: 800, floor: 300 });
 		await rescoreAll(env.DB);
 
-		const { ranked } = await readRanking(env.DB);
+		const { ranked } = await readRanking(env.DB, false);
 		const row = ranked[0]?.breakdown.find((r) => r.key === "annualSalary");
 		expect(row?.included).toBe(false);
 		expect(row?.score).toBeNull();
@@ -130,7 +132,7 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 		);
 		await rescoreAll(env.DB);
 
-		const { ranked, excluded } = await readRanking(env.DB);
+		const { ranked, excluded } = await readRanking(env.DB, false);
 		expect(ranked.map((v) => v.jobId)).toEqual(["ok"]);
 		expect(excluded.map((v) => v.jobId)).toEqual(["ng"]);
 		expect(excluded[0]?.rejectedBy).toEqual({
@@ -140,7 +142,7 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 	});
 
 	it("scores が無ければ空の一覧を返す", async () => {
-		const { ranked, excluded } = await readRanking(env.DB);
+		const { ranked, excluded } = await readRanking(env.DB, false);
 		expect(ranked).toHaveLength(0);
 		expect(excluded).toHaveLength(0);
 	});
@@ -163,7 +165,7 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 		);
 		await rescoreAll(env.DB);
 
-		const { ranked, excluded } = await readRanking(env.DB);
+		const { ranked, excluded } = await readRanking(env.DB, false);
 		// raw 値だけ見れば通過するが、failed → 全 unknown で required 不適合 → 除外が正。
 		expect(ranked.map((v) => v.jobId)).toEqual([]);
 		expect(excluded.map((v) => v.jobId)).toEqual(["failed"]);
@@ -183,7 +185,7 @@ describe("readRanking（scores からスコア順一覧を組む）", () => {
 		)
 			.bind("j1", TOTAL_SCORE_CRITERION)
 			.first<{ sub_score: number | null }>();
-		const { ranked } = await readRanking(env.DB);
+		const { ranked } = await readRanking(env.DB, false);
 		expect(ranked[0]?.total).toBe(persistedTotal?.sub_score ?? null);
 	});
 });
@@ -254,5 +256,88 @@ describe("GET /api/ranking（スコア順一覧の JSON ルート）", () => {
 		expect(item?.categoryScores.role).toBe(1);
 		// company: companySize=1000 が desired=1000 に到達 → 1（— でない）。
 		expect(item?.categoryScores.company).not.toBeNull();
+	});
+});
+
+describe("readRanking（企業評判を total・順位・company 軸へ read-time 合流・#181）", () => {
+	// 企業を作り求人へ紐付け、評判 snapshot を積む。
+	async function seedCompanyWithReputation(
+		jobId: string,
+		companyId: string,
+		overallScore: number,
+		reviewCount: number,
+	): Promise<void> {
+		await env.DB.prepare(
+			"INSERT INTO companies (id, name, company_key) VALUES (?, ?, ?)",
+		)
+			.bind(companyId, `name-${companyId}`, `key-${companyId}`)
+			.run();
+		await env.DB.prepare("UPDATE jobs SET company_id = ? WHERE id = ?")
+			.bind(companyId, jobId)
+			.run();
+		await env.DB.prepare(
+			`INSERT INTO ${TABLE_NAMES.reputationSnapshots}
+			 (id, company_id, source, overall_score, review_count, sub_scores_json, fetched_at, created_at)
+			 VALUES (?, ?, 'web_search', ?, ?, NULL, 1000, 1000)`,
+		)
+			.bind(`snap-${jobId}`, companyId, overallScore, reviewCount)
+			.run();
+	}
+
+	// 同一の基礎スコア（annualSalary 550 → 0.5）を持つ 2 求人。片方に高評判を付ける。
+	async function seedTwoEqualJobs(): Promise<void> {
+		const equalSalary = {
+			annualSalary: {
+				kind: "numericRange" as const,
+				min: 550,
+				max: 550,
+				raw: "550万",
+			},
+		};
+		await seed("with-rep", jobWith(equalSalary));
+		await seed("no-rep", jobWith(equalSalary));
+		await setCriterion("annualSalary", 5, { desired: 800, floor: 300 });
+		await seedCompanyWithReputation("with-rep", "co-good", 4.8, 100000);
+		await rescoreAll(env.DB);
+	}
+
+	it("キー設定済みなら高評判の求人が total を上げ、同点だった相手を上回る", async () => {
+		await seedTwoEqualJobs();
+		const { ranked } = await readRanking(env.DB, true);
+		// 基礎は同点（0.5）だが、評判合流で with-rep が上位。
+		expect(ranked.map((v) => v.jobId)).toEqual(["with-rep", "no-rep"]);
+		const withRep = ranked.find((v) => v.jobId === "with-rep");
+		const noRep = ranked.find((v) => v.jobId === "no-rep");
+		expect(withRep?.total as number).toBeGreaterThan(0.5);
+		expect(noRep?.total).toBe(0.5); // 評判なしは基礎スコアのまま
+	});
+
+	it("キー未設定なら評判は中立除外で total・順位は不変（決定性）", async () => {
+		await seedTwoEqualJobs();
+		const { ranked } = await readRanking(env.DB, false);
+		// 同点 → jobId 昇順（no-rep < with-rep）。評判は total に効かない。
+		expect(ranked.every((v) => v.total === 0.5)).toBe(true);
+		expect(ranked.map((v) => v.jobId)).toEqual(["no-rep", "with-rep"]);
+	});
+
+	it("company 軸 radar に評判が合流する（キー設定済み）", async () => {
+		await seedTwoEqualJobs();
+		const res = await app.request(
+			"/api/ranking",
+			{},
+			{ ...env, ANTHROPIC_API_KEY: "sk-ant-test" },
+		);
+		const body = (await res.json()) as {
+			jobs: {
+				jobId: string;
+				categoryScores: { company: number | null };
+			}[];
+		};
+		// with-rep は companySize/capital 未設定でも評判だけで company 軸が値を持つ（null でない）。
+		const withRep = body.jobs.find((j) => j.jobId === "with-rep");
+		expect(withRep?.categoryScores.company).not.toBeNull();
+		// no-rep は company 軸の材料が無い → null（中立）。
+		const noRep = body.jobs.find((j) => j.jobId === "no-rep");
+		expect(noRep?.categoryScores.company).toBeNull();
 	});
 });

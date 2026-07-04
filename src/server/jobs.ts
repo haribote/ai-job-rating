@@ -25,9 +25,11 @@ import {
 	parseDesired,
 } from "./scoring/criteria-config";
 import {
+	combineTotalWithReputation,
 	DEFAULT_REPUTATION_WEIGHT_CONFIG,
 	type ReputationConfidence,
 	resolveReputationContribution,
+	sumIncludedWeights,
 } from "./scoring/reputation-score";
 import {
 	type CookieKv,
@@ -430,7 +432,11 @@ export async function readJobDetail(
 			extractedAt: extractionRow.extracted_at,
 			structured,
 		},
-		total,
+		// 総合スコアへ企業評判を read-time 合流する（#181）。評判未取得/低信頼は中立除外で total 不変。
+		total: combineTotalWithReputation(total, sumIncludedWeights(breakdown), {
+			score: contribution.score,
+			weight: DEFAULT_REPUTATION_WEIGHT_CONFIG.weight,
+		}),
 		breakdown,
 		reputation,
 	};

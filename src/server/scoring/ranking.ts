@@ -13,19 +13,28 @@
 // - 表示用の raw 値・kind は scores に持たないため、保存済み抽出（raw）と
 //   NORMALIZED_KEY_KINDS（kind）から補う。DB I/O のみを担い描画は ranking-list が行う（責務分離 §9）。
 
+import type { CategoryReputationContribution } from "../../shared/categoryScores";
 import type { NormalizedJob, NormalizedKey } from "../../shared/job-schema";
 import { type RankedJobView, rescoredToView } from "../ranking-list";
 import {
 	type CriteriaConfigRow,
 	type ExtractionStatus,
+	type ReputationSnapshotRow,
 	TABLE_NAMES,
 	TOTAL_SCORE_CRITERION,
 } from "../storage/db-schema";
+import { listLatestReputationSnapshots } from "../storage/reputation-store";
 import {
 	buildHardFilterMap,
 	buildScoringConfig,
 	NORMALIZED_KEY_KINDS,
 } from "./criteria-config";
+import {
+	combineTotalWithReputation,
+	DEFAULT_REPUTATION_WEIGHT_CONFIG,
+	resolveReputationContribution,
+	sumIncludedWeights,
+} from "./reputation-score";
 import {
 	applyExtractionStatus,
 	passesHardFilters,
@@ -43,6 +52,8 @@ interface JobMaterial {
 	readonly status: ExtractionStatus;
 	readonly companyName: string | null;
 	readonly jobTitle: string | null;
+	// 企業評判を company 軸/総合スコアへ read-time 合流するための紐付け先（#181）。未紐付けは null（中立）。
+	readonly companyId: string | null;
 }
 
 // jobs と最新抽出を結合して読む。最新抽出は extracted_at 最大（同値は id 最大）で 1 件に畳む。
@@ -51,7 +62,7 @@ async function readJobsWithExtraction(
 ): Promise<Map<string, JobMaterial>> {
 	const { results } = await db
 		.prepare(
-			`SELECT j.id AS job_id, j.source_url AS source_url, e.structured_json AS structured_json, e.extraction_status AS extraction_status, e.company_name AS company_name, e.job_title AS job_title
+			`SELECT j.id AS job_id, j.source_url AS source_url, j.company_id AS company_id, e.structured_json AS structured_json, e.extraction_status AS extraction_status, e.company_name AS company_name, e.job_title AS job_title
 			 FROM ${TABLE_NAMES.jobs} j
 			 JOIN ${TABLE_NAMES.extractions} e ON e.id = (
 			   SELECT i.id FROM ${TABLE_NAMES.extractions} i
@@ -63,6 +74,7 @@ async function readJobsWithExtraction(
 		.all<{
 			job_id: string;
 			source_url: string;
+			company_id: string | null;
 			structured_json: string;
 			extraction_status: ExtractionStatus;
 			company_name: string | null;
@@ -77,6 +89,7 @@ async function readJobsWithExtraction(
 			status: r.extraction_status,
 			companyName: r.company_name,
 			jobTitle: r.job_title,
+			companyId: r.company_id,
 		});
 	}
 	return map;
@@ -154,29 +167,90 @@ export interface RankingView {
 	readonly excluded: readonly RankedJobView[];
 }
 
+// 表示ビュー構築の 1 求人ぶんの材料束。rescored.score.total は評判合流後（read-time）で、rankJobs の
+// 並び順・表示 total の双方がこの合流後 total を使う。reputation は company 軸 radar 集約に渡す寄与。
+interface RankingEntry {
+	readonly material: JobMaterial;
+	readonly rescored: RescoredJob;
+	readonly reputation: CategoryReputationContribution;
+}
+
+// 企業評判スナップショットを company 単位で読む（同一企業の重複クエリを避ける）。
+// company 未紐付けの求人は評判なし＝中立（呼び出し側で空配列扱い）。
+async function loadReputationSnapshots(
+	db: D1Database,
+	materials: Map<string, JobMaterial>,
+): Promise<Map<string, ReputationSnapshotRow[]>> {
+	const companyIds = new Set<string>();
+	for (const m of materials.values()) {
+		if (m.companyId !== null) companyIds.add(m.companyId);
+	}
+	const map = new Map<string, ReputationSnapshotRow[]>();
+	for (const id of companyIds) {
+		map.set(id, await listLatestReputationSnapshots(db, id));
+	}
+	return map;
+}
+
 // scores からスコア順一覧を組む（決定的・AI 非依存）。
-// 手順: jobs+抽出・永続 scores・criteria_config を読む → 求人ごとに RescoredJob を組む
-// （score は scores 由来、hardFilter は rescoreJob と同じ前処理で再判定）→ rankJobs で順序確定 →
-// 通過分を ranked・除外分を excluded として表示ビューへ変換する。
-export async function readRanking(db: D1Database): Promise<RankingView> {
+// 手順: jobs+抽出・永続 scores・criteria_config・評判 snapshot を読む → 求人ごとに RescoredJob を組む
+// （score は scores 由来 + 評判を total へ read-time 合流、hardFilter は rescoreJob と同じ前処理で再判定）→
+// rankJobs で順序確定（合流後 total で並ぶ）→ 通過分を ranked・除外分を excluded として表示ビューへ変換する。
+//
+// apiKeyConfigured: ANTHROPIC_API_KEY 未設定なら評判寄与を score=null（中立除外）に倒し total/順位は不変にする
+// （§5.2 unknown 中立・#181）。呼び出し側（GET /api/ranking）が env presence から解決して渡す。
+export async function readRanking(
+	db: D1Database,
+	apiKeyConfigured: boolean,
+): Promise<RankingView> {
 	const materials = await readJobsWithExtraction(db);
 	const scoreResults = await readScoreResults(db);
 	const configRows = await readCriteriaConfigRows(db);
 	const config = buildScoringConfig(configRows);
 	const hardFilters = buildHardFilterMap(configRows);
+	const snapshotsByCompany = await loadReputationSnapshots(db, materials);
 
-	const entries: { material: JobMaterial; rescored: RescoredJob }[] = [];
+	const entries: RankingEntry[] = [];
 	for (const [jobId, material] of materials) {
 		const score = scoreResults.get(jobId);
 		if (score === undefined) continue; // 未スコアリング求人は一覧に出さない
 		const hardFilter = recomputeHardFilter(material, config, hardFilters);
-		entries.push({ material, rescored: { jobId, score, hardFilter } });
+
+		// 企業評判を read-time 合流（#181）: 総合スコア（順位に効く）と company 軸 radar の両方へ。
+		// 未紐付け・未取得・キー未設定は score=null で中立除外（total 不変・radar から外れる）。
+		const snapshots =
+			material.companyId === null
+				? []
+				: (snapshotsByCompany.get(material.companyId) ?? []);
+		const contribution = resolveReputationContribution(
+			apiKeyConfigured,
+			snapshots,
+		);
+		const reputation: CategoryReputationContribution = {
+			score: contribution.score,
+			weight: DEFAULT_REPUTATION_WEIGHT_CONFIG.weight,
+		};
+		const combinedTotal = combineTotalWithReputation(
+			score.total,
+			sumIncludedWeights(score.breakdown),
+			reputation,
+		);
+
+		entries.push({
+			material,
+			rescored: {
+				jobId,
+				score: { ...score, total: combinedTotal },
+				hardFilter,
+			},
+			reputation,
+		});
 	}
 
 	const byJob = new Map(entries.map((e) => [e.rescored.jobId, e]));
 	const ranked = rankJobs(entries.map((e) => e.rescored))
 		.map((r) => byJob.get(r.jobId))
-		.filter((e): e is (typeof entries)[number] => e !== undefined)
+		.filter((e): e is RankingEntry => e !== undefined)
 		.map(toView);
 	// 除外は rankJobs に含まれない。jobId 昇順で決定的に並べる。
 	const excluded = entries
@@ -205,11 +279,8 @@ function recomputeHardFilter(
 	return passesHardFilters(statusApplied, config, hardFilters);
 }
 
-// RescoredJob + 材料 → 表示ビュー。
-function toView(entry: {
-	material: JobMaterial;
-	rescored: RescoredJob;
-}): RankedJobView {
+// RescoredJob + 材料 → 表示ビュー。評判寄与は company 軸 radar 集約（toRankingItem）へ渡す。
+function toView(entry: RankingEntry): RankedJobView {
 	return rescoredToView(
 		entry.rescored,
 		entry.material.sourceUrl,
@@ -217,5 +288,6 @@ function toView(entry: {
 		entry.material.status,
 		entry.material.companyName,
 		entry.material.jobTitle,
+		entry.reputation,
 	);
 }

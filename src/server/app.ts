@@ -251,8 +251,12 @@ app.post("/api/jobs/:id/reextract", async (c) => {
 });
 
 // ランキング一覧。永続 scores をスコア順に読み、軽量な一覧行＋除外行を返す（決定的・AI 非依存・§5.3）。
+// 企業評判は read-time で total・順位・company 軸 radar へ合流する（#181）。キー未設定なら中立除外で不変。
 app.get("/api/ranking", async (c) => {
-	const { ranked, excluded } = await readRanking(c.env.DB);
+	const { ranked, excluded } = await readRanking(
+		c.env.DB,
+		resolveReputationApiKeyConfig(c.env.ANTHROPIC_API_KEY).apiKeyConfigured,
+	);
 	return c.json({
 		jobs: ranked.map(toRankingItem),
 		excluded: excluded.map(toRankingItem),

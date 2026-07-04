@@ -202,6 +202,45 @@ export function foldReputationIntoCompanyAxis(
 	return weightedAverageExcludingUnknown([...itemTerms, reputationTerm]);
 }
 
+// 総合スコアへ企業評判を read-time で畳み込む（#181）。
+//
+// なぜ再スコアリングしないか:
+// - 評判は動的（取得タイミング・キャッシュ鮮度で変わる）で AI 非再実行（§5.3）。永続 __total__ は config 項目
+//   のみで確定させ、評判は詳細/一覧を読む時点でのみ重ねる。これで「重み変更で AI 再実行しない」ガードレールを
+//   崩さずに評判を total・順位へ効かせられる（抽出↔スコアリング分離 §5.3）。
+//
+// なぜ厳密一致するか:
+// - persistedTotal は Σwᵢsᵢ/Σwᵢ（included 項目のみ）。これを「重み Σwᵢ の 1 項目」として評判項目と再度
+//   加重平均すると combined = (Σwᵢsᵢ + wr·sr)/(Σwᵢ + wr) となり、評判を含めて 1 回で加重平均した値に一致する。
+// - includedWeightTotal は scoreJob の分母（included かつ score!=null の項目重み合計）。呼び出し側が breakdown から
+//   sumIncludedWeights で算出する。評判 score=null（未取得・キー未設定・低信頼）は分母から外す（unknown 中立）。
+export function combineTotalWithReputation(
+	persistedTotal: number | null,
+	includedWeightTotal: number,
+	reputation: WeightedTerm,
+): number | null {
+	return weightedAverageExcludingUnknown([
+		{ score: persistedTotal, weight: includedWeightTotal },
+		reputation,
+	]);
+}
+
+// scoreJob の分母（included かつ score!=null の項目重み合計）を breakdown から復元する。
+// combineTotalWithReputation に渡す persistedTotal の重みに使う。永続 total と同じ集約則で一致させる。
+export function sumIncludedWeights(
+	breakdown: readonly {
+		readonly weight: number;
+		readonly score: number | null;
+		readonly included: boolean;
+	}[],
+): number {
+	let total = 0;
+	for (const row of breakdown) {
+		if (row.included && row.score !== null) total += row.weight;
+	}
+	return total;
+}
+
 // sub_scores_json（観点別スコアの JSON 文字列）を安全に解釈する（決定的）。
 // 取得層（web-search.ts / manual.ts）は string→有限非負数の record を保存するが、JSON は外部由来のため
 // 防御的に parse する。非オブジェクト・不正 JSON・非有限値は中立扱いで落とす。有効値が 1 つも無ければ null。
