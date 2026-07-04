@@ -71,6 +71,11 @@ describe("RankingCard", () => {
 		// 通常カードは枠色・アイコン無し。
 		expect(screen.queryByTestId("podium-icon")).not.toBeInTheDocument();
 		expect(container.querySelector('[class*="border-medal"]')).toBeNull();
+		// grid セルの高さいっぱいに広がる（親 li のストレッチに追従し、2/3位の高さ揃えを成立させる）。
+		expect(card.className).toContain("h-full");
+		expect(container.querySelector('[class*="border"]')?.className).toContain(
+			"h-full",
+		);
 
 		card.click();
 		expect(onSelect).toHaveBeenCalledOnce();
@@ -119,6 +124,32 @@ describe("RankingCard", () => {
 		expect(screen.getByTestId("card-radar")).toBeInTheDocument();
 	});
 
+	it("hero/podium（1〜3位）はレーダー→スコアの順で縦並びに表示する", () => {
+		render(
+			<RankingCard item={item()} rank={1} onSelect={vi.fn()} size="hero" />,
+		);
+		const radar = screen.getByTestId("card-radar");
+		const score = screen.getByTestId("card-score");
+		expect(
+			radar.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(radar.parentElement?.className).toContain("flex-col");
+		// 縦位置を中央に寄せる。
+		expect(radar.parentElement?.className).toContain("justify-center");
+	});
+
+	it("既定（4位以下）はレーダー→スコアの順のまま横並びを維持する", () => {
+		render(<RankingCard item={item()} rank={5} onSelect={vi.fn()} />);
+		const radar = screen.getByTestId("card-radar");
+		const score = screen.getByTestId("card-score");
+		expect(
+			radar.compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(radar.parentElement?.className).not.toContain("flex-col");
+		// 横方向は space-around で配置する。
+		expect(radar.parentElement?.className).toContain("justify-around");
+	});
+
 	it("item.categoryScores を ScoreRadar へ実配線する（プレースホルダに固定しない・#202）", () => {
 		const { container } = render(
 			<RankingCard
@@ -134,5 +165,29 @@ describe("RankingCard", () => {
 		const unknown = container.querySelectorAll('text[data-unknown="true"]');
 		expect(known).not.toBeNull();
 		expect(unknown.length).toBe(CATEGORY_KEYS.length - 1);
+	});
+
+	it("size 未指定は既定（4位以下相当）のサイズになる", () => {
+		render(<RankingCard item={item()} rank={5} onSelect={vi.fn()} />);
+		expect(screen.getByTestId("card-score").className).toContain("text-2xl");
+	});
+
+	it("size 指定でスコア・レーダーの表示サイズが変わる（順位や accent とは独立）", () => {
+		const hero = render(
+			<RankingCard item={item()} rank={1} onSelect={vi.fn()} size="hero" />,
+		);
+		const heroScore = within(hero.container).getByTestId("card-score");
+		const heroRadar = within(hero.container).getByTestId("card-radar");
+		expect(heroScore.className).toContain("text-4xl");
+		expect(heroRadar.className).not.toContain("w-28");
+
+		const podium = render(
+			<RankingCard item={item()} rank={2} onSelect={vi.fn()} size="podium" />,
+		);
+		const podiumScore = within(podium.container).getByTestId("card-score");
+		expect(podiumScore.className).toContain("text-3xl");
+		// スコア文字色は size に依らず統一（順位非依存の既存契約を維持）。
+		expect(podiumScore.className).toContain("text-foreground");
+		expect(heroScore.className).toContain("text-foreground");
 	});
 });

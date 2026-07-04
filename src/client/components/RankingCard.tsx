@@ -17,7 +17,58 @@ import { ScoreRadar } from "./ScoreRadar";
 export interface RankingCardAccent {
 	readonly icon: ReactNode;
 	readonly borderClassName: string;
+	// 枠色と同系色の薄いグラデーション背景（任意）。
+	readonly backgroundClassName?: string;
 	readonly rankLabel: string;
+}
+
+// 表示スケール（#201）。1位=hero, 2/3位=podium, 4位以下=既定。accent（枠色・アイコン）とは独立の軸。
+export type RankingCardSize = "hero" | "podium" | "default";
+
+interface RankingCardSizeStyle {
+	readonly cardClassName: string;
+	// レーダー→スコアの並び方向。hero/podium（1〜3位）は縦並び、既定（4位以下）は横並び。
+	readonly contentClassName: string;
+	readonly scoreWrapperClassName: string;
+	readonly titleClassName: string;
+	readonly scoreClassName: string;
+	readonly radarClassName: string;
+}
+
+// size → スケール用 className の決定的マッピング。スコアの文字色（text-foreground）は
+// 全 size 共通で固定し、サイズ差は大きさのみで表す（accent との直交性を保つ）。
+const CARD_SIZE_STYLES: Record<RankingCardSize, RankingCardSizeStyle> = {
+	hero: {
+		cardClassName: "md:aspect-square",
+		contentClassName: "flex-1 flex-col items-center justify-center",
+		scoreWrapperClassName: "flex flex-col items-center",
+		titleClassName: "truncate text-xl",
+		scoreClassName: "text-4xl font-bold tabular-nums text-foreground",
+		radarClassName: "w-44 shrink-0",
+	},
+	podium: {
+		cardClassName: "",
+		contentClassName: "flex-1 flex-col items-center justify-center",
+		scoreWrapperClassName: "flex flex-col items-center",
+		titleClassName: "truncate text-lg",
+		scoreClassName: "text-3xl font-bold tabular-nums text-foreground",
+		radarClassName: "w-32 shrink-0",
+	},
+	default: {
+		cardClassName: "",
+		contentClassName: "flex-1 flex-row items-center justify-around",
+		scoreWrapperClassName: "flex flex-col",
+		titleClassName: "truncate text-base",
+		scoreClassName: "text-2xl font-bold tabular-nums text-foreground",
+		radarClassName: "w-28 shrink-0",
+	},
+};
+
+// size → スケール用 className を引く（決定的、podiumAccent と同じ形）。
+export function rankingCardSizeStyle(
+	size: RankingCardSize,
+): RankingCardSizeStyle {
+	return CARD_SIZE_STYLES[size];
 }
 
 export interface RankingCardProps {
@@ -27,6 +78,8 @@ export interface RankingCardProps {
 	readonly onSelect: () => void;
 	// ベスト3のみ指定。通常カードは undefined（枠色・アイコン無し）。
 	readonly accent?: RankingCardAccent;
+	// 表示スケール。未指定は "default"（4位以下と同一）。
+	readonly size?: RankingCardSize;
 	// テスト／レイアウト用の testid（既定は通常カード）。
 	readonly testId?: string;
 	readonly className?: string;
@@ -42,25 +95,29 @@ export function RankingCard({
 	rank,
 	onSelect,
 	accent,
+	size = "default",
 	testId = "ranking-card",
 	className,
 }: RankingCardProps): JSX.Element {
 	// 職種タイトル→会社名の順で優先表示し、抽出できなかった求人（両方 null）は
 	// sourceUrl へフォールバックする（#200）。
 	const heading = item.title ?? item.company ?? item.sourceUrl;
+	const sizeStyle = rankingCardSizeStyle(size);
 
 	return (
 		<button
 			type="button"
 			data-testid={testId}
 			onClick={onSelect}
-			className={cn("block w-full text-left", className)}
+			className={cn("block h-full w-full text-left", className)}
 		>
 			<Card
 				className={cn(
-					"transition-colors hover:bg-accent",
+					"flex h-full flex-col transition-colors hover:bg-accent",
+					sizeStyle.cardClassName,
 					// 順位差は枠色のみで表す（accent 指定時だけ太枠＋メダル色）。
 					accent && cn("border-2", accent.borderClassName),
+					accent?.backgroundClassName,
 				)}
 			>
 				<CardHeader className="flex-row items-center gap-3 space-y-0 p-4">
@@ -74,21 +131,20 @@ export function RankingCard({
 							{accent.icon}
 						</span>
 					) : null}
-					<CardTitle className="truncate text-base">{heading}</CardTitle>
+					<CardTitle className={sizeStyle.titleClassName}>{heading}</CardTitle>
 				</CardHeader>
-				<CardContent className="flex items-center gap-4 p-4 pt-0">
-					<div className="flex flex-col">
+				{/* flex-1: Card の残り高さを埋め、hero/podium の縦位置中央寄せ・既定の space-around を成立させる。 */}
+				<CardContent
+					className={cn("flex gap-4 p-4 pt-0", sizeStyle.contentClassName)}
+				>
+					<div data-testid="card-radar" className={sizeStyle.radarClassName}>
+						<ScoreRadar scores={item.categoryScores} />
+					</div>
+					<div className={sizeStyle.scoreWrapperClassName}>
 						<span className="text-xs text-muted-foreground">総合スコア</span>
-						{/* スコア文字色は順位非依存で統一（text-foreground 固定）。 */}
-						<span
-							data-testid="card-score"
-							className="text-2xl font-bold tabular-nums text-foreground"
-						>
+						<span data-testid="card-score" className={sizeStyle.scoreClassName}>
 							{formatScore(item.total)}
 						</span>
-					</div>
-					<div data-testid="card-radar" className="ml-auto w-28 shrink-0">
-						<ScoreRadar scores={item.categoryScores} />
 					</div>
 				</CardContent>
 			</Card>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { CATEGORY_KEYS, type CategoryKey } from "../../shared/categories";
@@ -95,6 +95,27 @@ describe("Dashboard", () => {
 		const podiums = await screen.findAllByTestId("ranking-podium");
 		expect(podiums).toHaveLength(3);
 		expect(screen.getAllByTestId("ranking-card")).toHaveLength(1);
+	});
+
+	it("1位はヒーロー領域、2・3位は右側縦並び、4位以下は3列グリッドのDOM構造になる（#201）", async () => {
+		const jobs = ["a", "b", "c", "d", "e"].map((id) => item({ jobId: id }));
+		render(<Dashboard rankingFetcher={async () => ({ jobs, excluded: [] })} />);
+
+		const heroRegion = await screen.findByTestId("ranking-hero-region");
+		expect(within(heroRegion).getAllByTestId("ranking-podium")).toHaveLength(3);
+		// 2・3位の行を明示的に等分（1位の高さの約50%ずつ）にする決定的な行分割。
+		expect(heroRegion.className).toContain("md:grid-rows-2");
+
+		const gridRegion = screen.getByTestId("ranking-grid-region");
+		expect(within(gridRegion).getAllByTestId("ranking-card")).toHaveLength(2);
+	});
+
+	it("確定ランキング4位以下が無いときは grid 領域を描画しない（#201）", async () => {
+		const jobs = ["a", "b"].map((id) => item({ jobId: id }));
+		render(<Dashboard rankingFetcher={async () => ({ jobs, excluded: [] })} />);
+
+		await screen.findByTestId("ranking-hero-region");
+		expect(screen.queryByTestId("ranking-grid-region")).not.toBeInTheDocument();
 	});
 
 	it("カードクリックで右ドロワー（詳細）が開く", async () => {
