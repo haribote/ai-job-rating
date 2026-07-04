@@ -192,6 +192,58 @@ describe("JobDetailSheet（詳細ドロワーの中身）", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("元の求人ページへのリンクを sourceUrl で表示する（新規タブ・rel 安全属性）", async () => {
+		render(
+			<JobDetailSheet
+				job={item()}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () =>
+					detail({
+						job: {
+							jobId: "job-1",
+							sourceUrl: "https://example.com/job-1",
+							sourceType: "detail",
+							status: "extracted",
+							fetchedAt: 0,
+							companyName: null,
+							jobTitle: null,
+						},
+					})
+				}
+			/>,
+		);
+		const link = await screen.findByTestId("source-url-link");
+		expect(link).toHaveAttribute("href", "https://example.com/job-1");
+		expect(link).toHaveAttribute("target", "_blank");
+		expect(link).toHaveAttribute("rel", "noreferrer");
+	});
+
+	it("貼り付け取込（paste: 合成URL）はソースリンクを出さない", async () => {
+		render(
+			<JobDetailSheet
+				job={item({ sourceUrl: "paste:job-1" })}
+				open={true}
+				onOpenChange={() => {}}
+				detailFetcher={async () =>
+					detail({
+						job: {
+							jobId: "job-1",
+							sourceUrl: "paste:job-1",
+							sourceType: "paste",
+							status: "extracted",
+							fetchedAt: 0,
+							companyName: null,
+							jobTitle: null,
+						},
+					})
+				}
+			/>,
+		);
+		await screen.findByTestId("breakdown-table");
+		expect(screen.queryByTestId("source-url-link")).not.toBeInTheDocument();
+	});
+
 	it("アクションは「再抽出」「評判取得」の 2 つ", async () => {
 		render(
 			<JobDetailSheet
