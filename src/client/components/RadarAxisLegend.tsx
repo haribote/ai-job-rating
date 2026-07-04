@@ -33,7 +33,7 @@ export function RadarAxisLegend({
 		>
 			{CATEGORY_KEYS.map((key) => (
 				<div key={key} className="flex items-baseline gap-1">
-					<dt className="font-semibold tabular-nums">
+					<dt className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px] font-semibold tabular-nums text-foreground">
 						{CATEGORY_AXIS_NUMBERS[key]}
 					</dt>
 					<dd>{CATEGORY_LABELS[key]}</dd>
