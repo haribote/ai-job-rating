@@ -53,7 +53,7 @@
 		"typescript": "6.0.3",
 		"vite": "8.1.5",
 		"vitest": "4.1.10",
-		"wrangler": "4.110.0"
+		"wrangler": "4.118.0"
 	},
 	"overrides": {
 		"ws": "8.21.0"
